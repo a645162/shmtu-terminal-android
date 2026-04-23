@@ -1,5 +1,5 @@
 plugins {
-    id("com.android.application")
+    alias(libs.plugins.android.application)
 }
 
 val jdkVersion: JavaVersion = rootProject.extra["jdkVersion"] as JavaVersion
@@ -31,9 +31,8 @@ android {
     }
 
     kotlin {
-        compileOptions {
-            sourceCompatibility = jdkVersion
-            targetCompatibility = jdkVersion
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(jdkVersion.toString()))
         }
     }
 

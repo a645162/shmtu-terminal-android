@@ -22,6 +22,12 @@ java {
     targetCompatibility = jdkVersion
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(jdkVersion.toString()))
+    }
+}
+
 dependencies {
     implementation(libs.jsoup)
     implementation(libs.okhttp)
