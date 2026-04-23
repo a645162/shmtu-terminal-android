@@ -3,12 +3,14 @@ plugins {
 }
 
 val jdkVersion: JavaVersion = rootProject.extra["jdkVersion"] as JavaVersion
+val ndkVersionStr: String = rootProject.extra["ndkVersion"] as String
+val sdkVersion: Int = rootProject.extra["sdkVersion"] as Int
 
-println("Using JDK $jdkVersion")
+println("Using JDK $jdkVersion, NDK $ndkVersionStr, SDK $sdkVersion")
 
 android {
     namespace = "com.khm.shmtu.cas.ocr"
-    compileSdk = 37
+    compileSdk = sdkVersion
 
     defaultConfig {
         minSdk = 21
@@ -33,19 +35,19 @@ android {
         targetCompatibility = jdkVersion
     }
 
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(jdkVersion.toString()))
-        }
-    }
-
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
             version = "4.1.2"
         }
     }
-    ndkVersion = "30.0.14904198"
+    ndkVersion = ndkVersionStr
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(jdkVersion.toString()))
+    }
 }
 
 dependencies {

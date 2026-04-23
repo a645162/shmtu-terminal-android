@@ -37,6 +37,8 @@ dependencyResolutionManagement {
 rootProject.name = "shmtu-terminal-android"
 
 include(":app")
+
+include(":cas_lib")
+
 include(":demo")
 include(":shmtu_ocr")
-include(":cas_lib")

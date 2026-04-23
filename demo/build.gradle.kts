@@ -3,19 +3,22 @@ plugins {
 }
 
 val jdkVersion: JavaVersion = rootProject.extra["jdkVersion"] as JavaVersion
+val sdkVersion: Int = rootProject.extra["sdkVersion"] as Int
+val appVersionCode: Int = rootProject.extra["appVersionCode"] as Int
+val appVersionName: String = rootProject.extra["appVersionName"] as String
 
-println("Using JDK $jdkVersion")
+println("Using JDK $jdkVersion, SDK $sdkVersion, Version $appVersionName($appVersionCode)")
 
 android {
     namespace = "com.khm.shmtu.cas.ocr.demo"
-    compileSdk = 37
+    compileSdk = sdkVersion
 
     defaultConfig {
         applicationId = "com.khm.shmtu.cas.ocr.demo"
         minSdk = 21
-        targetSdk = 37
-        versionCode = 120
-        versionName = "1.2.0"
+        targetSdk = sdkVersion
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
     buildTypes {
@@ -30,15 +33,15 @@ android {
         targetCompatibility = jdkVersion
     }
 
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(jdkVersion.toString()))
-        }
-    }
-
     dependenciesInfo {
         includeInApk = true
         includeInBundle = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(jdkVersion.toString()))
     }
 }
 

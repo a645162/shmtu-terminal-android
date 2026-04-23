@@ -10,6 +10,10 @@ plugins {
 }
 
 extra["jdkVersion"] = JavaVersion.VERSION_21
+extra["ndkVersion"] = "30.0.14904198"
+extra["sdkVersion"] = 37
+extra["appVersionCode"] = 120
+extra["appVersionName"] = "1.2.0"
 
 //fun isNonStable(version: String): Boolean {
 //    val stableKeyword = listOf("RELEASE", "FINAL", "GA").any {

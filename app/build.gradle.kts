@@ -4,22 +4,18 @@ plugins {
 }
 
 val jdkVersion: JavaVersion = rootProject.extra["jdkVersion"] as JavaVersion
+val sdkVersion: Int = rootProject.extra["sdkVersion"] as Int
 
-println("Using JDK $jdkVersion")
+println("Using JDK $jdkVersion, SDK $sdkVersion")
 
 android {
     namespace = "cn.edu.shmtu.terminal.android"
-    compileSdk {
-//        version = release(36) {
-//            minorApiLevel = 1
-//        }
-        version = release(37)
-    }
+    compileSdk = sdkVersion
 
     defaultConfig {
         applicationId = "cn.edu.shmtu.terminal.android"
         minSdk = 28
-        targetSdk = 37
+        targetSdk = sdkVersion
         versionCode = 1
         versionName = "1.0"
 
@@ -39,13 +35,14 @@ android {
         sourceCompatibility = jdkVersion
         targetCompatibility = jdkVersion
     }
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(jdkVersion.toString()))
-        }
-    }
     buildFeatures {
         compose = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(jdkVersion.toString()))
     }
 }
 
