@@ -1,4 +1,4 @@
-package com.khm.shmtu.cas.auth.common
+package cn.edu.shmtu.cas.auth.common
 
 import okhttp3.FormBody
 import okhttp3.OkHttpClient

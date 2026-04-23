@@ -1,4 +1,4 @@
-package com.khm.shmtu.cas.parser
+package cn.edu.shmtu.cas.parser
 
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document

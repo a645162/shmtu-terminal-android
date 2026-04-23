@@ -64,7 +64,7 @@ JNIEXPORT void JNI_OnUnload(JavaVM *vm, void *reserved) {
 
 // public native boolean Init(AssetManager mgr, boolean use_gpu);
 JNIEXPORT jboolean JNICALL
-Java_com_khm_shmtu_cas_ocr_SHMTU_1NCNN_Init(JNIEnv *env, jobject thiz, jobject assetManager, jboolean use_gpu) {
+Java_cn_edu_shmtu_cas_ocr_SHMTU_1NCNN_Init(JNIEnv *env, jobject thiz, jobject assetManager, jboolean use_gpu) {
     AAssetManager *mgr = AAssetManager_fromJava(env, assetManager);
 
     const auto isSuccessful = CAS_OCR::init_all_model_from_assets(mgr, use_gpu == JNI_TRUE);
@@ -78,7 +78,7 @@ Java_com_khm_shmtu_cas_ocr_SHMTU_1NCNN_Init(JNIEnv *env, jobject thiz, jobject a
 
 // public native boolean InitFromDir(String modelDir, boolean use_gpu);
 JNIEXPORT jboolean JNICALL
-Java_com_khm_shmtu_cas_ocr_SHMTU_1NCNN_InitFromDir(JNIEnv *env, jobject thiz, jstring modelDir, jboolean use_gpu) {
+Java_cn_edu_shmtu_cas_ocr_SHMTU_1NCNN_InitFromDir(JNIEnv *env, jobject thiz, jstring modelDir, jboolean use_gpu) {
     const char *dirPath = env->GetStringUTFChars(modelDir, nullptr);
     std::string dir_path(dirPath);
     env->ReleaseStringUTFChars(modelDir, dirPath);
@@ -90,7 +90,7 @@ Java_com_khm_shmtu_cas_ocr_SHMTU_1NCNN_InitFromDir(JNIEnv *env, jobject thiz, js
 
 // public native String Detect(Bitmap bitmap);
 JNIEXPORT jobject JNICALL
-Java_com_khm_shmtu_cas_ocr_SHMTU_1NCNN_Detect(
+Java_cn_edu_shmtu_cas_ocr_SHMTU_1NCNN_Detect(
         JNIEnv *env, jobject thiz,
         jobject bitmap
 ) {
@@ -132,17 +132,17 @@ Java_com_khm_shmtu_cas_ocr_SHMTU_1NCNN_Detect(
 }
 
 JNIEXPORT jint JNICALL
-Java_com_khm_shmtu_cas_ocr_SHMTU_1NCNN_GetModelStatus(JNIEnv *env, jobject thiz) {
+Java_cn_edu_shmtu_cas_ocr_SHMTU_1NCNN_GetModelStatus(JNIEnv *env, jobject thiz) {
     return static_cast<jint>(CAS_OCR::get_all_model_status());
 }
 
 JNIEXPORT void JNICALL
-Java_com_khm_shmtu_cas_ocr_SHMTU_1NCNN_ReleaseModel(JNIEnv *env, jobject thiz) {
+Java_cn_edu_shmtu_cas_ocr_SHMTU_1NCNN_ReleaseModel(JNIEnv *env, jobject thiz) {
     CAS_OCR::release_all_model();
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_khm_shmtu_cas_ocr_SHMTU_1NCNN_IsVulkanSupported(JNIEnv *env, jobject thiz) {
+Java_cn_edu_shmtu_cas_ocr_SHMTU_1NCNN_IsVulkanSupported(JNIEnv *env, jobject thiz) {
     return CAS_OCR::is_vulkan_supported() ? JNI_TRUE : JNI_FALSE;
 }
 

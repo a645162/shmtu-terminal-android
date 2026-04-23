@@ -16,10 +16,10 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import com.khm.shmtu.cas.captcha.Captcha
 import com.khm.shmtu.cas.captcha.CaptchaAndroid
-import com.khm.shmtu.cas.ocr.SHMTU_NCNN
-import com.khm.shmtu.cas.ocr.SHMTU_NCNN_Model
+import cn.edu.shmtu.cas.ocr.SHMTU_NCNN
+import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model
+import com.khm.shmtu.cas.captcha.Captcha
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch

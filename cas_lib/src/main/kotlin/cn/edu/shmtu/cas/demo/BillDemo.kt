@@ -1,6 +1,6 @@
-package com.khm.shmtu.cas.demo
+package cn.edu.shmtu.cas.demo
 
-import com.khm.shmtu.cas.auth.EpayAuth
+import cn.edu.shmtu.cas.auth.EpayAuth
 
 class BillDemo {
 

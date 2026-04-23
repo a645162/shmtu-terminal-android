@@ -2,7 +2,7 @@ package com.khm.shmtu.cas.ocr.demo
 
 import android.os.Handler
 import android.os.Looper
-import com.khm.shmtu.cas.ocr.SHMTU_NCNN_Model
+import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File

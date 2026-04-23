@@ -1,4 +1,4 @@
-package com.khm.shmtu.cas.auth.common
+package cn.edu.shmtu.cas.auth.common
 
 enum class CasAuthStatus(val code: Int) {
     SUCCESS(200),

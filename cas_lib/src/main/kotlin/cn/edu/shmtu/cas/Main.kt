@@ -1,8 +1,8 @@
-package com.khm.shmtu.cas
+package cn.edu.shmtu.cas
 
-import com.khm.shmtu.cas.demo.HotWaterDemo
-import com.khm.shmtu.cas.demo.BillDemo
-import com.khm.shmtu.cas.captcha.Captcha
+import cn.edu.shmtu.cas.demo.HotWaterDemo
+import cn.edu.shmtu.cas.demo.BillDemo
+import cn.edu.shmtu.cas.captcha.Captcha
 
 fun main() {
     // Get From Environment

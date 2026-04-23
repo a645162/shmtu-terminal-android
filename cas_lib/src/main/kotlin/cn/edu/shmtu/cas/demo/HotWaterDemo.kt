@@ -1,6 +1,6 @@
-package com.khm.shmtu.cas.demo
+package cn.edu.shmtu.cas.demo
 
-import com.khm.shmtu.cas.auth.WechatAuth
+import cn.edu.shmtu.cas.auth.WechatAuth
 
 class HotWaterDemo {
 

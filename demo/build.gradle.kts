@@ -57,4 +57,5 @@ dependencies {
     implementation(libs.okhttp)
 
     implementation(project(":shmtu_ocr"))
+    // implementation(project(":cas_lib"))
 }

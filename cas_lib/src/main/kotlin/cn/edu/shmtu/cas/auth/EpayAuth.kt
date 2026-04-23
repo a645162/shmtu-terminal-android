@@ -1,7 +1,7 @@
-package com.khm.shmtu.cas.auth
+package cn.edu.shmtu.cas.auth
 
-import com.khm.shmtu.cas.auth.common.CasAuth
-import com.khm.shmtu.cas.captcha.Captcha
+import cn.edu.shmtu.cas.auth.common.CasAuth
+import cn.edu.shmtu.cas.captcha.Captcha
 import okhttp3.OkHttpClient
 import okhttp3.Request
 

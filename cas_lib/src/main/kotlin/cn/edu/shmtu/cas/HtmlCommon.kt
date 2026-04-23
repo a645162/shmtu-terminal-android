@@ -1,4 +1,4 @@
-package com.khm.shmtu.cas
+package cn.edu.shmtu.cas
 
 import java.io.File
 

@@ -9,7 +9,7 @@ val sdkVersion: Int = rootProject.extra["sdkVersion"] as Int
 println("Using JDK $jdkVersion, NDK $ndkVersionStr, SDK $sdkVersion")
 
 android {
-    namespace = "com.khm.shmtu.cas.ocr"
+    namespace = "cn.edu.shmtu.cas.ocr"
     compileSdk = sdkVersion
 
     defaultConfig {

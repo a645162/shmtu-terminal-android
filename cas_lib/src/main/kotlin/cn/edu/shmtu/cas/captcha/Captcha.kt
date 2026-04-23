@@ -1,4 +1,4 @@
-package com.khm.shmtu.cas.captcha
+package cn.edu.shmtu.cas.captcha
 
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
