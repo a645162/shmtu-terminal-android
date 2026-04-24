@@ -52,6 +52,11 @@ kotlin {
 
 dependencies {
     implementation(libs.material)
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
+
+    implementation(libs.okhttp)
+
+    implementation(libs.kotlinx.coroutines.android)
 }

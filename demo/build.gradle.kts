@@ -54,8 +54,6 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
 
-    implementation(libs.okhttp)
-
     implementation(project(":shmtu_ocr"))
-    // implementation(project(":cas_lib"))
+    implementation(project(":cas_lib"))
 }

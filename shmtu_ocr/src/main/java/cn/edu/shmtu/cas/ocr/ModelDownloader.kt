@@ -1,8 +1,8 @@
-package com.khm.shmtu.cas.ocr.demo
+package cn.edu.shmtu.cas.ocr
 
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -23,7 +23,7 @@ class ModelDownloader {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    fun download(source: SHMTU_NCNN_Model.ModelSource, context: android.content.Context, listener: DownloadProgressListener) {
+    fun download(source: SHMTU_NCNN_Model.ModelSource, context: Context, listener: DownloadProgressListener) {
         Thread {
             val modelDir = SHMTU_NCNN_Model.getModelDir(context)
             val dir = File(modelDir)

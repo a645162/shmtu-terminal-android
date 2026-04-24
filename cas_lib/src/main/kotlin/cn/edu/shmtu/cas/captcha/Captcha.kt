@@ -120,30 +120,36 @@ class Captcha {
             host: String, port: Int,
             imageData: ByteArray
         ): String {
-            Socket(host, port).use { socket ->
-                // 设置超时时间为 5 秒
-                // socket.setSoTimeout(5000)
+            println("[RemoteOCR] Connecting to $host:$port, imageData size: ${imageData.size} bytes")
+            try {
+                Socket(host, port).use { socket ->
+                    socket.soTimeout = 10000
+                    println("[RemoteOCR] Socket connected, remote address: ${socket.remoteSocketAddress}")
 
-                val outputStream = socket.getOutputStream()
-                val dataOutputStream = DataOutputStream(outputStream)
+                    val outputStream = socket.getOutputStream()
+                    val dataOutputStream = DataOutputStream(outputStream)
 
-                // 发送图像数据
-                dataOutputStream.write(imageData)
-                dataOutputStream.flush()
+                    dataOutputStream.write(imageData)
+                    dataOutputStream.flush()
 
-                // 发送特殊标记，表示图像数据发送完毕
-                val endMarker = "<END>".toByteArray(Charsets.UTF_8)
-                outputStream.write(endMarker)
-                outputStream.flush()
+                    val endMarker = "<END>".toByteArray(Charsets.UTF_8)
+                    outputStream.write(endMarker)
+                    outputStream.flush()
+                    println("[RemoteOCR] Image data sent (${imageData.size} + ${endMarker.size} bytes), waiting for response...")
 
-                try {
-                    val inputStream = socket.getInputStream()
-                    val response = inputStream.readBytes().toString(Charsets.UTF_8)
-                    return response
-                } catch (e: SocketTimeoutException) {
-                    // 超时，返回空字符串
-                    return ""
+                    try {
+                        val inputStream = socket.getInputStream()
+                        val response = inputStream.readBytes().toString(Charsets.UTF_8)
+                        println("[RemoteOCR] Response received: '$response' (length=${response.length})")
+                        return response
+                    } catch (e: SocketTimeoutException) {
+                        println("[RemoteOCR] Socket timeout while reading response")
+                        return ""
+                    }
                 }
+            } catch (e: Exception) {
+                println("[RemoteOCR] Connection failed: ${e.javaClass.simpleName}: ${e.message}")
+                throw e
             }
         }
 
@@ -154,19 +160,29 @@ class Captcha {
         ): String {
             var result: String = ""
 
-            for (i in 1..retryTimes) {
+            println("[RemoteOCR] Starting auto retry: host=$host, port=$port, retryTimes=$retryTimes, imageData size=${imageData.size}")
 
+            for (i in 1..retryTimes) {
+                println("[RemoteOCR] Attempt $i/$retryTimes")
                 try {
                     result = ocrByRemoteTcpServer(host, port, imageData)
+                    println("[RemoteOCR] Attempt $i result: '$result'")
                 } catch (e: Exception) {
-                    println("第${i + 1}次尝试远程识别验证码失败")
-                    println("错误信息：${e.message}")
+                    println("[RemoteOCR] Attempt $i failed: ${e.javaClass.simpleName}: ${e.message}")
+                    e.printStackTrace()
                     continue
                 }
 
                 if (result.isNotEmpty()) {
+                    println("[RemoteOCR] Success on attempt $i")
                     break
+                } else {
+                    println("[RemoteOCR] Attempt $i returned empty result, will retry")
                 }
+            }
+
+            if (result.isEmpty()) {
+                println("[RemoteOCR] All $retryTimes attempts failed, returning empty result")
             }
 
             return result

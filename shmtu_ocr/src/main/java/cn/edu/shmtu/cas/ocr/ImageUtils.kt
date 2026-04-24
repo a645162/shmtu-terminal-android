@@ -1,4 +1,4 @@
-package com.khm.shmtu.cas.ocr.demo
+package cn.edu.shmtu.cas.ocr
 
 import android.content.Context
 import android.graphics.Bitmap

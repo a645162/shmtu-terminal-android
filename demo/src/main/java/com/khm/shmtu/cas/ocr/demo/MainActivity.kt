@@ -1,6 +1,7 @@
 package com.khm.shmtu.cas.ocr.demo
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
@@ -16,10 +17,13 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import cn.edu.shmtu.cas.captcha.Captcha
 import com.khm.shmtu.cas.captcha.CaptchaAndroid
+import cn.edu.shmtu.cas.ocr.ImageUtils
+import cn.edu.shmtu.cas.ocr.ModelDownloader
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model
-import com.khm.shmtu.cas.captcha.Captcha
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
@@ -39,6 +43,21 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
     private var progressBarCurrent: ProgressBar? = null
 
     private var isDownloading = false
+
+    private val prefs by lazy { getSharedPreferences("remote_ocr_prefs", Context.MODE_PRIVATE) }
+
+    private fun saveRemoteServerInfo(ip: String, port: String) {
+        prefs.edit().putString("server_ip", ip).putString("server_port", port).apply()
+        Log.d("RemoteOCR", "Saved server info: ip=$ip, port=$port")
+    }
+
+    private fun restoreRemoteServerInfo() {
+        val ip = prefs.getString("server_ip", "") ?: ""
+        val port = prefs.getString("server_port", "21601") ?: "21601"
+        findViewById<EditText>(R.id.editText_Ip)?.setText(ip)
+        findViewById<EditText>(R.id.editText_Port)?.setText(port)
+        Log.d("RemoteOCR", "Restored server info: ip=$ip, port=$port")
+    }
 
     private val imagePickerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -69,6 +88,7 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
         initWidget()
+        restoreRemoteServerInfo()
     }
 
     override fun onDestroy() {
@@ -112,7 +132,7 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
 
         findViewById<Button>(R.id.buttonGetFromNet).setOnClickListener {
             val imageURL = "https://cas.shmtu.edu.cn/cas/captcha"
-            this.launch {
+        this.launch(Dispatchers.IO) {
                 try {
                     val bitmap = ImageUtils.downloadImageFromURL(imageURL)
                     innerBitmap = bitmap
@@ -366,11 +386,22 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
             return
         }
 
-        this.launch {
+        saveRemoteServerInfo(ip, port)
+        val portInt = port.toInt()
+
+        this.launch(Dispatchers.IO) {
+            Log.d("RemoteOCR", "Starting remote OCR: ip=$ip, port=$portInt")
+            Log.d("RemoteOCR", "Bitmap size: ${innerBitmap!!.width}x${innerBitmap!!.height}")
+
             val imageData = CaptchaAndroid.AndroidBitmapToByteArray(innerBitmap!!)
-            val result = Captcha.ocrByRemoteTcpServerAutoRetry(ip, port.toInt(), imageData)
+            Log.d("RemoteOCR", "Image data size: ${imageData.size} bytes")
+
+            val result = Captcha.ocrByRemoteTcpServerAutoRetry(ip, portInt, imageData)
+            Log.d("RemoteOCR", "OCR result: '$result' (length=${result.length})")
+
             runOnUiThread {
                 if (result.isBlank()) {
+                    Log.w("RemoteOCR", "Remote OCR returned empty result")
                     Toast.makeText(this@MainActivity, "远程OCR失败!", Toast.LENGTH_SHORT).show()
                 } else {
                     infoResult?.text = result
