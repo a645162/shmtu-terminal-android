@@ -5,8 +5,8 @@ plugins {
     alias(libs.plugins.jetbrains.kotlin.android) apply false
     alias(libs.plugins.kotlin.compose) apply false
     alias(libs.plugins.jetbrains.kotlin.jvm) apply false
-
-    // id("com.github.ben-manes.versions") version "0.54.0"
+    alias(libs.plugins.ksp) apply false
+    alias(libs.plugins.hilt) apply false
 }
 
 extra["jdkVersion"] = JavaVersion.VERSION_21

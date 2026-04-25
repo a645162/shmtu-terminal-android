@@ -39,6 +39,7 @@ rootProject.name = "shmtu-terminal-android"
 include(":app")
 
 include(":cas_lib")
+include(":cas_demo")
 
 include(":demo")
 include(":shmtu_ocr")

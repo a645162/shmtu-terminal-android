@@ -1,47 +1,18 @@
 package cn.edu.shmtu.cas.captcha
 
-import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
-import java.io.File
 import java.net.Socket
 import java.net.URL
-import java.nio.file.Paths
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
-import javax.imageio.ImageIO
-
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okio.IOException
 import java.net.SocketTimeoutException
+import java.io.BufferedInputStream
 
 class Captcha {
 
     companion object {
-
-        fun readImageFromFile(fileName: String): ByteArray {
-            // Read image from file
-            val imageFile = File(fileName)
-            val image = ImageIO.read(imageFile)
-
-            // Convert image to byte array
-            val baos = ByteArrayOutputStream()
-            ImageIO.write(image, "png", baos)
-            val imageBytes = baos.toByteArray()
-            return imageBytes
-        }
-
-        fun saveImageToFile(imageData: ByteArray, directoryPath: String = ".") {
-            val currentDateTime = LocalDateTime.now()
-            val formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
-            val fileName = "captcha_${currentDateTime.format(formatter)}.png"
-            val filePath = Paths.get(directoryPath, fileName).toString()
-            java.io.FileOutputStream(filePath).use { fos ->
-                fos.write(imageData)
-            }
-            println("Image saved to file: $fileName")
-        }
 
         fun validateIPAddress(ip: String): Boolean {
             val ipAddressPattern = Regex(
@@ -102,10 +73,6 @@ class Captcha {
                     return null
                 }
 
-                // JSESSIONID是在获取验证码的过程中设置到浏览器的Cookie中的
-                // 如果不存在更新JSESSIONID操作则直接返回原本传入的Cookie
-                // 如果没有传入Cookie，一般服务器会Set-Cookie返回一个新的JSESSIONID
-                // 因此一般不会出现Cookie为空的情况
                 val returnCookie =
                     response.headers["Set-Cookie"] ?: (cookie ?: "")
 
@@ -195,61 +162,6 @@ class Captcha {
                 return result
             }
             return ""
-        }
-
-        fun testLocalTcpServerOcr(
-            ip: String = "127.0.0.1",
-            port: Int = 21601,
-        ) {
-            println("识别验证码 Test")
-            val resultCaptcha =
-                getImageDataFromUrlUsingGet()
-
-            if (resultCaptcha == null) {
-                println("获取验证码失败")
-                return
-            }
-
-            val imageData = resultCaptcha.first
-            println(resultCaptcha.second)
-
-            if (imageData == null) {
-                println("获取验证码失败")
-                return
-            }
-
-            val startTime = System.currentTimeMillis()
-            val validateCode =
-                ocrByRemoteTcpServerAutoRetry(
-                    ip, port,
-                    imageData
-                )
-            // 计算代码执行时间
-            val endTime = System.currentTimeMillis()
-            val executionTime = endTime - startTime
-            println("OCR执行时间: $executionTime 毫秒")
-
-            val exprResult =
-                getExprResultByExprString(validateCode)
-            println(validateCode)
-            println(exprResult)
-
-            saveImageToFile(imageData)
-        }
-
-        fun testLocalTcpServerOcrMultiThread(times: Int = 10) {
-            val threads = List(times) {
-                Thread {
-                    testLocalTcpServerOcr()
-                }
-            }
-
-            threads.forEach { it.start() } // 启动所有线程
-
-            // 等待所有线程执行完毕
-            threads.forEach { it.join() }
-
-            println("All threads have finished execution.")
         }
 
     }
