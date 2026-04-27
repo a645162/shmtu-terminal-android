@@ -3,7 +3,6 @@ package cn.edu.shmtu.terminal.android.ui.settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -13,9 +12,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.MediumTopAppBar
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -33,14 +30,10 @@ import cn.edu.shmtu.terminal.android.data.local.datastore.CaptchaMode
 @Composable
 fun SettingsScreen(
     onNavigateToAbout: () -> Unit,
+    onNavigateToOcrSettings: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val captchaMode by viewModel.captchaMode.collectAsState()
-    val useLocalOcr by viewModel.useLocalOcr.collectAsState()
-    val ocrServerUrl by viewModel.ocrServerUrl.collectAsState()
-
-    var showOcrSettings by remember { mutableStateOf(false) }
-    var showUrlDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -87,7 +80,7 @@ fun SettingsScreen(
                 modifier = Modifier.clickable(
                     enabled = captchaMode == CaptchaMode.AUTO_OCR
                 ) {
-                    showOcrSettings = true
+                    onNavigateToOcrSettings()
                 }
             )
             HorizontalDivider()
@@ -98,24 +91,6 @@ fun SettingsScreen(
                 modifier = Modifier.clickable { onNavigateToAbout() }
             )
         }
-    }
-
-    if (showOcrSettings) {
-        OcrSettingsDialog(
-            useLocalOcr = useLocalOcr,
-            onUseLocalOcrChange = { viewModel.setUseLocalOcr(it) },
-            ocrServerUrl = ocrServerUrl,
-            onUrlChange = { viewModel.setOcrServerUrl(it) },
-            onDismiss = { showOcrSettings = false }
-        )
-    }
-
-    if (showUrlDialog) {
-        UrlEditDialog(
-            initialUrl = ocrServerUrl,
-            onConfirm = { viewModel.setOcrServerUrl(it) },
-            onDismiss = { showUrlDialog = false }
-        )
     }
 }
 
@@ -167,93 +142,4 @@ private fun CaptchaModeSelector(
             }
         }
     }
-}
-
-@Composable
-private fun OcrSettingsDialog(
-    useLocalOcr: Boolean,
-    onUseLocalOcrChange: (Boolean) -> Unit,
-    ocrServerUrl: String,
-    onUrlChange: (String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var showUrlEditor by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("OCR 高级设置") },
-        text = {
-            Column {
-                ListItem(
-                    headlineContent = { Text("使用本地 OCR 模型") },
-                    supportingContent = { Text("优先使用本地 NCNN 模型") },
-                    trailingContent = {
-                        Switch(
-                            checked = useLocalOcr,
-                            onCheckedChange = onUseLocalOcrChange
-                        )
-                    }
-                )
-                if (!useLocalOcr) {
-                    HorizontalDivider()
-                    ListItem(
-                        headlineContent = { Text("远端 OCR 服务器") },
-                        supportingContent = { Text(ocrServerUrl) },
-                        modifier = Modifier.clickable { showUrlEditor = true }
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭")
-            }
-        }
-    )
-
-    if (showUrlEditor) {
-        UrlEditDialog(
-            initialUrl = ocrServerUrl,
-            onConfirm = {
-                onUrlChange(it)
-                showUrlEditor = false
-            },
-            onDismiss = { showUrlEditor = false }
-        )
-    }
-}
-
-@Composable
-private fun UrlEditDialog(
-    initialUrl: String,
-    onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var url by remember { mutableStateOf(initialUrl) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("编辑服务器地址") },
-        text = {
-            OutlinedTextField(
-                value = url,
-                onValueChange = { url = it },
-                label = { Text("地址") },
-                singleLine = true
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { if (url.isNotBlank()) onConfirm(url) },
-                enabled = url.isNotBlank()
-            ) {
-                Text("保存")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
-        }
-    )
 }

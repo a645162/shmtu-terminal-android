@@ -70,6 +70,13 @@ fun LoginScreen(
         }
     }
 
+    LaunchedEffect(uiState.recognizedText) {
+        uiState.recognizedText?.let {
+            captchaInput = it
+            viewModel.clearRecognizedText()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -120,6 +127,22 @@ fun LoginScreen(
                                 contentDescription = "验证码图片",
                                 modifier = Modifier.height(80.dp)
                             )
+                        }
+                    }
+
+                    TextButton(
+                        onClick = { viewModel.recognizeCaptcha() },
+                        enabled = uiState.captchaImage != null && !uiState.isRecognizing && !uiState.isLoading
+                    ) {
+                        if (uiState.isRecognizing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier
+                                    .height(16.dp)
+                                    .width(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("识别验证码")
                         }
                     }
 

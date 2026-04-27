@@ -3,7 +3,9 @@
     "allow": [
       "mcp__context7__resolve-library-id",
       "mcp__context7__query-docs",
-      "Bash(./gradlew:*)"
+      "Bash(./gradlew:*)",
+      "Bash(.\\gradlew:*)",
+      "Bash(gh api *)"
     ],
     "deny": [],
     "ask": []

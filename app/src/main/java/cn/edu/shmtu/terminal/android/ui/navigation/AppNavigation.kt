@@ -14,6 +14,7 @@ import cn.edu.shmtu.terminal.android.ui.bill.BillDetailScreen
 import cn.edu.shmtu.terminal.android.ui.bill.BillListScreen
 import cn.edu.shmtu.terminal.android.ui.home.HomeScreen
 import cn.edu.shmtu.terminal.android.ui.settings.AboutScreen
+import cn.edu.shmtu.terminal.android.ui.settings.OcrSettingsScreen
 import cn.edu.shmtu.terminal.android.ui.settings.SettingsScreen
 
 @Composable
@@ -53,11 +54,19 @@ fun AppNavigation(
             SettingsScreen(
                 onNavigateToAbout = {
                     navController.navigate("about")
+                },
+                onNavigateToOcrSettings = {
+                    navController.navigate("ocr_settings")
                 }
             )
         }
         composable("about") {
             AboutScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable("ocr_settings") {
+            OcrSettingsScreen(
                 onBack = { navController.popBackStack() }
             )
         }

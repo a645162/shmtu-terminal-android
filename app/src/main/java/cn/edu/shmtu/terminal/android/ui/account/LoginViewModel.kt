@@ -1,17 +1,24 @@
 package cn.edu.shmtu.terminal.android.ui.account
 
+import android.graphics.BitmapFactory
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import cn.edu.shmtu.cas.captcha.Captcha
+import cn.edu.shmtu.cas.ocr.SHMTU_NCNN
 import cn.edu.shmtu.terminal.android.data.local.datastore.SecureStorage
+import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
 import cn.edu.shmtu.terminal.android.data.remote.CasAuthAdapter
 import cn.edu.shmtu.terminal.android.data.remote.EpayAdapter
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class LoginUiState(
@@ -20,7 +27,9 @@ data class LoginUiState(
     val loginUrl: String = "",
     val execution: String = "",
     val error: String? = null,
-    val loginSuccess: Boolean = false
+    val loginSuccess: Boolean = false,
+    val isRecognizing: Boolean = false,
+    val recognizedText: String? = null
 )
 
 @HiltViewModel
@@ -28,8 +37,11 @@ class LoginViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
     private val secureStorage: SecureStorage,
     private val casAuthAdapter: CasAuthAdapter,
-    private val epayAdapter: EpayAdapter
+    private val epayAdapter: EpayAdapter,
+    private val settingsDataStore: SettingsDataStore
 ) : ViewModel() {
+
+    private val shmtuNcnn = SHMTU_NCNN()
 
     private val TAG = "LoginViewModel"
     private val _uiState = MutableStateFlow(LoginUiState())
@@ -138,5 +150,81 @@ class LoginViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
+    }
+
+    fun clearRecognizedText() {
+        _uiState.value = _uiState.value.copy(recognizedText = null)
+    }
+
+    fun recognizeCaptcha() {
+        val imageData = _uiState.value.captchaImage ?: return
+        if (_uiState.value.isRecognizing) return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRecognizing = true, error = null, recognizedText = null)
+
+            try {
+                val useLocalOcr = settingsDataStore.useLocalOcr.first()
+                val result = if (useLocalOcr) {
+                    recognizeLocal(imageData)
+                } else {
+                    recognizeRemote(imageData)
+                }
+
+                if (result != null) {
+                    _uiState.value = _uiState.value.copy(
+                        isRecognizing = false,
+                        recognizedText = result
+                    )
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        isRecognizing = false,
+                        error = if (useLocalOcr) "识别失败，请确认模型已加载" else "远程识别失败"
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "OCR recognition failed", e)
+                _uiState.value = _uiState.value.copy(
+                    isRecognizing = false,
+                    error = "识别异常: ${e.message}"
+                )
+            }
+        }
+    }
+
+    private suspend fun recognizeLocal(imageData: ByteArray): String? = withContext(Dispatchers.Default) {
+        val status = shmtuNcnn.modelStatus
+        if (status == SHMTU_NCNN.ModelStatus.NOT_LOADED) {
+            Log.w(TAG, "Local OCR model not loaded")
+            return@withContext null
+        }
+        val bitmap = BitmapFactory.decodeByteArray(imageData, 0, imageData.size) ?: return@withContext null
+        val resultObj = shmtuNcnn.predict_validate_code(bitmap)
+        if (resultObj == null || resultObj.size < 2) {
+            Log.w(TAG, "Local OCR returned null or incomplete result")
+            return@withContext null
+        }
+        val text = resultObj[1] as? String
+        Log.d(TAG, "Local OCR result: $text")
+        text
+    }
+
+    private suspend fun recognizeRemote(imageData: ByteArray): String? = withContext(Dispatchers.IO) {
+        val serverUrl = settingsDataStore.ocrServerUrl.first()
+        val parts = serverUrl.split(":")
+        if (parts.size != 2) {
+            Log.w(TAG, "Invalid OCR server URL: $serverUrl")
+            return@withContext null
+        }
+        val host = parts[0]
+        val port = parts[1].toIntOrNull()
+        if (port == null || !Captcha.validatePort(port.toString())) {
+            Log.w(TAG, "Invalid OCR server port: ${parts[1]}")
+            return@withContext null
+        }
+        Log.d(TAG, "Remote OCR: host=$host, port=$port, imageSize=${imageData.size}")
+        val result = Captcha.ocrByRemoteTcpServerAutoRetry(host, port, imageData)
+        Log.d(TAG, "Remote OCR result: '$result'")
+        if (result.isBlank()) null else result
     }
 }
