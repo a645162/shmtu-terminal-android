@@ -24,7 +24,9 @@ object DatabaseModule {
             context,
             MainDatabase::class.java,
             "shmtu_terminal"
-        ).build()
+        )
+            .fallbackToDestructiveMigration()
+            .build()
     }
 
     @Provides

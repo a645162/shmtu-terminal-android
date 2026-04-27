@@ -14,6 +14,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -53,5 +54,23 @@ class IdentityDetailViewModel @Inject constructor(
         viewModelScope.launch {
             deleteAccountUseCase(accountId, identityId)
         }
+    }
+
+    private val _editingAccount = MutableStateFlow<Account?>(null)
+    val editingAccount: StateFlow<Account?> = _editingAccount.asStateFlow()
+
+    fun startEditAccount(account: Account) {
+        _editingAccount.value = account
+    }
+
+    fun updateAccount(accountId: Long, label: String, userId: String) {
+        viewModelScope.launch {
+            accountRepository.updateAccount(accountId, label, userId)
+            _editingAccount.value = null
+        }
+    }
+
+    fun cancelEditAccount() {
+        _editingAccount.value = null
     }
 }

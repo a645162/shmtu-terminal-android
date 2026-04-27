@@ -14,6 +14,9 @@ object EntityMappers {
     fun IdentityEntity.toDomain(accountCount: Int = 0): Identity = Identity(
         id = id,
         name = name,
+        birthday = birthday,
+        enrollmentDate = enrollmentDate,
+        graduationDate = graduationDate,
         displayOrder = displayOrder,
         accountCount = accountCount
     )
@@ -21,6 +24,9 @@ object EntityMappers {
     fun Identity.toEntity(): IdentityEntity = IdentityEntity(
         id = id,
         name = name,
+        birthday = birthday,
+        enrollmentDate = enrollmentDate,
+        graduationDate = graduationDate,
         displayOrder = displayOrder
     )
 

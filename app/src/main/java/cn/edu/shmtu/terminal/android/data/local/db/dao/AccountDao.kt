@@ -31,6 +31,17 @@ interface AccountDao {
     @Query("UPDATE accounts SET lastSyncTime = :time WHERE id = :id")
     suspend fun updateLastSyncTime(id: Long, time: Long)
 
+    @Query("UPDATE accounts SET label = :label, userId = :userId WHERE id = :id")
+    suspend fun updateAccount(id: Long, label: String, userId: String)
+
+    @Query("SELECT identityId, COUNT(*) as count FROM accounts GROUP BY identityId")
+    fun getAccountCounts(): Flow<List<AccountCount>>
+
     @Delete
     suspend fun delete(account: AccountEntity)
 }
+
+data class AccountCount(
+    val identityId: Long,
+    val count: Int
+)

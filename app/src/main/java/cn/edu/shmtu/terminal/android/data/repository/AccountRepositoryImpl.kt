@@ -42,6 +42,10 @@ class AccountRepositoryImpl @Inject constructor(
         accountDao.deleteById(id)
     }
 
+    override suspend fun updateAccount(id: Long, label: String, userId: String) {
+        accountDao.updateAccount(id, label, userId)
+    }
+
     override suspend fun updateLoginStatus(id: Long, status: String) {
         accountDao.updateLoginStatus(id, status)
     }

@@ -13,6 +13,22 @@ class EpayAuth {
     private var _loginUrl = ""
     private var _loginCookie = ""
 
+    fun setLoginUrl(loginUrl: String) {
+        this._loginUrl = loginUrl
+    }
+
+    fun setLoginCookie(cookie: String) {
+        this._loginCookie = cookie
+    }
+
+    fun setEpayCookie(cookie: String) {
+        this._epayCookie = cookie
+    }
+
+    fun getLoginUrl(): String = _loginUrl
+    fun getLoginCookie(): String = _loginCookie
+    fun getEpayCookie(): String = _epayCookie
+
     fun getBill(
         pageNo: String = "1",
         tabNo: String = "1",
@@ -164,6 +180,49 @@ class EpayAuth {
         val resultBill =
             getBill(cookie = this._epayCookie)
 
+        return resultBill.first == 200
+    }
+
+    fun loginWithCaptcha(
+        username: String,
+        password: String,
+        captchaCode: String
+    ): Boolean {
+        if (_loginUrl.isBlank() || _epayCookie.isBlank()) {
+            if (testLoginStatus()) {
+                return true
+            }
+        }
+
+        val executionStr = CasAuth.getExecution(_loginUrl, _epayCookie)
+
+        val resultCas = CasAuth.casLogin(
+            _loginUrl,
+            username,
+            password,
+            captchaCode,
+            executionStr,
+            _loginCookie
+        )
+
+        if (resultCas.first != 302) {
+            println("[EpayAuth] CAS login failed, code: ${resultCas.first}")
+            return false
+        }
+
+        _loginCookie = resultCas.third
+
+        val resultRedirect = CasAuth.casRedirect(
+            resultCas.second,
+            _epayCookie
+        )
+
+        if (resultRedirect.first != 302) {
+            println("[EpayAuth] CAS redirect failed, code: ${resultRedirect.first}")
+            return false
+        }
+
+        val resultBill = getBill(cookie = _epayCookie)
         return resultBill.first == 200
     }
 

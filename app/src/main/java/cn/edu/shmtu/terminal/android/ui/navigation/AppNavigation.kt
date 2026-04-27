@@ -72,10 +72,7 @@ fun AppNavigation(
             val identityId = backStackEntry.arguments?.getString("identityId")?.toLongOrNull() ?: return@composable
             AddAccountScreen(
                 identityId = identityId,
-                onBack = { navController.popBackStack() },
-                onAdded = { accountId ->
-                    navController.navigate("login/$accountId")
-                }
+                onBack = { navController.popBackStack() }
             )
         }
         composable(

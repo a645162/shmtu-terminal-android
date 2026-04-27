@@ -8,6 +8,7 @@ interface AccountRepository {
     suspend fun getAccountById(id: Long): Account?
     suspend fun addAccount(identityId: Long, label: String, userId: String, accountType: String): Long
     suspend fun deleteAccount(id: Long)
+    suspend fun updateAccount(id: Long, label: String, userId: String)
     suspend fun updateLoginStatus(id: Long, status: String)
     suspend fun updateLastSyncTime(id: Long)
     fun getPassword(accountId: Long): String?

@@ -22,6 +22,9 @@ interface IdentityDao {
     @Query("DELETE FROM identities WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    @Query("UPDATE identities SET name = :name, birthday = :birthday, enrollmentDate = :enrollmentDate, graduationDate = :graduationDate WHERE id = :id")
+    suspend fun updateIdentity(id: Long, name: String, birthday: String, enrollmentDate: String, graduationDate: String)
+
     @Delete
     suspend fun delete(identity: IdentityEntity)
 }

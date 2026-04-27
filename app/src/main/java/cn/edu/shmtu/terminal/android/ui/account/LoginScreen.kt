@@ -151,7 +151,7 @@ fun LoginScreen(
                             onClick = {
                                 focusManager.clearFocus()
                                 if (captchaInput.isNotBlank()) {
-                                    viewModel.submitCaptcha(accountId, captchaInput)
+                                    viewModel.submitCaptcha(captchaInput)
                                 }
                             },
                             enabled = captchaInput.isNotBlank() && !uiState.isLoading

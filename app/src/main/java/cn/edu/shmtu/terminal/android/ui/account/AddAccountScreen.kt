@@ -4,10 +4,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -26,7 +27,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 fun AddAccountScreen(
     identityId: Long,
     onBack: () -> Unit,
-    onAdded: (Long) -> Unit,
     viewModel: AddAccountViewModel = hiltViewModel()
 ) {
     var label by remember { mutableStateOf("") }
@@ -34,11 +34,13 @@ fun AddAccountScreen(
     var password by remember { mutableStateOf("") }
 
     val newAccountId by viewModel.newAccountId.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(newAccountId) {
         newAccountId?.let { id ->
             if (id > 0) {
-                onAdded(id)
+                snackbarHostState.showSnackbar("账号添加成功")
+                onBack()
             }
         }
     }
@@ -48,7 +50,8 @@ fun AddAccountScreen(
             TopAppBar(
                 title = { Text("添加账号") }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -88,7 +91,7 @@ fun AddAccountScreen(
                     .fillMaxWidth()
                     .padding(top = 16.dp)
             ) {
-                Text("添加并登录")
+                Text("添加账号")
             }
         }
     }

@@ -9,7 +9,7 @@ import cn.edu.shmtu.terminal.android.data.local.db.entity.IdentityEntity
 
 @Database(
     entities = [IdentityEntity::class, AccountEntity::class],
-    version = 1,
+    version = 3,
     exportSchema = false
 )
 abstract class MainDatabase : RoomDatabase() {

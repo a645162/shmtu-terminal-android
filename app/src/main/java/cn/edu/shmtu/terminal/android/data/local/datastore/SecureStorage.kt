@@ -34,4 +34,49 @@ class SecureStorage @Inject constructor(
     fun removePassword(accountId: Long) {
         prefs.edit().remove("account_password_$accountId").apply()
     }
+
+    fun saveEpayCookie(accountId: Long, cookie: String) {
+        prefs.edit().putString("account_epay_cookie_$accountId", cookie).apply()
+    }
+
+    fun getEpayCookie(accountId: Long): String? {
+        return prefs.getString("account_epay_cookie_$accountId", null)
+    }
+
+    fun removeEpayCookie(accountId: Long) {
+        prefs.edit().remove("account_epay_cookie_$accountId").apply()
+    }
+
+    fun saveLoginUrl(accountId: Long, url: String) {
+        prefs.edit().putString("account_login_url_$accountId", url).apply()
+    }
+
+    fun getLoginUrl(accountId: Long): String? {
+        return prefs.getString("account_login_url_$accountId", null)
+    }
+
+    fun removeLoginUrl(accountId: Long) {
+        prefs.edit().remove("account_login_url_$accountId").apply()
+    }
+
+    fun saveLoginCookie(accountId: Long, cookie: String) {
+        prefs.edit().putString("account_login_cookie_$accountId", cookie).apply()
+    }
+
+    fun getLoginCookie(accountId: Long): String? {
+        return prefs.getString("account_login_cookie_$accountId", null)
+    }
+
+    fun removeLoginCookie(accountId: Long) {
+        prefs.edit().remove("account_login_cookie_$accountId").apply()
+    }
+
+    fun clearAccountData(accountId: Long) {
+        prefs.edit()
+            .remove("account_password_$accountId")
+            .remove("account_epay_cookie_$accountId")
+            .remove("account_login_url_$accountId")
+            .remove("account_login_cookie_$accountId")
+            .apply()
+    }
 }
