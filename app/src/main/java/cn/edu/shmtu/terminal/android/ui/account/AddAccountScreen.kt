@@ -1,15 +1,25 @@
 package cn.edu.shmtu.terminal.android.ui.account
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,19 +39,29 @@ fun AddAccountScreen(
     onBack: () -> Unit,
     viewModel: AddAccountViewModel = hiltViewModel()
 ) {
-    var label by remember { mutableStateOf("") }
+    val uiState by viewModel.uiState.collectAsState()
+
+    var label by remember { mutableStateOf("本科") }
     var userId by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
-    val newAccountId by viewModel.newAccountId.collectAsState()
+    var expanded by remember { mutableStateOf(false) }
+    val presetLabels = listOf("本科", "硕士", "博士")
+
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(newAccountId) {
-        newAccountId?.let { id ->
-            if (id > 0) {
-                snackbarHostState.showSnackbar("账号添加成功")
-                onBack()
-            }
+    LaunchedEffect(uiState.success) {
+        if (uiState.success) {
+            snackbarHostState.showSnackbar("账号添加成功")
+            onBack()
+            viewModel.resetSuccess()
+        }
+    }
+
+    LaunchedEffect(uiState.errorMessage) {
+        uiState.errorMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.dismissError()
         }
     }
 
@@ -58,13 +78,41 @@ fun AddAccountScreen(
                 .padding(innerPadding)
                 .padding(16.dp)
         ) {
-            OutlinedTextField(
-                value = label,
-                onValueChange = { label = it },
-                label = { Text("标签（如：本科、硕士）") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded }
+            ) {
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = {
+                        label = it
+                        expanded = true
+                    },
+                    label = { Text("标签") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(MenuAnchorType.PrimaryEditable),
+                    singleLine = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
+                )
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    presetLabels.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option) },
+                            onClick = {
+                                label = option
+                                expanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedTextField(
                 value = userId,
@@ -74,6 +122,8 @@ fun AddAccountScreen(
                 singleLine = true
             )
 
+            Spacer(modifier = Modifier.height(12.dp))
+
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
@@ -82,16 +132,24 @@ fun AddAccountScreen(
                 singleLine = true
             )
 
+            Spacer(modifier = Modifier.height(16.dp))
+
             Button(
                 onClick = {
                     viewModel.addAccount(label, userId, password)
                 },
-                enabled = label.isNotBlank() && userId.isNotBlank() && password.isNotBlank(),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 16.dp)
+                enabled = label.isNotBlank() && userId.isNotBlank() && password.isNotBlank() && !uiState.isChecking,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text("添加账号")
+                if (uiState.isChecking) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.height(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                } else {
+                    Text("添加账号")
+                }
             }
         }
     }

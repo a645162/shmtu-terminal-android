@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -62,6 +63,8 @@ fun IdentityDetailScreen(
     val accounts by viewModel.accounts.collectAsState()
     val editingAccount by viewModel.editingAccount.collectAsState()
     var expandedMenuAccount by remember { mutableLongStateOf(-1L) }
+
+    var confirmingDelete by remember { mutableStateOf<Account?>(null) }
 
     Scaffold(
         topBar = {
@@ -121,7 +124,7 @@ fun IdentityDetailScreen(
                         account = account,
                         onLogin = { onLoginAccount(account.id) },
                         onEdit = { viewModel.startEditAccount(account) },
-                        onDelete = { viewModel.deleteAccount(account.id) },
+                        onDelete = { confirmingDelete = account },
                         onLongClick = {
                             expandedMenuAccount = if (expandedMenuAccount == account.id) -1L else account.id
                         },
@@ -140,6 +143,29 @@ fun IdentityDetailScreen(
                 viewModel.updateAccount(account.id, label, userId)
             },
             onDismiss = { viewModel.cancelEditAccount() }
+        )
+    }
+
+    confirmingDelete?.let { account ->
+        AlertDialog(
+            onDismissRequest = { confirmingDelete = null },
+            title = { Text("删除账号") },
+            text = { Text("确定要删除「${account.label} - ${account.userId}」吗？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteAccount(account.id)
+                        confirmingDelete = null
+                    }
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmingDelete = null }) {
+                    Text("取消")
+                }
+            }
         )
     }
 }
@@ -321,14 +347,14 @@ private fun EditAccountDialog(
                     onValueChange = { label = it },
                     label = { Text("标签") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = userId,
                     onValueChange = { userId = it },
                     label = { Text("账号") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         },

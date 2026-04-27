@@ -13,6 +13,7 @@ import cn.edu.shmtu.terminal.android.ui.account.LoginScreen
 import cn.edu.shmtu.terminal.android.ui.bill.BillDetailScreen
 import cn.edu.shmtu.terminal.android.ui.bill.BillListScreen
 import cn.edu.shmtu.terminal.android.ui.home.HomeScreen
+import cn.edu.shmtu.terminal.android.ui.settings.AboutScreen
 import cn.edu.shmtu.terminal.android.ui.settings.SettingsScreen
 
 @Composable
@@ -49,7 +50,16 @@ fun AppNavigation(
             )
         }
         composable(TopLevelDestination.SETTINGS.route) {
-            SettingsScreen()
+            SettingsScreen(
+                onNavigateToAbout = {
+                    navController.navigate("about")
+                }
+            )
+        }
+        composable("about") {
+            AboutScreen(
+                onBack = { navController.popBackStack() }
+            )
         }
         composable(
             "identity_detail/{identityId}",

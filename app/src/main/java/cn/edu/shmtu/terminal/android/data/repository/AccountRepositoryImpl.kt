@@ -26,6 +26,10 @@ class AccountRepositoryImpl @Inject constructor(
         return accountDao.getById(id)?.toDomain()
     }
 
+    override suspend fun getAllAccounts(): List<Account> {
+        return accountDao.getAllAccounts().map { it.toDomain() }
+    }
+
     override suspend fun addAccount(identityId: Long, label: String, userId: String, accountType: String): Long {
         return accountDao.insert(
             cn.edu.shmtu.terminal.android.data.local.db.entity.AccountEntity(
