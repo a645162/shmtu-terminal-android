@@ -52,7 +52,7 @@ class LoginViewModel @Inject constructor(
     fun initialize(accountId: Long) {
         currentAccountId = accountId
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            _uiState.value = LoginUiState(isLoading = true)
             Log.d(TAG, "Initializing login for account $accountId")
 
             try {
@@ -81,8 +81,14 @@ class LoginViewModel @Inject constructor(
                 }
                 Log.d(TAG, "Got captcha image, cookie: ${captchaResult.cookie.take(20)}")
 
-                val execution = casAuthAdapter.getExecution(loginUrl, loginCookie)
+                // Store captcha session cookie back to EpayAuth for later login
+                epayAuth.setLoginCookie(captchaResult.cookie)
+
+                val execution = casAuthAdapter.getExecution(loginUrl, captchaResult.cookie)
                 Log.d(TAG, "Got execution: $execution")
+
+                // Store execution back to EpayAuth for later login
+                epayAuth.setExecution(execution)
 
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
@@ -133,6 +139,8 @@ class LoginViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(isLoading = false, loginSuccess = true)
                 } else {
                     Log.d(TAG, "Login failed - wrong captcha or session expired")
+                    // Clear stale execution and captcha - CAS execution is one-time use
+                    epayAdapter.getEpayAuth(currentAccountId).setExecution("")
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         error = "登录失败，验证码可能错误或会话已过期，请重试"

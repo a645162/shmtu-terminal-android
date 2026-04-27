@@ -5,7 +5,8 @@
       "mcp__context7__query-docs",
       "Bash(./gradlew:*)",
       "Bash(.\\gradlew:*)",
-      "Bash(gh api *)"
+      "Bash(gh api *)",
+      "mcp__plugin_everything-claude-code_github__get_file_contents"
     ],
     "deny": [],
     "ask": []

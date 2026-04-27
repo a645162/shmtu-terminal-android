@@ -12,6 +12,7 @@ class EpayAuth {
 
     private var _loginUrl = ""
     private var _loginCookie = ""
+    private var _execution = ""
 
     fun setLoginUrl(loginUrl: String) {
         this._loginUrl = loginUrl
@@ -25,9 +26,14 @@ class EpayAuth {
         this._epayCookie = cookie
     }
 
+    fun setExecution(execution: String) {
+        this._execution = execution
+    }
+
     fun getLoginUrl(): String = _loginUrl
     fun getLoginCookie(): String = _loginCookie
     fun getEpayCookie(): String = _epayCookie
+    fun getExecution(): String = _execution
 
     fun getBill(
         pageNo: String = "1",
@@ -97,6 +103,9 @@ class EpayAuth {
                 resultBill.second
             this._epayCookie =
                 resultBill.third
+            // Clear stale session data - CAS execution is one-time use
+            this._loginCookie = ""
+            this._execution = ""
 
             return false
         } else {
@@ -194,14 +203,16 @@ class EpayAuth {
             }
         }
 
-        val executionStr = CasAuth.getExecution(_loginUrl, _epayCookie)
+        if (_execution.isBlank()) {
+            _execution = CasAuth.getExecution(_loginUrl, _epayCookie)
+        }
 
         val resultCas = CasAuth.casLogin(
             _loginUrl,
             username,
             password,
             captchaCode,
-            executionStr,
+            _execution,
             _loginCookie
         )
 
