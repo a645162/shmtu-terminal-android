@@ -6,7 +6,12 @@
       "Bash(./gradlew:*)",
       "Bash(.\\gradlew:*)",
       "Bash(gh api *)",
-      "mcp__plugin_everything-claude-code_github__get_file_contents"
+      "mcp__plugin_everything-claude-code_github__get_file_contents",
+      "mcp__MiniMax__web_search",
+      "WebFetch(domain:central.sonatype.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:patrykandpatrick.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ],
     "deny": [],
     "ask": []

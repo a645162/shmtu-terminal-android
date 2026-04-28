@@ -12,7 +12,9 @@ import cn.edu.shmtu.terminal.android.ui.account.IdentityListScreen
 import cn.edu.shmtu.terminal.android.ui.account.LoginScreen
 import cn.edu.shmtu.terminal.android.ui.bill.BillDetailScreen
 import cn.edu.shmtu.terminal.android.ui.bill.BillListScreen
+import cn.edu.shmtu.terminal.android.ui.features.FeatureHubScreen
 import cn.edu.shmtu.terminal.android.ui.home.HomeScreen
+import cn.edu.shmtu.terminal.android.ui.statistics.BillStatisticsScreen
 import cn.edu.shmtu.terminal.android.ui.settings.AboutScreen
 import cn.edu.shmtu.terminal.android.ui.settings.OcrSettingsScreen
 import cn.edu.shmtu.terminal.android.ui.settings.SettingsScreen
@@ -30,7 +32,8 @@ fun AppNavigation(
         composable(TopLevelDestination.HOME.route) {
             HomeScreen(
                 onNavigateToBill = { navController.navigate(TopLevelDestination.BILL.route) },
-                onNavigateToAccount = { navController.navigate(TopLevelDestination.ACCOUNT.route) }
+                onNavigateToAccount = { navController.navigate(TopLevelDestination.ACCOUNT.route) },
+                onNavigateToStatistics = { navController.navigate("bill_statistics") }
             )
         }
         composable(TopLevelDestination.BILL.route) {
@@ -38,6 +41,11 @@ fun AppNavigation(
                 onBillClick = { billId ->
                     navController.navigate("bill_detail/$billId")
                 }
+            )
+        }
+        composable(TopLevelDestination.FEATURES.route) {
+            FeatureHubScreen(
+                onNavigateToBillStatistics = { navController.navigate("bill_statistics") }
             )
         }
         composable(TopLevelDestination.ACCOUNT.route) {
@@ -58,6 +66,11 @@ fun AppNavigation(
                 onNavigateToOcrSettings = {
                     navController.navigate("ocr_settings")
                 }
+            )
+        }
+        composable("bill_statistics") {
+            BillStatisticsScreen(
+                onBack = { navController.popBackStack() }
             )
         }
         composable("about") {

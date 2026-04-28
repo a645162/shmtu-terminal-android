@@ -7,6 +7,14 @@ import androidx.room.Query
 import cn.edu.shmtu.terminal.android.data.local.db.entity.BillEntity
 import kotlinx.coroutines.flow.Flow
 
+data class TypeSum(val type: String, val total: Double)
+
+data class DailyTotal(val dateStr: String, val total: Double)
+
+data class TargetUserTotal(val targetUser: String, val total: Double)
+
+data class MonthlyTypeSum(val month: String, val type: String, val total: Double)
+
 @Dao
 interface BillDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -29,4 +37,40 @@ interface BillDao {
 
     @Query("SELECT COUNT(*) FROM bills")
     suspend fun getCount(): Int
+
+    @Query("""
+        SELECT type, SUM(CAST(REPLACE(REPLACE(money, '¥', ''), ',', '') AS REAL)) as total
+        FROM bills
+        WHERE dateTimeStrFormat >= :startDate AND dateTimeStrFormat <= :endDate
+        GROUP BY type
+    """)
+    fun getSumByTypeInRange(startDate: String, endDate: String): Flow<List<TypeSum>>
+
+    @Query("""
+        SELECT dateStr, SUM(CAST(REPLACE(REPLACE(money, '¥', ''), ',', '') AS REAL)) as total
+        FROM bills
+        WHERE dateTimeStrFormat >= :startDate AND dateTimeStrFormat <= :endDate
+        GROUP BY dateStr
+        ORDER BY dateStr
+    """)
+    fun getDailyTotalsInRange(startDate: String, endDate: String): Flow<List<DailyTotal>>
+
+    @Query("""
+        SELECT targetUser, SUM(CAST(REPLACE(REPLACE(money, '¥', ''), ',', '') AS REAL)) as total
+        FROM bills
+        WHERE dateTimeStrFormat >= :startDate AND dateTimeStrFormat <= :endDate
+        GROUP BY targetUser
+        ORDER BY total DESC
+        LIMIT :limit
+    """)
+    fun getTopTargetUsers(startDate: String, endDate: String, limit: Int): Flow<List<TargetUserTotal>>
+
+    @Query("""
+        SELECT substr(dateTimeStrFormat, 1, 7) as month, type,
+               SUM(CAST(REPLACE(REPLACE(money, '¥', ''), ',', '') AS REAL)) as total
+        FROM bills
+        GROUP BY month, type
+        ORDER BY month DESC
+    """)
+    fun getMonthlySummary(): Flow<List<MonthlyTypeSum>>
 }

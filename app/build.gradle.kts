@@ -73,6 +73,8 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
 
+    implementation(libs.vico.compose.m3)
+
     implementation(libs.lifecycle.viewmodel.compose)
 
     testImplementation(libs.junit)
