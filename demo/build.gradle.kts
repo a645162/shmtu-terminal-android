@@ -4,6 +4,7 @@ plugins {
 
 val jdkVersion: JavaVersion = rootProject.extra["jdkVersion"] as JavaVersion
 val sdkVersion: Int = rootProject.extra["sdkVersion"] as Int
+val buildToolsVersionStr: String = rootProject.extra["buildToolsVersion"] as String
 val appVersionCode: Int = rootProject.extra["appVersionCode"] as Int
 val appVersionName: String = rootProject.extra["appVersionName"] as String
 
@@ -12,6 +13,7 @@ println("Using JDK $jdkVersion, SDK $sdkVersion, Version $appVersionName($appVer
 android {
     namespace = "com.khm.shmtu.cas.ocr.demo"
     compileSdk = sdkVersion
+    buildToolsVersion = buildToolsVersionStr
 
     defaultConfig {
         applicationId = "com.khm.shmtu.cas.ocr.demo"

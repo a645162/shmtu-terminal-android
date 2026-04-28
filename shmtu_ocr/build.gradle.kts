@@ -5,12 +5,14 @@ plugins {
 val jdkVersion: JavaVersion = rootProject.extra["jdkVersion"] as JavaVersion
 val ndkVersionStr: String = rootProject.extra["ndkVersion"] as String
 val sdkVersion: Int = rootProject.extra["sdkVersion"] as Int
+val buildToolsVersionStr: String = rootProject.extra["buildToolsVersion"] as String
 
 println("Using JDK $jdkVersion, NDK $ndkVersionStr, SDK $sdkVersion")
 
 android {
     namespace = "cn.edu.shmtu.cas.ocr"
     compileSdk = sdkVersion
+    buildToolsVersion = buildToolsVersionStr
 
     defaultConfig {
         minSdk = 21

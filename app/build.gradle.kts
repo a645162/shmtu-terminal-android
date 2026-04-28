@@ -7,12 +7,14 @@ plugins {
 
 val jdkVersion: JavaVersion = rootProject.extra["jdkVersion"] as JavaVersion
 val sdkVersion: Int = rootProject.extra["sdkVersion"] as Int
+val buildToolsVersionStr: String = rootProject.extra["buildToolsVersion"] as String
 
 println("Using JDK $jdkVersion, SDK $sdkVersion")
 
 android {
     namespace = "cn.edu.shmtu.terminal.android"
     compileSdk = sdkVersion
+    buildToolsVersion = buildToolsVersionStr
 
     defaultConfig {
         applicationId = "cn.edu.shmtu.terminal.android"
