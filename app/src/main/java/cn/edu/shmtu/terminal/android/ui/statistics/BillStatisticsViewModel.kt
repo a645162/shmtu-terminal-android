@@ -13,6 +13,7 @@ import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
@@ -41,6 +42,8 @@ class BillStatisticsViewModel @Inject constructor(
 
     private val _selectedIdentityId = MutableStateFlow<Long?>(null)
     private val _selectedPeriod = MutableStateFlow(TimePeriod.THIS_MONTH)
+    private val _customStartDate = MutableStateFlow<LocalDate?>(null)
+    private val _customEndDate = MutableStateFlow<LocalDate?>(null)
 
     private val dateRange: Pair<String, String>
         get() = when (_selectedPeriod.value) {
@@ -65,8 +68,9 @@ class BillStatisticsViewModel @Inject constructor(
                 semesterStart.format(DATE_FMT) to now.atEndOfMonth().format(DATE_FMT_END)
             }
             TimePeriod.CUSTOM -> {
-                val now = YearMonth.now()
-                now.atDay(1).format(DATE_FMT) to now.atEndOfMonth().format(DATE_FMT_END)
+                val start = _customStartDate.value ?: YearMonth.now().atDay(1)
+                val end = _customEndDate.value ?: YearMonth.now().atEndOfMonth()
+                start.format(DATE_FMT) to end.format(DATE_FMT_END)
             }
         }
 
@@ -108,6 +112,14 @@ class BillStatisticsViewModel @Inject constructor(
 
     fun selectPeriod(period: TimePeriod) {
         _selectedPeriod.value = period
+    }
+
+    val customStartDate: StateFlow<LocalDate?> = _customStartDate.asStateFlow()
+    val customEndDate: StateFlow<LocalDate?> = _customEndDate.asStateFlow()
+
+    fun setCustomDateRange(start: LocalDate?, end: LocalDate?) {
+        _customStartDate.value = start
+        _customEndDate.value = end
     }
 
     companion object {

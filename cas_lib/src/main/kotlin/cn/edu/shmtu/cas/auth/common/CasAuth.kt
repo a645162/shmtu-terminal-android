@@ -3,19 +3,22 @@ package cn.edu.shmtu.cas.auth.common
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
-
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.util.logging.Logger
 
 class CasAuth {
 
     companion object {
+        private val log = Logger.getLogger(CasAuth::class.java.name)
 
         fun getExecution(
             url: String = "https://cas.shmtu.edu.cn/cas/login",
             cookie: String = ""
         ): String {
+            log.info("[CasAuth] getExecution: url=$url, cookie=${cookie.take(30)}...")
+
             val client = OkHttpClient.Builder()
                 .followRedirects(false)
                 .followSslRedirects(false)
@@ -30,18 +33,20 @@ class CasAuth {
             val response = client.newCall(request).execute()
 
             val responseCode = response.code
+            log.info("[CasAuth] getExecution: responseCode=$responseCode")
 
             return if (responseCode == 200) {
                 val htmlCode = response.body?.string() ?: ""
+                log.info("[CasAuth] getExecution: htmlLength=${htmlCode.length}")
                 val document: Document = Jsoup.parse(htmlCode)
                 val element: Element? =
                     document.selectFirst("input[name=execution]")
                 val value: String = element?.attr("value") ?: ""
 
+                log.info("[CasAuth] getExecution: execution=${value.take(40)}...")
                 value.trim()
             } else {
-                // 处理错误
-                println("获取execution失败，状态码：$responseCode")
+                log.warning("[CasAuth] getExecution: failed, responseCode=$responseCode")
                 ""
             }
         }
@@ -54,6 +59,8 @@ class CasAuth {
             execution: String,
             cookie: String
         ): Triple<Int, String, String> {
+            log.info("[CasAuth] casLogin: url=$url, username=$username, validateCode=$validateCode, execution=${execution.take(30)}..., cookie=${cookie.take(30)}...")
+
             val client = OkHttpClient.Builder()
                 .followRedirects(false)
                 .followSslRedirects(false)
@@ -86,14 +93,15 @@ class CasAuth {
                 client.newCall(request).execute()
 
             val responseCode = response.code
+            log.info("[CasAuth] casLogin: responseCode=$responseCode")
 
             return if (responseCode == 302) {
-                // 重定向
                 val location =
                     response.header("Location") ?: ""
                 val newCookie =
                     response.header("Set-Cookie") ?: ""
 
+                log.info("[CasAuth] casLogin: success (302), location=${location.take(60)}..., newCookie=${newCookie.take(30)}...")
                 Triple(responseCode, location, newCookie)
             } else {
                 val htmlCode = response.body?.string() ?: ""
@@ -102,16 +110,16 @@ class CasAuth {
                     document.selectFirst("#loginErrorsPanel")
 
                 val errorText = element?.text() ?: ""
-                println("登录失败，错误信息：$errorText")
+                log.warning("[CasAuth] casLogin: failed, code=$responseCode, error=$errorText")
 
                 if (errorText.contains("account is not recognized")) {
-                    println("用户名或密码错误")
+                    log.warning("[CasAuth] casLogin: password error")
                     Triple(
                         CasAuthStatus.PASSWORD_ERROR.code,
                         htmlCode, ""
                     )
                 } else if (errorText.contains("reCAPTCHA")) {
-                    println("验证码错误")
+                    log.warning("[CasAuth] casLogin: captcha error")
                     Triple(
                         CasAuthStatus.VALIDATE_CODE_ERROR.code,
                         htmlCode, ""
@@ -125,15 +133,12 @@ class CasAuth {
             }
         }
 
-        /**
-         * 认证成功后用于重定向
-         * @param url 重定向地址
-         * @param cookie 重定向后的cookie
-         */
         fun casRedirect(
             url: String,
             cookie: String
         ): Triple<Int, String, String> {
+            log.info("[CasAuth] casRedirect: url=${url.take(80)}..., cookie=${cookie.take(30)}...")
+
             val client = OkHttpClient.Builder()
                 .followRedirects(false)
                 .followSslRedirects(false)
@@ -148,17 +153,18 @@ class CasAuth {
             val response = client.newCall(request).execute()
 
             val responseCode = response.code
+            log.info("[CasAuth] casRedirect: responseCode=$responseCode")
 
             return if (responseCode == 302) {
-                // 重定向
                 val location =
                     response.header("Location") ?: ""
                 val newCookie =
                     response.header("Set-Cookie") ?: ""
 
+                log.info("[CasAuth] casRedirect: success (302), location=${location.take(60)}..., newCookie=${newCookie.take(30)}...")
                 Triple(responseCode, location, newCookie)
             } else {
-                println("请求失败，状态码：$responseCode")
+                log.warning("[CasAuth] casRedirect: failed, responseCode=$responseCode")
                 Triple(responseCode, "", "")
             }
         }

@@ -4,6 +4,16 @@
 
 代码编写完成后记得使用gradle进行编译测试！
 
+## 利用 Android Lint 进行静态检查
+
+你可以在命令行中通过 Gradle 来运行 Lint 检查
+
+```bash
+./gradlew lint
+```
+
+注意Error与Warning都是需要处理的！
+
 ## Warning
 
 请尽量避免出现Warning，这样的代码是不安全的！

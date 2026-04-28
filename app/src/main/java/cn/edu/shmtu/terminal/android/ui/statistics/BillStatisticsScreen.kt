@@ -1,6 +1,7 @@
 package cn.edu.shmtu.terminal.android.ui.statistics
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -20,9 +23,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -47,6 +52,10 @@ import cn.edu.shmtu.terminal.android.domain.model.CategoryBreakdown
 import cn.edu.shmtu.terminal.android.domain.model.MonthlySummary
 import cn.edu.shmtu.terminal.android.domain.model.SpendingTrend
 import cn.edu.shmtu.terminal.android.domain.model.TargetUserRanking
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlin.math.abs
 import kotlin.math.min
 
@@ -71,6 +80,8 @@ fun BillStatisticsScreen(
     val categories by viewModel.categoryBreakdown.collectAsState()
     val ranking by viewModel.targetUserRanking.collectAsState()
     val monthly by viewModel.monthlySummary.collectAsState()
+    val customStart by viewModel.customStartDate.collectAsState()
+    val customEnd by viewModel.customEndDate.collectAsState()
     var selectedIdentityId by remember { mutableStateOf<Long?>(null) }
     var selectedPeriod by remember { mutableStateOf(TimePeriod.THIS_MONTH) }
 
@@ -106,6 +117,21 @@ fun BillStatisticsScreen(
                         viewModel.selectPeriod(it)
                     }
                 )
+            }
+
+            if (selectedPeriod == TimePeriod.CUSTOM) {
+                item {
+                    CustomDateRangeSelector(
+                        startDate = customStart,
+                        endDate = customEnd,
+                        onStartDateSelected = {
+                            viewModel.setCustomDateRange(it, customEnd)
+                        },
+                        onEndDateSelected = {
+                            viewModel.setCustomDateRange(customStart, it)
+                        }
+                    )
+                }
             }
 
             item { OverviewCards(overview) }
@@ -152,7 +178,7 @@ private fun TimePeriodSelector(
     selectedPeriod: TimePeriod,
     onPeriodSelected: (TimePeriod) -> Unit
 ) {
-    ScrollableTabRow(
+    PrimaryScrollableTabRow(
         selectedTabIndex = TimePeriod.entries.indexOf(selectedPeriod),
         edgePadding = 0.dp,
         divider = {}
@@ -483,5 +509,112 @@ private fun MonthlySummaryTable(data: List<MonthlySummary>) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CustomDateRangeSelector(
+    startDate: LocalDate?,
+    endDate: LocalDate?,
+    onStartDateSelected: (LocalDate?) -> Unit,
+    onEndDateSelected: (LocalDate?) -> Unit
+) {
+    var showStartPicker by remember { mutableStateOf(false) }
+    var showEndPicker by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        ElevatedCard(
+            modifier = Modifier
+                .weight(1f)
+                .clickable { showStartPicker = true },
+            colors = CardDefaults.elevatedCardColors()
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text("开始日期", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    text = startDate?.format(DateTimeFormatter.ofPattern("yyyy-MM-dd")) ?: "点击选择",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (startDate != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+        ElevatedCard(
+            modifier = Modifier
+                .weight(1f)
+                .clickable { showEndPicker = true },
+            colors = CardDefaults.elevatedCardColors()
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text("结束日期", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    text = endDate?.format(DateTimeFormatter.ofPattern("yyyy-MM-dd")) ?: "点击选择",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (endDate != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+    }
+
+    if (showStartPicker) {
+        DatePickerModal(
+            initialDate = startDate,
+            onDateSelected = {
+                onStartDateSelected(it)
+                showStartPicker = false
+            },
+            onDismiss = { showStartPicker = false }
+        )
+    }
+
+    if (showEndPicker) {
+        DatePickerModal(
+            initialDate = endDate,
+            onDateSelected = {
+                onEndDateSelected(it)
+                showEndPicker = false
+            },
+            onDismiss = { showEndPicker = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DatePickerModal(
+    initialDate: LocalDate?,
+    onDateSelected: (LocalDate?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val initialMillis = initialDate?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
+    val state = rememberDatePickerState(
+        initialSelectedDateMillis = initialMillis
+    )
+
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val selected = state.selectedDateMillis?.let { millis ->
+                        Instant.ofEpochMilli(millis)
+                            .atZone(ZoneId.systemDefault())
+                            .toLocalDate()
+                    }
+                    onDateSelected(selected)
+                }
+            ) {
+                Text("确定")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    ) {
+        DatePicker(state = state)
     }
 }

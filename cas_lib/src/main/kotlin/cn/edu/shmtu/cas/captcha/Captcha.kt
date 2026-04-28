@@ -9,10 +9,12 @@ import okhttp3.Request
 import okio.IOException
 import java.net.SocketTimeoutException
 import java.io.BufferedInputStream
+import java.util.logging.Logger
 
 class Captcha {
 
     companion object {
+        private val log = Logger.getLogger(Captcha::class.java.name)
 
         fun validateIPAddress(ip: String): Boolean {
             val ipAddressPattern = Regex(
@@ -69,16 +71,17 @@ class Captcha {
                 val response = client.newCall(request).execute()
 
                 if (!response.isSuccessful) {
-                    println("请求失败，状态码：${response.code}")
+                    log.warning("[Captcha] getImageDataFromUrlUsingGet: request failed, code=${response.code}")
                     return null
                 }
 
                 val returnCookie =
                     response.headers["Set-Cookie"] ?: (cookie ?: "")
 
+                log.info("[Captcha] getImageDataFromUrlUsingGet: success, cookie=${returnCookie.take(30)}...")
                 return Pair(response.body?.bytes(), returnCookie)
             } catch (e: IOException) {
-                println("请求失败：${e.message}")
+                log.warning("[Captcha] getImageDataFromUrlUsingGet: IOException: ${e.message}")
                 return null
             }
         }
@@ -87,11 +90,11 @@ class Captcha {
             host: String, port: Int,
             imageData: ByteArray
         ): String {
-            println("[RemoteOCR] Connecting to $host:$port, imageData size: ${imageData.size} bytes")
+            log.info("[Captcha] ocrByRemoteTcp: connecting to $host:$port, imageData size: ${imageData.size} bytes")
             try {
                 Socket(host, port).use { socket ->
                     socket.soTimeout = 10000
-                    println("[RemoteOCR] Socket connected, remote address: ${socket.remoteSocketAddress}")
+                    log.info("[Captcha] ocrByRemoteTcp: socket connected, remote=${socket.remoteSocketAddress}")
 
                     val outputStream = socket.getOutputStream()
                     val dataOutputStream = DataOutputStream(outputStream)
@@ -102,20 +105,20 @@ class Captcha {
                     val endMarker = "<END>".toByteArray(Charsets.UTF_8)
                     outputStream.write(endMarker)
                     outputStream.flush()
-                    println("[RemoteOCR] Image data sent (${imageData.size} + ${endMarker.size} bytes), waiting for response...")
+                    log.info("[Captcha] ocrByRemoteTcp: data sent (${imageData.size} + ${endMarker.size} bytes), waiting...")
 
                     try {
                         val inputStream = socket.getInputStream()
                         val response = inputStream.readBytes().toString(Charsets.UTF_8)
-                        println("[RemoteOCR] Response received: '$response' (length=${response.length})")
+                        log.info("[Captcha] ocrByRemoteTcp: response='$response' (length=${response.length})")
                         return response
                     } catch (e: SocketTimeoutException) {
-                        println("[RemoteOCR] Socket timeout while reading response")
+                        log.warning("[Captcha] ocrByRemoteTcp: socket timeout while reading response")
                         return ""
                     }
                 }
             } catch (e: Exception) {
-                println("[RemoteOCR] Connection failed: ${e.javaClass.simpleName}: ${e.message}")
+                log.warning("[Captcha] ocrByRemoteTcp: connection failed: ${e.javaClass.simpleName}: ${e.message}")
                 throw e
             }
         }
@@ -127,29 +130,28 @@ class Captcha {
         ): String {
             var result: String = ""
 
-            println("[RemoteOCR] Starting auto retry: host=$host, port=$port, retryTimes=$retryTimes, imageData size=${imageData.size}")
+            log.info("[Captcha] ocrAutoRetry: host=$host, port=$port, retryTimes=$retryTimes, imageData size=${imageData.size}")
 
             for (i in 1..retryTimes) {
-                println("[RemoteOCR] Attempt $i/$retryTimes")
+                log.info("[Captcha] ocrAutoRetry: attempt $i/$retryTimes")
                 try {
                     result = ocrByRemoteTcpServer(host, port, imageData)
-                    println("[RemoteOCR] Attempt $i result: '$result'")
+                    log.info("[Captcha] ocrAutoRetry: attempt $i result='$result'")
                 } catch (e: Exception) {
-                    println("[RemoteOCR] Attempt $i failed: ${e.javaClass.simpleName}: ${e.message}")
-                    e.printStackTrace()
+                    log.warning("[Captcha] ocrAutoRetry: attempt $i failed: ${e.javaClass.simpleName}: ${e.message}")
                     continue
                 }
 
                 if (result.isNotEmpty()) {
-                    println("[RemoteOCR] Success on attempt $i")
+                    log.info("[Captcha] ocrAutoRetry: success on attempt $i")
                     break
                 } else {
-                    println("[RemoteOCR] Attempt $i returned empty result, will retry")
+                    log.warning("[Captcha] ocrAutoRetry: attempt $i returned empty, will retry")
                 }
             }
 
             if (result.isEmpty()) {
-                println("[RemoteOCR] All $retryTimes attempts failed, returning empty result")
+                log.warning("[Captcha] ocrAutoRetry: all $retryTimes attempts failed")
             }
 
             return result

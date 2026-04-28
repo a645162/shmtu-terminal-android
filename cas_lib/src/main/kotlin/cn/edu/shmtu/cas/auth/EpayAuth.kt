@@ -4,8 +4,13 @@ import cn.edu.shmtu.cas.auth.common.CasAuth
 import cn.edu.shmtu.cas.captcha.Captcha
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.util.logging.Logger
 
 class EpayAuth {
+
+    private companion object {
+        val log = Logger.getLogger(EpayAuth::class.java.name)
+    }
 
     private var _epayCookie = ""
     private var _htmlCode = ""
@@ -54,6 +59,8 @@ class EpayAuth {
             this._epayCookie
         }
 
+        log.info("[EpayAuth] getBill: url=$url, cookie=${finalCookie.take(30)}...")
+
         val request = Request.Builder()
             .url(url)
             .addHeader("Cookie", finalCookie)
@@ -63,16 +70,16 @@ class EpayAuth {
         val response = client.newCall(request).execute()
 
         val responseCode = response.code
+        log.info("[EpayAuth] getBill: responseCode=$responseCode")
 
         return if (responseCode == 200) {
             this._htmlCode = (response.body?.string() ?: "").trim()
-
+            log.info("[EpayAuth] getBill: success, htmlLength=${_htmlCode.length}")
             Triple(responseCode, this._htmlCode, cookie)
         } else if (responseCode == 302) {
             val location =
                 response.header("Location") ?: ""
 
-            // Get all "Set-Cookie" Header
             val setCookieHeaders: List<String> =
                 response.headers.values("Set-Cookie")
 
@@ -84,31 +91,34 @@ class EpayAuth {
             }
 
             this._epayCookie = newCookie
+            log.info("[EpayAuth] getBill: 302 redirect, location=$location, newCookie=${newCookie.take(30)}...")
 
             Triple(responseCode, location, newCookie)
         } else {
+            log.warning("[EpayAuth] getBill: unexpected code=$responseCode")
             Triple(responseCode, "", "")
         }
     }
 
     fun testLoginStatus(): Boolean {
+        log.info("[EpayAuth] testLoginStatus: start, epayCookie=${_epayCookie.take(30)}...")
         val resultBill =
             getBill(cookie = this._epayCookie)
 
         if (resultBill.first == 200) {
-            // OK
+            log.info("[EpayAuth] testLoginStatus: already logged in (200)")
             return true
         } else if (resultBill.first == 302) {
             this._loginUrl =
                 resultBill.second
             this._epayCookie =
                 resultBill.third
-            // Clear stale session data - CAS execution is one-time use
-            this._loginCookie = ""
-            this._execution = ""
+            log.info("[EpayAuth] testLoginStatus: not logged in (302), loginUrl=${_loginUrl.take(60)}..., epayCookie=${_epayCookie.take(30)}...")
+            log.info("[EpayAuth] testLoginStatus: preserved loginCookie=${_loginCookie.take(30)}..., execution=${_execution.take(30)}...")
 
             return false
         } else {
+            log.warning("[EpayAuth] testLoginStatus: unexpected code=${resultBill.first}")
             return false
         }
     }
@@ -117,18 +127,22 @@ class EpayAuth {
         username: String,
         password: String
     ): Boolean {
+        log.info("[EpayAuth] login: start, username=$username")
 
         if (this._loginUrl.isBlank() || this._epayCookie.isBlank()) {
             if (testLoginStatus()) {
+                log.info("[EpayAuth] login: already logged in via testLoginStatus")
                 return true
             }
         }
 
+        log.info("[EpayAuth] login: getting execution, loginUrl=${_loginUrl.take(60)}..., epayCookie=${_epayCookie.take(30)}...")
         val executionStr =
             CasAuth.getExecution(
                 this._loginUrl,
                 this._epayCookie
             )
+        log.info("[EpayAuth] login: execution=$executionStr")
 
         // 下载验证码
         val resultCaptcha =
@@ -138,13 +152,14 @@ class EpayAuth {
 
         // 检验下载的数据
         if (resultCaptcha == null) {
-            println("获取验证码图片失败")
+            log.warning("[EpayAuth] login: failed to get captcha image data")
             return false
         }
         val imageData = resultCaptcha.first
         this._loginCookie = resultCaptcha.second
+        log.info("[EpayAuth] login: captcha downloaded, loginCookie=${_loginCookie.take(30)}...")
         if (imageData == null) {
-            println("获取验证码失败")
+            log.warning("[EpayAuth] login: captcha image data is null")
             return false
         }
 
@@ -156,6 +171,7 @@ class EpayAuth {
             )
         val exprResult =
             Captcha.getExprResultByExprString(validateCode)
+        log.info("[EpayAuth] login: OCR result='$validateCode', exprResult='$exprResult'")
 
         val resultCas =
             CasAuth.casLogin(
@@ -168,11 +184,12 @@ class EpayAuth {
             )
 
         if (resultCas.first != 302) {
-            println("程序出错，状态码：${resultCas.first}")
+            log.warning("[EpayAuth] login: CAS login failed, code=${resultCas.first}")
             return false
         }
 
         this._loginCookie = resultCas.third
+        log.info("[EpayAuth] login: CAS login success (302), redirectUrl=${resultCas.second.take(60)}..., loginCookie=${_loginCookie.take(30)}...")
 
         val resultRedirect =
             CasAuth.casRedirect(
@@ -181,15 +198,18 @@ class EpayAuth {
             )
 
         if (resultRedirect.first != 302) {
-            println("Login Ok,but cannot redirect to bill page.")
-            println("Status code：${resultRedirect.first}")
+            log.warning("[EpayAuth] login: CAS redirect failed, code=${resultRedirect.first}")
             return false
         }
+
+        log.info("[EpayAuth] login: CAS redirect success (302), location=${resultRedirect.second.take(60)}...")
 
         val resultBill =
             getBill(cookie = this._epayCookie)
 
-        return resultBill.first == 200
+        val success = resultBill.first == 200
+        log.info("[EpayAuth] login: final getBill result code=${resultBill.first}, success=$success")
+        return success
     }
 
     fun loginWithCaptcha(
@@ -197,15 +217,25 @@ class EpayAuth {
         password: String,
         captchaCode: String
     ): Boolean {
+        log.info("[EpayAuth] loginWithCaptcha: start, username=$username, captchaCode=$captchaCode")
+        log.info("[EpayAuth] loginWithCaptcha: initial state, loginUrl=${_loginUrl.take(60)}..., epayCookie=${_epayCookie.take(30)}..., loginCookie=${_loginCookie.take(30)}..., execution=${_execution.take(30)}...")
+
         if (_loginUrl.isBlank() || _epayCookie.isBlank()) {
+            log.info("[EpayAuth] loginWithCaptcha: loginUrl or epayCookie is blank, calling testLoginStatus")
             if (testLoginStatus()) {
+                log.info("[EpayAuth] loginWithCaptcha: already logged in via testLoginStatus")
                 return true
             }
+            log.info("[EpayAuth] loginWithCaptcha: after testLoginStatus, loginUrl=${_loginUrl.take(60)}..., epayCookie=${_epayCookie.take(30)}..., loginCookie=${_loginCookie.take(30)}..., execution=${_execution.take(30)}...")
         }
 
         if (_execution.isBlank()) {
+            log.info("[EpayAuth] loginWithCaptcha: execution is blank, fetching from CAS")
             _execution = CasAuth.getExecution(_loginUrl, _epayCookie)
+            log.info("[EpayAuth] loginWithCaptcha: got execution=${_execution.take(40)}...")
         }
+
+        log.info("[EpayAuth] loginWithCaptcha: calling casLogin with url=${_loginUrl.take(60)}..., execution=${_execution.take(30)}..., loginCookie=${_loginCookie.take(30)}...")
 
         val resultCas = CasAuth.casLogin(
             _loginUrl,
@@ -216,25 +246,34 @@ class EpayAuth {
             _loginCookie
         )
 
+        log.info("[EpayAuth] loginWithCaptcha: casLogin result code=${resultCas.first}, location=${resultCas.second.take(60)}..., cookie=${resultCas.third.take(30)}...")
+
         if (resultCas.first != 302) {
-            println("[EpayAuth] CAS login failed, code: ${resultCas.first}")
+            log.warning("[EpayAuth] loginWithCaptcha: CAS login failed, code=${resultCas.first}, body=${resultCas.second.take(200)}...")
             return false
         }
 
         _loginCookie = resultCas.third
+        _execution = ""
+
+        log.info("[EpayAuth] loginWithCaptcha: CAS login success, calling casRedirect with url=${resultCas.second.take(60)}..., epayCookie=${_epayCookie.take(30)}...")
 
         val resultRedirect = CasAuth.casRedirect(
             resultCas.second,
             _epayCookie
         )
 
+        log.info("[EpayAuth] loginWithCaptcha: casRedirect result code=${resultRedirect.first}, location=${resultRedirect.second.take(60)}..., cookie=${resultRedirect.third.take(30)}...")
+
         if (resultRedirect.first != 302) {
-            println("[EpayAuth] CAS redirect failed, code: ${resultRedirect.first}")
+            log.warning("[EpayAuth] loginWithCaptcha: CAS redirect failed, code=${resultRedirect.first}")
             return false
         }
 
         val resultBill = getBill(cookie = _epayCookie)
-        return resultBill.first == 200
+        val success = resultBill.first == 200
+        log.info("[EpayAuth] loginWithCaptcha: final getBill code=${resultBill.first}, success=$success")
+        return success
     }
 
 }
