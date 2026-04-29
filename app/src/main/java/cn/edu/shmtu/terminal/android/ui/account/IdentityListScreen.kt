@@ -22,6 +22,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -74,7 +76,7 @@ fun IdentityListScreen(
                 onClick = { showAddDialog = true },
                 icon = {
                     Icon(
-                        painter = painterResource(R.drawable.ic_person_add),
+                        imageVector = Icons.Default.PersonAdd,
                         contentDescription = null
                     )
                 },

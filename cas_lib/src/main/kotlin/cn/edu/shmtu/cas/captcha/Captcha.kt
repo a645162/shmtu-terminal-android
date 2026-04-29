@@ -16,6 +16,9 @@ class Captcha {
     companion object {
         private val log = Logger.getLogger(Captcha::class.java.name)
 
+        var ocrHost: String = "127.0.0.1"
+        var ocrPort: Int = 21601
+
         fun validateIPAddress(ip: String): Boolean {
             val ipAddressPattern = Regex(
                 "^([01]?\\d\\d?|2[0-4]\\d|25[0-5])\\." +

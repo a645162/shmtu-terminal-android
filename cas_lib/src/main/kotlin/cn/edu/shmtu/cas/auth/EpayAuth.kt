@@ -229,11 +229,9 @@ class EpayAuth {
             log.info("[EpayAuth] loginWithCaptcha: after testLoginStatus, loginUrl=${_loginUrl.take(60)}..., epayCookie=${_epayCookie.take(30)}..., loginCookie=${_loginCookie.take(30)}..., execution=${_execution.take(30)}...")
         }
 
-        if (_execution.isBlank()) {
-            log.info("[EpayAuth] loginWithCaptcha: execution is blank, fetching from CAS")
-            _execution = CasAuth.getExecution(_loginUrl, _epayCookie)
-            log.info("[EpayAuth] loginWithCaptcha: got execution=${_execution.take(40)}...")
-        }
+        log.info("[EpayAuth] loginWithCaptcha: fetching execution from CAS")
+        _execution = CasAuth.getExecution(_loginUrl, _epayCookie)
+        log.info("[EpayAuth] loginWithCaptcha: got execution=${_execution.take(40)}...")
 
         log.info("[EpayAuth] loginWithCaptcha: calling casLogin with url=${_loginUrl.take(60)}..., execution=${_execution.take(30)}..., loginCookie=${_loginCookie.take(30)}...")
 

@@ -5,6 +5,7 @@ import androidx.room.Room
 import cn.edu.shmtu.terminal.android.data.local.db.BillDatabaseManager
 import cn.edu.shmtu.terminal.android.data.local.db.MainDatabase
 import cn.edu.shmtu.terminal.android.data.local.db.dao.AccountDao
+import cn.edu.shmtu.terminal.android.data.local.db.dao.FollowedBuildingDao
 import cn.edu.shmtu.terminal.android.data.local.db.dao.IdentityDao
 import dagger.Module
 import dagger.Provides
@@ -37,6 +38,11 @@ object DatabaseModule {
     @Provides
     fun provideAccountDao(database: MainDatabase): AccountDao {
         return database.accountDao()
+    }
+
+    @Provides
+    fun provideFollowedBuildingDao(database: MainDatabase): FollowedBuildingDao {
+        return database.followedBuildingDao()
     }
 
     @Provides

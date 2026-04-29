@@ -1,6 +1,8 @@
 package cn.edu.shmtu.terminal.android.ui.account
 
+import android.graphics.BitmapFactory
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -11,23 +13,34 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -35,6 +48,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -43,8 +57,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.R
@@ -56,15 +75,24 @@ import cn.edu.shmtu.terminal.android.domain.model.LoginStatus
 fun IdentityDetailScreen(
     identityId: Long,
     onAddAccount: () -> Unit,
-    onLoginAccount: (Long) -> Unit,
     onBack: () -> Unit,
     viewModel: IdentityDetailViewModel = hiltViewModel()
 ) {
     val accounts by viewModel.accounts.collectAsState()
     val editingAccount by viewModel.editingAccount.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
     var expandedMenuAccount by remember { mutableLongStateOf(-1L) }
-
     var confirmingDelete by remember { mutableStateOf<Account?>(null) }
+    var captchaInput by remember { mutableStateOf("") }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val focusManager = LocalFocusManager.current
+
+    LaunchedEffect(uiState.syncMessage) {
+        uiState.syncMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearSyncMessage()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -85,52 +113,65 @@ fun IdentityDetailScreen(
                 onClick = onAddAccount,
                 icon = {
                     Icon(
-                        painter = painterResource(R.drawable.ic_person_add),
+                        imageVector = Icons.Default.PersonAdd,
                         contentDescription = null
                     )
                 },
                 text = { Text("添加账号") }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
-        if (accounts.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "暂无账号",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "点击右下角按钮添加账号",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            if (accounts.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "暂无账号",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "点击右下角按钮添加账号",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(accounts, key = { it.id }) { account ->
+                        SwipeableAccountCard(
+                            account = account,
+                            onRefresh = { viewModel.refreshAccountBills(account) },
+                            onEdit = { viewModel.startEditAccount(account) },
+                            onDelete = { confirmingDelete = account },
+                            onLongClick = {
+                                expandedMenuAccount = if (expandedMenuAccount == account.id) -1L else account.id
+                            },
+                            expanded = expandedMenuAccount == account.id,
+                            onDismissMenu = { expandedMenuAccount = -1L }
+                        )
+                    }
                 }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.padding(innerPadding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(accounts, key = { it.id }) { account ->
-                    SwipeableAccountCard(
-                        account = account,
-                        onLogin = { onLoginAccount(account.id) },
-                        onEdit = { viewModel.startEditAccount(account) },
-                        onDelete = { confirmingDelete = account },
-                        onLongClick = {
-                            expandedMenuAccount = if (expandedMenuAccount == account.id) -1L else account.id
-                        },
-                        expanded = expandedMenuAccount == account.id,
-                        onDismissMenu = { expandedMenuAccount = -1L }
-                    )
+
+            if (uiState.isSyncing) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
                 }
             }
         }
@@ -168,13 +209,103 @@ fun IdentityDetailScreen(
             }
         )
     }
+
+    if (uiState.showCaptchaDialog) {
+        CaptchaDialog(
+            captchaImage = uiState.captchaImage,
+            captchaInput = captchaInput,
+            onCaptchaInputChange = { captchaInput = it },
+            onConfirm = {
+                if (captchaInput.isNotBlank()) {
+                    viewModel.submitCaptcha(captchaInput)
+                    captchaInput = ""
+                }
+            },
+            onDismiss = {
+                viewModel.dismissCaptchaDialog()
+                captchaInput = ""
+            },
+            focusManager = focusManager
+        )
+    }
+}
+
+@Composable
+private fun CaptchaDialog(
+    captchaImage: ByteArray?,
+    captchaInput: String,
+    onCaptchaInputChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    focusManager: FocusManager
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("请输入验证码") },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "请输入下方验证码的计算结果",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                captchaImage?.let { imageData ->
+                    val bitmap = remember(imageData) {
+                        BitmapFactory.decodeByteArray(imageData, 0, imageData.size)
+                    }
+                    bitmap?.let {
+                        Image(
+                            bitmap = it.asImageBitmap(),
+                            contentDescription = "验证码图片",
+                            modifier = Modifier.height(80.dp)
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = captchaInput,
+                    onValueChange = onCaptchaInputChange,
+                    label = { Text("计算结果") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            focusManager.clearFocus()
+                            onConfirm()
+                        }
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                enabled = captchaInput.isNotBlank()
+            ) {
+                Text("确认")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SwipeableAccountCard(
     account: Account,
-    onLogin: () -> Unit,
+    onRefresh: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onLongClick: () -> Unit,
@@ -205,8 +336,6 @@ private fun SwipeableAccountCard(
         offset < 0f -> SwipeToDismissBoxValue.EndToStart
         else -> SwipeToDismissBoxValue.Settled
     }
-
-    val loginLabel = if (account.loginStatus == LoginStatus.LOGGED_IN) "重新登录" else "登录"
 
     SwipeToDismissBox(
         state = dismissState,
@@ -263,7 +392,7 @@ private fun SwipeableAccountCard(
     ) {
         Card(
             modifier = Modifier.combinedClickable(
-                onClick = onLogin,
+                onClick = onRefresh,
                 onLongClick = onLongClick
             ),
             colors = CardDefaults.elevatedCardColors()
@@ -302,10 +431,10 @@ private fun SwipeableAccountCard(
                     onDismissRequest = onDismissMenu
                 ) {
                     DropdownMenuItem(
-                        text = { Text(loginLabel) },
+                        text = { Text("刷新账单") },
                         onClick = {
                             onDismissMenu()
-                            onLogin()
+                            onRefresh()
                         }
                     )
                     DropdownMenuItem(

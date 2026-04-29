@@ -17,7 +17,9 @@
       "mcp__fetch__fetch",
       "mcp__plugin_everything-claude-code_exa__web_fetch_exa",
       "Read(//home/konghaomin/Android/Sdk/build-tools/**)",
-      "Read(//opt/android-sdk/**)"
+      "Read(//opt/android-sdk/**)",
+      "Bash(bash gradlew *)",
+      "Bash(chmod +x gradlew)"
     ],
     "deny": [],
     "ask": []

@@ -71,12 +71,30 @@ class SecureStorage @Inject constructor(
         prefs.edit().remove("account_login_cookie_$accountId").apply()
     }
 
+    fun saveWechatCookie(accountId: Long, cookie: String) {
+        prefs.edit().putString("account_wechat_cookie_$accountId", cookie).apply()
+    }
+
+    fun getWechatCookie(accountId: Long): String? {
+        return prefs.getString("account_wechat_cookie_$accountId", null)
+    }
+
+    fun saveWechatLoginUrl(accountId: Long, url: String) {
+        prefs.edit().putString("account_wechat_login_url_$accountId", url).apply()
+    }
+
+    fun getWechatLoginUrl(accountId: Long): String? {
+        return prefs.getString("account_wechat_login_url_$accountId", null)
+    }
+
     fun clearAccountData(accountId: Long) {
         prefs.edit()
             .remove("account_password_$accountId")
             .remove("account_epay_cookie_$accountId")
             .remove("account_login_url_$accountId")
             .remove("account_login_cookie_$accountId")
+            .remove("account_wechat_cookie_$accountId")
+            .remove("account_wechat_login_url_$accountId")
             .apply()
     }
 }

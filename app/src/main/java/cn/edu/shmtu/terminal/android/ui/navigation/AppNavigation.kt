@@ -11,6 +11,7 @@ import cn.edu.shmtu.terminal.android.ui.account.IdentityDetailScreen
 import cn.edu.shmtu.terminal.android.ui.account.IdentityListScreen
 import cn.edu.shmtu.terminal.android.ui.account.LoginScreen
 import cn.edu.shmtu.terminal.android.ui.bill.BillDetailScreen
+import cn.edu.shmtu.terminal.android.ui.hotwater.HotWaterScreen
 import cn.edu.shmtu.terminal.android.ui.bill.BillListScreen
 import cn.edu.shmtu.terminal.android.ui.features.FeatureHubScreen
 import cn.edu.shmtu.terminal.android.ui.home.HomeScreen
@@ -45,7 +46,8 @@ fun AppNavigation(
         }
         composable(TopLevelDestination.FEATURES.route) {
             FeatureHubScreen(
-                onNavigateToBillStatistics = { navController.navigate("bill_statistics") }
+                onNavigateToBillStatistics = { navController.navigate("bill_statistics") },
+                onNavigateToHotWater = { navController.navigate("hot_water") }
             )
         }
         composable(TopLevelDestination.ACCOUNT.route) {
@@ -73,6 +75,11 @@ fun AppNavigation(
                 onBack = { navController.popBackStack() }
             )
         }
+        composable("hot_water") {
+            HotWaterScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
         composable("about") {
             AboutScreen(
                 onBack = { navController.popBackStack() }
@@ -91,9 +98,6 @@ fun AppNavigation(
             IdentityDetailScreen(
                 identityId = identityId,
                 onAddAccount = { navController.navigate("add_account/$identityId") },
-                onLoginAccount = { accountId ->
-                    navController.navigate("login/$accountId")
-                },
                 onBack = { navController.popBackStack() }
             )
         }

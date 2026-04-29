@@ -25,7 +25,6 @@ data class LoginUiState(
     val isLoading: Boolean = false,
     val captchaImage: ByteArray? = null,
     val loginUrl: String = "",
-    val execution: String = "",
     val error: String? = null,
     val loginSuccess: Boolean = false,
     val isRecognizing: Boolean = false,
@@ -84,17 +83,10 @@ class LoginViewModel @Inject constructor(
                 // Store captcha session cookie back to EpayAuth for later login
                 epayAuth.setLoginCookie(captchaResult.cookie)
 
-                val execution = casAuthAdapter.getExecution(loginUrl, captchaResult.cookie)
-                Log.d(TAG, "Got execution: $execution")
-
-                // Store execution back to EpayAuth for later login
-                epayAuth.setExecution(execution)
-
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     captchaImage = captchaResult.imageData,
-                    loginUrl = loginUrl,
-                    execution = execution
+                    loginUrl = loginUrl
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Error during initialization", e)
