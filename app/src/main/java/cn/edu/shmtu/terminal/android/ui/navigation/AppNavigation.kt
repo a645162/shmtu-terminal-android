@@ -46,8 +46,7 @@ fun AppNavigation(
         }
         composable(TopLevelDestination.FEATURES.route) {
             FeatureHubScreen(
-                onNavigateToBillStatistics = { navController.navigate("bill_statistics") },
-                onNavigateToHotWater = { navController.navigate("hot_water") }
+                onNavigateToBillStatistics = { navController.navigate("bill_statistics") }
             )
         }
         composable(TopLevelDestination.ACCOUNT.route) {
@@ -75,8 +74,13 @@ fun AppNavigation(
                 onBack = { navController.popBackStack() }
             )
         }
-        composable("hot_water") {
+        composable(
+            "hot_water/{accountId}",
+            arguments = listOf(navArgument("accountId") { type = androidx.navigation.NavType.StringType })
+        ) { backStackEntry ->
+            val accountId = backStackEntry.arguments?.getString("accountId")?.toLongOrNull() ?: return@composable
             HotWaterScreen(
+                accountId = accountId,
                 onBack = { navController.popBackStack() }
             )
         }
@@ -98,6 +102,9 @@ fun AppNavigation(
             IdentityDetailScreen(
                 identityId = identityId,
                 onAddAccount = { navController.navigate("add_account/$identityId") },
+                onHotWater = { accountId ->
+                    navController.navigate("hot_water/$accountId")
+                },
                 onBack = { navController.popBackStack() }
             )
         }

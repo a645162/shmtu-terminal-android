@@ -58,6 +58,7 @@ class LoginViewModel @Inject constructor(
                 val isLoggedIn = epayAdapter.testLoginStatus(accountId)
                 Log.d(TAG, "testLoginStatus result: $isLoggedIn")
                 if (isLoggedIn) {
+                    accountRepository.updateLoginStatus(accountId, "LOGGED_IN")
                     _uiState.value = _uiState.value.copy(isLoading = false, loginSuccess = true)
                     return@launch
                 }
@@ -128,6 +129,7 @@ class LoginViewModel @Inject constructor(
 
                 if (success) {
                     Log.d(TAG, "Login successful!")
+                    accountRepository.updateLoginStatus(currentAccountId, "LOGGED_IN")
                     _uiState.value = _uiState.value.copy(isLoading = false, loginSuccess = true)
                 } else {
                     Log.d(TAG, "Login failed - wrong captcha or session expired")

@@ -13,10 +13,41 @@ class CasAuth {
     companion object {
         private val log = Logger.getLogger(CasAuth::class.java.name)
 
+        private fun extractCookieName(setCookieValue: String): String {
+            val eqIdx = setCookieValue.indexOf('=')
+            return if (eqIdx > 0) setCookieValue.substring(0, eqIdx).trim() else ""
+        }
+
+        private fun extractCookieNameValue(setCookieValue: String): String {
+            val semiIdx = setCookieValue.indexOf(';')
+            return if (semiIdx > 0) setCookieValue.substring(0, semiIdx).trim() else setCookieValue.trim()
+        }
+
+        fun mergeCookies(existingCookie: String, setCookieHeaders: List<String>): String {
+            if (setCookieHeaders.isEmpty()) return existingCookie
+
+            val cookieMap = linkedMapOf<String, String>()
+
+            existingCookie.split(";").map { it.trim() }.filter { it.contains("=") }.forEach {
+                val name = it.substringBefore("=").trim()
+                val value = it.trim()
+                cookieMap[name] = value
+            }
+
+            for (setCookie in setCookieHeaders) {
+                val name = extractCookieName(setCookie)
+                if (name.isNotEmpty()) {
+                    cookieMap[name] = extractCookieNameValue(setCookie)
+                }
+            }
+
+            return cookieMap.values.joinToString("; ")
+        }
+
         fun getExecution(
             url: String = "https://cas.shmtu.edu.cn/cas/login",
             cookie: String = ""
-        ): String {
+        ): Pair<String, String> {
             log.info("[CasAuth] getExecution: url=$url, cookie=${cookie.take(30)}...")
 
             val client = OkHttpClient.Builder()
@@ -43,11 +74,15 @@ class CasAuth {
                     document.selectFirst("input[name=execution]")
                 val value: String = element?.attr("value") ?: ""
 
-                log.info("[CasAuth] getExecution: execution=${value.take(40)}...")
-                value.trim()
+                val jSessionId = response.headers("Set-Cookie")
+                    .firstOrNull { it.contains("JSESSIONID") }
+                    ?: cookie
+
+                log.info("[CasAuth] getExecution: execution=${value.take(40)}..., jSessionId=${jSessionId.take(40)}...")
+                Pair(value.trim(), jSessionId)
             } else {
                 log.warning("[CasAuth] getExecution: failed, responseCode=$responseCode")
-                ""
+                Pair("", "")
             }
         }
 
@@ -98,8 +133,7 @@ class CasAuth {
             return if (responseCode == 302) {
                 val location =
                     response.header("Location") ?: ""
-                val newCookie =
-                    response.header("Set-Cookie") ?: ""
+                val newCookie = mergeCookies(cookie, response.headers("Set-Cookie"))
 
                 log.info("[CasAuth] casLogin: success (302), location=${location.take(60)}..., newCookie=${newCookie.take(30)}...")
                 Triple(responseCode, location, newCookie)
@@ -158,8 +192,7 @@ class CasAuth {
             return if (responseCode == 302) {
                 val location =
                     response.header("Location") ?: ""
-                val newCookie =
-                    response.header("Set-Cookie") ?: ""
+                val newCookie = mergeCookies(cookie, response.headers("Set-Cookie"))
 
                 log.info("[CasAuth] casRedirect: success (302), location=${location.take(60)}..., newCookie=${newCookie.take(30)}...")
                 Triple(responseCode, location, newCookie)

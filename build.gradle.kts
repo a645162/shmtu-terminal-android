@@ -13,8 +13,8 @@ extra["jdkVersion"] = JavaVersion.VERSION_21
 extra["ndkVersion"] = "30.0.14904198"
 extra["sdkVersion"] = 37
 extra["buildToolsVersion"] = "37.0.0"
-extra["appVersionCode"] = 120
-extra["appVersionName"] = "1.2.0"
+extra["appVersionCode"] = 130
+extra["appVersionName"] = "1.3.0"
 
 //fun isNonStable(version: String): Boolean {
 //    val stableKeyword = listOf("RELEASE", "FINAL", "GA").any {

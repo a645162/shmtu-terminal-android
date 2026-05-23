@@ -27,10 +27,10 @@ class CasAuthAdapter @Inject constructor() {
         const val TAG = "CasAuthAdapter"
     }
 
-    suspend fun getExecution(url: String, cookie: String): String = withContext(Dispatchers.IO) {
+    suspend fun getExecution(url: String, cookie: String): Pair<String, String> = withContext(Dispatchers.IO) {
         Log.d(TAG, "getExecution: url=$url, cookie=${cookie.take(30)}...")
         val result = CasAuth.getExecution(url, cookie)
-        Log.d(TAG, "getExecution: result=${result.take(40)}...")
+        Log.d(TAG, "getExecution: execution=${result.first.take(40)}..., sessionId=${result.second.take(40)}...")
         result
     }
 

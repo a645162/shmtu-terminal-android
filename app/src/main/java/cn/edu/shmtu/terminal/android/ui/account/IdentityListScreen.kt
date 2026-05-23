@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -29,6 +31,8 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -36,6 +40,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -59,11 +64,20 @@ fun IdentityListScreen(
     viewModel: IdentityListViewModel = hiltViewModel()
 ) {
     val identities by viewModel.identities.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
     val editingIdentity by viewModel.editingIdentity.collectAsState()
     val editingDetailsIdentity by viewModel.editingDetailsIdentity.collectAsState()
     val deletingIdentity by viewModel.deletingIdentity.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var expandedMenuIdentity by remember { mutableLongStateOf(-1L) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(uiState.syncMessage) {
+        uiState.syncMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearSyncMessage()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -71,6 +85,7 @@ fun IdentityListScreen(
                 title = { Text("账号管理") }
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { showAddDialog = true },
@@ -113,7 +128,10 @@ fun IdentityListScreen(
                 items(identities, key = { it.id }) { identity ->
                     SwipeableIdentityCard(
                         identity = identity,
-                        onClick = { onIdentityClick(identity.id) },
+                        isSyncing = uiState.syncingIdentityId == identity.id,
+                        onClick = { viewModel.syncIdentityBills(identity.id) },
+                        onViewDetail = { onIdentityClick(identity.id) },
+                        onSync = { viewModel.syncIdentityBills(identity.id) },
                         onEdit = { viewModel.startEditIdentity(identity) },
                         onEditDetails = { viewModel.startEditDetails(identity) },
                         onDelete = { viewModel.startDeleteIdentity(identity) },
@@ -173,7 +191,10 @@ fun IdentityListScreen(
 @Composable
 fun SwipeableIdentityCard(
     identity: Identity,
+    isSyncing: Boolean,
     onClick: () -> Unit,
+    onViewDetail: () -> Unit,
+    onSync: () -> Unit,
     onEdit: () -> Unit,
     onEditDetails: () -> Unit,
     onDelete: () -> Unit,
@@ -280,13 +301,41 @@ fun SwipeableIdentityCard(
                             Text(details.joinToString(" | "))
                         }
                     },
-                    overlineContent = { Text("${identity.accountCount} 个账号") }
+                    overlineContent = {
+                        if (isSyncing) {
+                            Text("同步中...", color = MaterialTheme.colorScheme.primary)
+                        } else {
+                            Text("${identity.accountCount} 个账号")
+                        }
+                    },
+                    trailingContent = {
+                        if (isSyncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                        }
+                    }
                 )
 
                 DropdownMenu(
                     expanded = expanded,
                     onDismissRequest = onDismissMenu
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("查看详情") },
+                        onClick = {
+                            onDismissMenu()
+                            onViewDetail()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("同步账单") },
+                        onClick = {
+                            onDismissMenu()
+                            onSync()
+                        }
+                    )
                     DropdownMenuItem(
                         text = { Text("编辑") },
                         onClick = {

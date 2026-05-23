@@ -75,6 +75,7 @@ import cn.edu.shmtu.terminal.android.domain.model.LoginStatus
 fun IdentityDetailScreen(
     identityId: Long,
     onAddAccount: () -> Unit,
+    onHotWater: (Long) -> Unit,
     onBack: () -> Unit,
     viewModel: IdentityDetailViewModel = hiltViewModel()
 ) {
@@ -154,6 +155,7 @@ fun IdentityDetailScreen(
                         SwipeableAccountCard(
                             account = account,
                             onRefresh = { viewModel.refreshAccountBills(account) },
+                            onHotWater = { onHotWater(account.id) },
                             onEdit = { viewModel.startEditAccount(account) },
                             onDelete = { confirmingDelete = account },
                             onLongClick = {
@@ -306,6 +308,7 @@ private fun CaptchaDialog(
 private fun SwipeableAccountCard(
     account: Account,
     onRefresh: () -> Unit,
+    onHotWater: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onLongClick: () -> Unit,
@@ -435,6 +438,13 @@ private fun SwipeableAccountCard(
                         onClick = {
                             onDismissMenu()
                             onRefresh()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("热水查询") },
+                        onClick = {
+                            onDismissMenu()
+                            onHotWater()
                         }
                     )
                     DropdownMenuItem(

@@ -10,6 +10,7 @@ import okio.IOException
 import java.net.SocketTimeoutException
 import java.io.BufferedInputStream
 import java.util.logging.Logger
+import cn.edu.shmtu.cas.auth.common.CasAuth
 
 class Captcha {
 
@@ -79,7 +80,7 @@ class Captcha {
                 }
 
                 val returnCookie =
-                    response.headers["Set-Cookie"] ?: (cookie ?: "")
+                    CasAuth.mergeCookies(cookie ?: "", response.headers("Set-Cookie"))
 
                 log.info("[Captcha] getImageDataFromUrlUsingGet: success, cookie=${returnCookie.take(30)}...")
                 return Pair(response.body?.bytes(), returnCookie)

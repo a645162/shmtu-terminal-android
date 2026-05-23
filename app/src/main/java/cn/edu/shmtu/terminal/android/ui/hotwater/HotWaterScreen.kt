@@ -59,6 +59,7 @@ import cn.edu.shmtu.terminal.android.domain.model.HotWaterBuilding
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HotWaterScreen(
+    accountId: Long,
     onBack: () -> Unit,
     viewModel: HotWaterViewModel = hiltViewModel()
 ) {
@@ -66,6 +67,10 @@ fun HotWaterScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var captchaInput by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
+
+    LaunchedEffect(accountId) {
+        viewModel.loadHotWater(accountId)
+    }
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
@@ -87,7 +92,7 @@ fun HotWaterScreen(
                     }
                 },
                 actions = {
-                    TextButton(onClick = { /* reload */ }) {
+                    TextButton(onClick = { viewModel.loadHotWater(accountId) }) {
                         Text("刷新")
                     }
                 }

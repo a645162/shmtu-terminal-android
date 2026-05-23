@@ -56,7 +56,7 @@ class WechatAuth {
         } else {
             if (responseCode == 302) {
                 val location = response.header("Location") ?: ""
-                val newCookie = response.header("Set-Cookie") ?: ""
+                val newCookie = CasAuth.mergeCookies(currentCookie, response.headers("Set-Cookie"))
                 Triple(responseCode, location, newCookie)
             } else {
                 println("请求失败，状态码：$responseCode")
@@ -85,7 +85,7 @@ class WechatAuth {
 
         return if (responseCode == 302) {
             val location = response.header("Location") ?: ""
-            val cookie_new_url = response.header("Set-Cookie") ?: ""
+            val cookie_new_url = CasAuth.mergeCookies("", response.headers("Set-Cookie"))
             Triple(responseCode, location, cookie_new_url)
         } else {
             println("请求失败，状态码：$responseCode")
@@ -131,10 +131,13 @@ class WechatAuth {
             return false
         }
 
-        val executionStr = CasAuth.getExecution(
+        val (executionStr, executionSessionId) = CasAuth.getExecution(
             resultWEngineNewTicket.second,
             resultWEngineNewTicket.third
         )
+
+        // 合并 execution 会话的 JSESSIONID 和 captcha 会话的 JSESSIONID
+        val loginCookie = CasAuth.mergeCookies(executionSessionId, listOf(jSessionId))
 
         val resultCas =
             CasAuth.casLogin(
@@ -143,7 +146,7 @@ class WechatAuth {
                 password,
                 captchaCode,
                 executionStr,
-                jSessionId
+                loginCookie
             )
 
         if (resultCas.first != 302) {
@@ -195,13 +198,13 @@ class WechatAuth {
             return false
         }
 
-        val executionStr = CasAuth.getExecution(
+        val (executionStr, executionSessionId) = CasAuth.getExecution(
             resultWEngineNewTicket.second,
             resultWEngineNewTicket.third
         )
 
         val resultCaptcha =
-            Captcha.getImageDataFromUrlUsingGet()
+            Captcha.getImageDataFromUrlUsingGet(cookie = executionSessionId)
 
         if (resultCaptcha == null) {
             println("获取验证码失败")
@@ -209,7 +212,7 @@ class WechatAuth {
         }
 
         val imageData = resultCaptcha.first
-        val jSessionId = resultCaptcha.second
+        val captchaSessionId = resultCaptcha.second
 
         if (imageData == null) {
             println("获取验证码失败")
@@ -224,6 +227,6 @@ class WechatAuth {
         val exprResult =
             Captcha.getExprResultByExprString(validateCode)
 
-        return loginWithCaptcha(username, password, exprResult, jSessionId)
+        return loginWithCaptcha(username, password, exprResult, captchaSessionId)
     }
 }

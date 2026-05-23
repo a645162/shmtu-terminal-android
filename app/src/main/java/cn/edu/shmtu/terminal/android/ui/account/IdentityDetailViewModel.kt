@@ -14,6 +14,8 @@ import cn.edu.shmtu.terminal.android.domain.repository.SyncResult
 import cn.edu.shmtu.terminal.android.domain.usecase.account.DeleteAccountUseCase
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.SyncAccountBillsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -79,12 +81,21 @@ class IdentityDetailViewModel @Inject constructor(
 
             if (result.errorMessage == "Session expired, need re-login") {
                 try {
+                    val isLoggedIn = epayAdapter.testLoginStatus(account.id)
+                    if (isLoggedIn) {
+                        val retryResult = syncAccountBillsUseCase(account)
+                        _uiState.value = _uiState.value.copy(
+                            isSyncing = false,
+                            syncMessage = if (retryResult.success)
+                                "同步成功，新增 ${retryResult.newCount} 条记录"
+                            else
+                                "同步失败: ${retryResult.errorMessage}"
+                        )
+                        return@launch
+                    }
+
                     val epayAuth = epayAdapter.getEpayAuth(account.id)
-                    epayAuth.testLoginStatus()
-
                     val loginUrl = epayAuth.getLoginUrl()
-                    val loginCookie = epayAuth.getLoginCookie()
-
                     if (loginUrl.isBlank()) {
                         _uiState.value = _uiState.value.copy(
                             isSyncing = false,
@@ -93,6 +104,7 @@ class IdentityDetailViewModel @Inject constructor(
                         return@launch
                     }
 
+                    val loginCookie = epayAuth.getLoginCookie()
                     val captchaResult = casAuthAdapter.getCaptcha(loginCookie)
                     if (captchaResult == null) {
                         _uiState.value = _uiState.value.copy(

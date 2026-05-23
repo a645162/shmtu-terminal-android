@@ -76,6 +76,7 @@ class SyncAccountBillsUseCase @Inject constructor(
             }
 
             accountRepository.updateLastSyncTime(account.id)
+            accountRepository.updateLoginStatus(account.id, "LOGGED_IN")
 
             return SyncResult(newCount = allNewBills.size)
         } catch (e: Exception) {

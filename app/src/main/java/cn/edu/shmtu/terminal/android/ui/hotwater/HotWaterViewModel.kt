@@ -10,6 +10,8 @@ import cn.edu.shmtu.terminal.android.domain.model.HotWaterBuilding
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.HotWaterRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -77,9 +79,13 @@ class HotWaterViewModel @Inject constructor(
     private fun tryLogin(accountId: Long) {
         viewModelScope.launch {
             try {
-                val wechatAuth = wechatAuthAdapter.getWechatAuth(accountId)
-                wechatAuth.testLoginStatus()
+                val isLoggedIn = wechatAuthAdapter.testLoginStatus(accountId)
+                if (isLoggedIn) {
+                    loadHotWater(accountId)
+                    return@launch
+                }
 
+                val wechatAuth = wechatAuthAdapter.getWechatAuth(accountId)
                 val loginWUrl = wechatAuth.getLoginWUrl()
                 if (loginWUrl.isBlank()) {
                     _uiState.value = _uiState.value.copy(
@@ -89,6 +95,7 @@ class HotWaterViewModel @Inject constructor(
                     return@launch
                 }
 
+                // WechatAuth flow: captcha without cookie (unlike E-pay)
                 val captchaResult = casAuthAdapter.getCaptcha()
                 if (captchaResult == null) {
                     _uiState.value = _uiState.value.copy(

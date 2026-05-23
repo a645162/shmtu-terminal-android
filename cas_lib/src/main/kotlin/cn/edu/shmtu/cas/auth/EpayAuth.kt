@@ -83,12 +83,7 @@ class EpayAuth {
             val setCookieHeaders: List<String> =
                 response.headers.values("Set-Cookie")
 
-            var newCookie = cookie
-            for (currentSetCookie in setCookieHeaders) {
-                if (currentSetCookie.contains("JSESSIONID")) {
-                    newCookie = currentSetCookie
-                }
-            }
+            val newCookie = CasAuth.mergeCookies(finalCookie, setCookieHeaders)
 
             this._epayCookie = newCookie
             log.info("[EpayAuth] getBill: 302 redirect, location=$location, newCookie=${newCookie.take(30)}...")
@@ -137,17 +132,16 @@ class EpayAuth {
         }
 
         log.info("[EpayAuth] login: getting execution, loginUrl=${_loginUrl.take(60)}..., epayCookie=${_epayCookie.take(30)}...")
-        val executionStr =
-            CasAuth.getExecution(
-                this._loginUrl,
-                this._epayCookie
-            )
-        log.info("[EpayAuth] login: execution=$executionStr")
+        val (executionStr, executionSessionId) = CasAuth.getExecution(
+            this._loginUrl,
+            this._epayCookie
+        )
+        log.info("[EpayAuth] login: execution=$executionStr, executionSessionId=${executionSessionId.take(40)}...")
 
         // 下载验证码
         val resultCaptcha =
             Captcha.getImageDataFromUrlUsingGet(
-                cookie = this._loginCookie
+                cookie = executionSessionId
             )
 
         // 检验下载的数据
@@ -156,12 +150,16 @@ class EpayAuth {
             return false
         }
         val imageData = resultCaptcha.first
-        this._loginCookie = resultCaptcha.second
-        log.info("[EpayAuth] login: captcha downloaded, loginCookie=${_loginCookie.take(30)}...")
+        val captchaSessionId = resultCaptcha.second
+        log.info("[EpayAuth] login: captcha downloaded, captchaSessionId=${captchaSessionId.take(30)}...")
         if (imageData == null) {
             log.warning("[EpayAuth] login: captcha image data is null")
             return false
         }
+
+        // 合并 execution 会话和 captcha 会话的 cookie
+        val loginCookie = CasAuth.mergeCookies(executionSessionId, listOf(captchaSessionId))
+        log.info("[EpayAuth] login: merged loginCookie=${loginCookie.take(60)}...")
 
         // 调用远端识别接口
         val validateCode: String =
@@ -180,7 +178,7 @@ class EpayAuth {
                 password,
                 exprResult,
                 executionStr,
-                this._loginCookie
+                loginCookie
             )
 
         if (resultCas.first != 302) {
@@ -230,10 +228,17 @@ class EpayAuth {
         }
 
         log.info("[EpayAuth] loginWithCaptcha: fetching execution from CAS")
-        _execution = CasAuth.getExecution(_loginUrl, _epayCookie)
-        log.info("[EpayAuth] loginWithCaptcha: got execution=${_execution.take(40)}...")
+        val (executionValue, executionSessionId) = CasAuth.getExecution(_loginUrl, _epayCookie)
+        _execution = executionValue
+        log.info("[EpayAuth] loginWithCaptcha: got execution=${_execution.take(40)}..., executionSessionId=${executionSessionId.take(40)}...")
 
-        log.info("[EpayAuth] loginWithCaptcha: calling casLogin with url=${_loginUrl.take(60)}..., execution=${_execution.take(30)}..., loginCookie=${_loginCookie.take(30)}...")
+        // 合并 execution 会话的 JSESSIONID 和 captcha 会话的 JSESSIONID
+        // execution 来自 getExecution 请求的 CAS 会话，captcha JSESSIONID 来自验证码下载
+        // 必须将两者合并，CAS 需要验证 execution 与 JSESSIONID 的 webflow 一致性
+        val loginCookie = CasAuth.mergeCookies(executionSessionId, listOf(_loginCookie))
+        log.info("[EpayAuth] loginWithCaptcha: merged loginCookie=${loginCookie.take(60)}...")
+
+        log.info("[EpayAuth] loginWithCaptcha: calling casLogin with url=${_loginUrl.take(60)}..., execution=${_execution.take(30)}..., loginCookie=${loginCookie.take(30)}...")
 
         val resultCas = CasAuth.casLogin(
             _loginUrl,
@@ -241,7 +246,7 @@ class EpayAuth {
             password,
             captchaCode,
             _execution,
-            _loginCookie
+            loginCookie
         )
 
         log.info("[EpayAuth] loginWithCaptcha: casLogin result code=${resultCas.first}, location=${resultCas.second.take(60)}..., cookie=${resultCas.third.take(30)}...")

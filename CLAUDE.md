@@ -17,7 +17,7 @@ No lint/detekt/ktlint configuration exists. No CI/CD pipelines are set up.
 Four modules:
 
 - **`:app`** — Android application (Jetpack Compose + Hilt + Room). Package: `cn.edu.shmtu.terminal.android`
-- **`:cas_lib`** — Pure Kotlin JVM library for CAS authentication, bill parsing, hot water parsing. Package: `cn.edu.shmtu.cas`
+- **`:cas_lib`** — Pure Kotlin JVM library for CAS authentication, bill parsing, hot water parsing. Package: `cn.edu.shmtu.cas`！你可以参考/home/konghaomin/Prj/SHMTU/shmtu-cas-kotlin！
 - **`:shmtu_ocr`** — Android native library with NCNN + OpenCV for on-device CAPTCHA OCR. C++ via CMake/NDK
 - **`:cas_demo`** / **`:demo`** — CLI and Android demo apps for testing `cas_lib` and `shmtu_ocr` respectively
 
