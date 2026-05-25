@@ -7,6 +7,7 @@ import cn.edu.shmtu.terminal.android.data.local.db.MainDatabase
 import cn.edu.shmtu.terminal.android.data.local.db.dao.AccountDao
 import cn.edu.shmtu.terminal.android.data.local.db.dao.FollowedBuildingDao
 import cn.edu.shmtu.terminal.android.data.local.db.dao.IdentityDao
+import cn.edu.shmtu.terminal.android.data.local.db.dao.SessionDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -43,6 +44,11 @@ object DatabaseModule {
     @Provides
     fun provideFollowedBuildingDao(database: MainDatabase): FollowedBuildingDao {
         return database.followedBuildingDao()
+    }
+
+    @Provides
+    fun provideSessionDao(database: MainDatabase): SessionDao {
+        return database.sessionDao()
     }
 
     @Provides

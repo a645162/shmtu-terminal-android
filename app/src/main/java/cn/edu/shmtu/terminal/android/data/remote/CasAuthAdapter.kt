@@ -1,7 +1,6 @@
 package cn.edu.shmtu.terminal.android.data.remote
 
 import android.util.Log
-import cn.edu.shmtu.cas.auth.EpayAuth
 import cn.edu.shmtu.cas.auth.common.CasAuth
 import cn.edu.shmtu.cas.captcha.Captcha
 import kotlinx.coroutines.Dispatchers
@@ -12,12 +11,6 @@ import javax.inject.Singleton
 data class CaptchaResult(
     val imageData: ByteArray,
     val cookie: String
-)
-
-data class LoginResult(
-    val success: Boolean,
-    val cookie: String,
-    val errorCode: Int = 0
 )
 
 @Singleton
@@ -46,35 +39,6 @@ class CasAuthAdapter @Inject constructor() {
         }
         Log.d(TAG, "getCaptcha: success, imageSize=${imageData.size}, cookie=${result.second.take(30)}...")
         CaptchaResult(imageData = imageData, cookie = result.second)
-    }
-
-    suspend fun getLoginUrl(accountId: Long, epayAdapter: EpayAdapter): String = withContext(Dispatchers.IO) {
-        Log.d(TAG, "getLoginUrl: accountId=$accountId")
-        val result = epayAdapter.fetchBillPage(accountId, 1)
-        val loginUrl = if (result.first == 302) result.second else ""
-        Log.d(TAG, "getLoginUrl: result code=${result.first}, loginUrl=${loginUrl.take(60)}...")
-        loginUrl
-    }
-
-    suspend fun casLogin(
-        url: String,
-        username: String,
-        password: String,
-        validateCode: String,
-        execution: String,
-        cookie: String
-    ): Triple<Int, String, String> = withContext(Dispatchers.IO) {
-        Log.d(TAG, "casLogin: url=$url, username=$username, validateCode=$validateCode")
-        val result = CasAuth.casLogin(url, username, password, validateCode, execution, cookie)
-        Log.d(TAG, "casLogin: result code=${result.first}")
-        result
-    }
-
-    suspend fun casRedirect(url: String, cookie: String): Triple<Int, String, String> = withContext(Dispatchers.IO) {
-        Log.d(TAG, "casRedirect: url=${url.take(80)}...")
-        val result = CasAuth.casRedirect(url, cookie)
-        Log.d(TAG, "casRedirect: result code=${result.first}")
-        result
     }
 
     suspend fun ocrByRemoteTcp(host: String, port: Int, imageData: ByteArray): String = withContext(Dispatchers.IO) {

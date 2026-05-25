@@ -6,9 +6,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.cas.captcha.Captcha
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN
+import cn.edu.shmtu.cas.session.LoginSubmitResult
+import cn.edu.shmtu.cas.session.SessionProbe
 import cn.edu.shmtu.terminal.android.data.local.datastore.SecureStorage
 import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
-import cn.edu.shmtu.terminal.android.data.remote.CasAuthAdapter
 import cn.edu.shmtu.terminal.android.data.remote.EpayAdapter
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -35,7 +36,6 @@ data class LoginUiState(
 class LoginViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
     private val secureStorage: SecureStorage,
-    private val casAuthAdapter: CasAuthAdapter,
     private val epayAdapter: EpayAdapter,
     private val settingsDataStore: SettingsDataStore
 ) : ViewModel() {
@@ -48,6 +48,11 @@ class LoginViewModel @Inject constructor(
 
     private var currentAccountId: Long = 0
 
+    /**
+     * 初始化登录流程：
+     * 1. 探测登录状态
+     * 2. 如果需要登录，获取验证码
+     */
     fun initialize(accountId: Long) {
         currentAccountId = accountId
         viewModelScope.launch {
@@ -55,39 +60,58 @@ class LoginViewModel @Inject constructor(
             Log.d(TAG, "Initializing login for account $accountId")
 
             try {
-                val isLoggedIn = epayAdapter.testLoginStatus(accountId)
-                Log.d(TAG, "testLoginStatus result: $isLoggedIn")
-                if (isLoggedIn) {
-                    accountRepository.updateLoginStatus(accountId, "LOGGED_IN")
-                    _uiState.value = _uiState.value.copy(isLoading = false, loginSuccess = true)
+                // 1. 探测登录状态
+                val probeResult = epayAdapter.probeLogin(accountId)
+                
+                when {
+                    probeResult.isFailure -> {
+                        Log.e(TAG, "Probe login failed: ${probeResult.exceptionOrNull()?.message}")
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            error = "探测登录状态失败: ${probeResult.exceptionOrNull()?.message}"
+                        )
+                        return@launch
+                    }
+                    
+                    probeResult.getOrNull() is SessionProbe.AlreadyLoggedIn -> {
+                        Log.d(TAG, "Already logged in")
+                        accountRepository.updateLoginStatus(accountId, "LOGGED_IN")
+                        _uiState.value = _uiState.value.copy(isLoading = false, loginSuccess = true)
+                        return@launch
+                    }
+                    
+                    probeResult.getOrNull() is SessionProbe.NeedLogin -> {
+                        val needLogin = probeResult.getOrNull() as SessionProbe.NeedLogin
+                        Log.d(TAG, "Need login, loginUrl=${needLogin.loginUrl}")
+                        _uiState.value = _uiState.value.copy(loginUrl = needLogin.loginUrl)
+                    }
+                }
+
+                // 2. 获取验证码（execution + captcha image）
+                val challengeResult = epayAdapter.prepareChallenge(accountId)
+                
+                if (challengeResult.isFailure) {
+                    Log.e(TAG, "Prepare challenge failed: ${challengeResult.exceptionOrNull()?.message}")
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = "获取验证码失败: ${challengeResult.exceptionOrNull()?.message}"
+                    )
                     return@launch
                 }
 
-                val epayAuth = epayAdapter.getEpayAuth(accountId)
-                val loginUrl = epayAuth.getLoginUrl()
-                val loginCookie = epayAuth.getLoginCookie()
-                val epayCookie = epayAuth.getEpayCookie()
-                Log.d(TAG, "Got loginUrl: $loginUrl, loginCookie: ${loginCookie.take(20)}, epayCookie: ${epayCookie.take(20)}")
-
-                if (loginUrl.isBlank()) {
-                    _uiState.value = _uiState.value.copy(isLoading = false, error = "无法获取登录页面，请检查网络")
+                val challenge = challengeResult.getOrNull()
+                if (challenge == null) {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = "获取验证码失败"
+                    )
                     return@launch
                 }
 
-                val captchaResult = casAuthAdapter.getCaptcha(loginCookie)
-                if (captchaResult == null) {
-                    _uiState.value = _uiState.value.copy(isLoading = false, error = "无法获取验证码图片")
-                    return@launch
-                }
-                Log.d(TAG, "Got captcha image, cookie: ${captchaResult.cookie.take(20)}")
-
-                // Store captcha session cookie back to EpayAuth for later login
-                epayAuth.setLoginCookie(captchaResult.cookie)
-
+                Log.d(TAG, "Got captcha image, size=${challenge.captchaImage.size}")
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    captchaImage = captchaResult.imageData,
-                    loginUrl = loginUrl
+                    captchaImage = challenge.captchaImage
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Error during initialization", e)
@@ -99,6 +123,9 @@ class LoginViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 提交验证码完成登录
+     */
     fun submitCaptcha(captchaCode: String) {
         if (captchaCode.isBlank()) {
             _uiState.value = _uiState.value.copy(error = "请输入验证码")
@@ -120,25 +147,72 @@ class LoginViewModel @Inject constructor(
                     return@launch
                 }
 
-                val success = epayAdapter.loginWithCaptcha(
+                // 重新获取 challenge（execution 是一次性的）
+                val challengeResult = epayAdapter.prepareChallenge(currentAccountId)
+                if (challengeResult.isFailure) {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = "获取验证码失败，请重试"
+                    )
+                    return@launch
+                }
+
+                val challenge = challengeResult.getOrNull()
+                if (challenge == null) {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = "获取验证码失败"
+                    )
+                    return@launch
+                }
+
+                // 提交登录
+                val submitResult = epayAdapter.submitLogin(
                     currentAccountId,
                     account.userId,
                     password,
                     captchaCode
                 )
 
-                if (success) {
-                    Log.d(TAG, "Login successful!")
-                    accountRepository.updateLoginStatus(currentAccountId, "LOGGED_IN")
-                    _uiState.value = _uiState.value.copy(isLoading = false, loginSuccess = true)
-                } else {
-                    Log.d(TAG, "Login failed - wrong captcha or session expired")
-                    // Clear stale execution and captcha - CAS execution is one-time use
-                    epayAdapter.getEpayAuth(currentAccountId).setExecution("")
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = "登录失败，验证码可能错误或会话已过期，请重试"
-                    )
+                when {
+                    submitResult.isFailure -> {
+                        Log.e(TAG, "Submit login failed: ${submitResult.exceptionOrNull()?.message}")
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            error = "登录异常: ${submitResult.exceptionOrNull()?.message}"
+                        )
+                    }
+                    
+                    submitResult.getOrNull() is LoginSubmitResult.Success -> {
+                        Log.d(TAG, "Login successful!")
+                        accountRepository.updateLoginStatus(currentAccountId, "LOGGED_IN")
+                        _uiState.value = _uiState.value.copy(isLoading = false, loginSuccess = true)
+                    }
+                    
+                    submitResult.getOrNull() is LoginSubmitResult.ValidateCodeError -> {
+                        Log.d(TAG, "Login failed - wrong captcha")
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            error = "验证码错误，请重试"
+                        )
+                    }
+                    
+                    submitResult.getOrNull() is LoginSubmitResult.PasswordError -> {
+                        Log.d(TAG, "Login failed - wrong password")
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            error = "密码错误"
+                        )
+                    }
+                    
+                    else -> {
+                        val msg = (submitResult.getOrNull() as? LoginSubmitResult.Failure)?.message ?: "未知错误"
+                        Log.d(TAG, "Login failed: $msg")
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            error = "登录失败: $msg"
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error during login", e)

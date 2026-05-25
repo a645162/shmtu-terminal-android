@@ -35,15 +35,26 @@ class BillRepositoryImpl @Inject constructor(
 ) : BillRepository {
 
     override fun getBillsForIdentity(identityId: Long): Flow<List<BillItem>> {
+        // 读取 identity_{identityId}.sqlite 中的合并账单
         return billDbManager.getIdentityDatabase(identityId)
             .billDao().getAllBills()
             .map { list -> list.map { it.toDomain() } }
     }
 
     override fun getBillsForAccount(identityId: Long, accountId: Long): Flow<List<BillItem>> {
-        return billDbManager.getIdentityDatabase(identityId)
-            .billDao().getBillsByAccount(accountId)
-            .map { list -> list.map { it.toDomain() } }
+        // 通过 accountId 找到 studentId，然后读取 account_{studentId}.sqlite
+        return flow {
+            val account = accountRepository.getAccountById(accountId)
+            if (account != null) {
+                billDbManager.getAccountDatabase(account.userId)
+                    .billDao().getBillsByAccount(accountId)
+                    .collect { list ->
+                        emit(list.map { it.toDomain() })
+                    }
+            } else {
+                emit(emptyList())
+            }
+        }
     }
 
     override suspend fun syncAccountBills(accountId: Long): SyncResult {
@@ -70,8 +81,9 @@ class BillRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteBillsForAccount(accountId: Long, identityId: Long) {
-        val identityDb = billDbManager.getIdentityDatabase(identityId)
-        identityDb.billDao().deleteByAccountId(accountId)
+        // 从 identity 数据库删除该账号的账单
+        billDbManager.getIdentityDatabase(identityId)
+            .billDao().deleteByAccountId(accountId)
     }
 
     override fun getBillOverview(identityId: Long?): Flow<BillOverview> {
@@ -111,13 +123,23 @@ class BillRepositoryImpl @Inject constructor(
                 }) { results ->
                     results.sumOf { it.size }
                 }
+            },
+            databases.flatMapLatest { dbs ->
+                combine(dbs.map { db ->
+                    db.billDao().getActiveDaysInRange(thisMonthStart, thisMonthEnd)
+                }) { results ->
+                    results.flatMap { it.toList() }.toSet().size
+                }
             }
-        ) { (thisSpending, thisIncome), (lastSpending, lastIncome), count ->
+        ) { (thisSpending, thisIncome), (lastSpending, lastIncome), count, activeDays ->
+            val dailyAverage = if (activeDays > 0) thisSpending / activeDays else 0.0
             BillOverview(
                 totalSpending = thisSpending,
                 totalIncome = thisIncome,
                 netChange = thisIncome - thisSpending,
+                dailyAverage = dailyAverage,
                 transactionCount = count,
+                activeDays = activeDays,
                 lastMonthSpending = lastSpending,
                 lastMonthIncome = lastIncome
             )

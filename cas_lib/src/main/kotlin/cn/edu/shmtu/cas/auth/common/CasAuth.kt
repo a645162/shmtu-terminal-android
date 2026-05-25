@@ -13,6 +13,16 @@ class CasAuth {
     companion object {
         private val log = Logger.getLogger(CasAuth::class.java.name)
 
+        /**
+         * 创建 OkHttpClient（不对齐 Rust 版本，使用 cookie store）
+         */
+        fun createClient(): OkHttpClient {
+            return OkHttpClient.Builder()
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .build()
+        }
+
         private fun extractCookieName(setCookieValue: String): String {
             val eqIdx = setCookieValue.indexOf('=')
             return if (eqIdx > 0) setCookieValue.substring(0, eqIdx).trim() else ""
@@ -50,10 +60,7 @@ class CasAuth {
         ): Pair<String, String> {
             log.info("[CasAuth] getExecution: url=$url, cookie=${cookie.take(30)}...")
 
-            val client = OkHttpClient.Builder()
-                .followRedirects(false)
-                .followSslRedirects(false)
-                .build()
+            val client = createClient()
 
             val request = Request.Builder()
                 .url(url)
@@ -96,10 +103,7 @@ class CasAuth {
         ): Triple<Int, String, String> {
             log.info("[CasAuth] casLogin: url=$url, username=$username, validateCode=$validateCode, execution=${execution.take(30)}..., cookie=${cookie.take(30)}...")
 
-            val client = OkHttpClient.Builder()
-                .followRedirects(false)
-                .followSslRedirects(false)
-                .build()
+            val client = createClient()
 
             val formBody = FormBody.Builder()
                 .add("username", username.trim())
@@ -113,10 +117,7 @@ class CasAuth {
             val request = Request.Builder()
                 .url(url)
                 .addHeader("Host", "cas.shmtu.edu.cn")
-                .addHeader(
-                    "Content-Type",
-                    "application/x-www-form-urlencoded"
-                )
+                .addHeader("Content-Type", "application/x-www-form-urlencoded")
                 .addHeader("Connection", "keep-alive")
                 .addHeader("Accept-Encoding", "gzip, deflate, br")
                 .addHeader("Accept", "*/*")
@@ -124,60 +125,38 @@ class CasAuth {
                 .post(formBody)
                 .build()
 
-            val response =
-                client.newCall(request).execute()
-
+            val response = client.newCall(request).execute()
             val responseCode = response.code
             log.info("[CasAuth] casLogin: responseCode=$responseCode")
 
             return if (responseCode == 302) {
-                val location =
-                    response.header("Location") ?: ""
+                val location = response.header("Location") ?: ""
                 val newCookie = mergeCookies(cookie, response.headers("Set-Cookie"))
-
                 log.info("[CasAuth] casLogin: success (302), location=${location.take(60)}..., newCookie=${newCookie.take(30)}...")
                 Triple(responseCode, location, newCookie)
             } else {
                 val htmlCode = response.body?.string() ?: ""
                 val document: Document = Jsoup.parse(htmlCode)
-                val element: Element? =
-                    document.selectFirst("#loginErrorsPanel")
-
+                val element: Element? = document.selectFirst("#loginErrorsPanel")
                 val errorText = element?.text() ?: ""
                 log.warning("[CasAuth] casLogin: failed, code=$responseCode, error=$errorText")
 
                 if (errorText.contains("account is not recognized")) {
                     log.warning("[CasAuth] casLogin: password error")
-                    Triple(
-                        CasAuthStatus.PASSWORD_ERROR.code,
-                        htmlCode, ""
-                    )
+                    Triple(CasAuthStatus.PASSWORD_ERROR.code, htmlCode, "")
                 } else if (errorText.contains("reCAPTCHA")) {
                     log.warning("[CasAuth] casLogin: captcha error")
-                    Triple(
-                        CasAuthStatus.VALIDATE_CODE_ERROR.code,
-                        htmlCode, ""
-                    )
+                    Triple(CasAuthStatus.VALIDATE_CODE_ERROR.code, htmlCode, "")
                 } else {
-                    Triple(
-                        responseCode,
-                        htmlCode, errorText
-                    )
+                    Triple(responseCode, htmlCode, errorText)
                 }
             }
         }
 
-        fun casRedirect(
-            url: String,
-            cookie: String
-        ): Triple<Int, String, String> {
+        fun casRedirect(url: String, cookie: String): Triple<Int, String, String> {
             log.info("[CasAuth] casRedirect: url=${url.take(80)}..., cookie=${cookie.take(30)}...")
 
-            val client = OkHttpClient.Builder()
-                .followRedirects(false)
-                .followSslRedirects(false)
-                .build()
-
+            val client = createClient()
             val request = Request.Builder()
                 .url(url)
                 .addHeader("Cookie", cookie)
@@ -185,15 +164,12 @@ class CasAuth {
                 .build()
 
             val response = client.newCall(request).execute()
-
             val responseCode = response.code
             log.info("[CasAuth] casRedirect: responseCode=$responseCode")
 
             return if (responseCode == 302) {
-                val location =
-                    response.header("Location") ?: ""
+                val location = response.header("Location") ?: ""
                 val newCookie = mergeCookies(cookie, response.headers("Set-Cookie"))
-
                 log.info("[CasAuth] casRedirect: success (302), location=${location.take(60)}..., newCookie=${newCookie.take(30)}...")
                 Triple(responseCode, location, newCookie)
             } else {
@@ -201,7 +177,5 @@ class CasAuth {
                 Triple(responseCode, "", "")
             }
         }
-
     }
-
 }

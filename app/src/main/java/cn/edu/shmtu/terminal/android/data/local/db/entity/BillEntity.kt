@@ -24,5 +24,8 @@ data class BillEntity(
     val targetUser: String,
     val money: String,
     val method: String,
-    val status: String
+    val status: String,
+    val position: String? = null,
+    val room: String? = null,
+    val notes: String? = null
 )

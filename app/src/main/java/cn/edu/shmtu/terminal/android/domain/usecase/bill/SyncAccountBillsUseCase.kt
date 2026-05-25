@@ -2,7 +2,6 @@ package cn.edu.shmtu.terminal.android.domain.usecase.bill
 
 import cn.edu.shmtu.terminal.android.data.local.db.BillDatabaseManager
 import cn.edu.shmtu.terminal.android.data.local.db.entity.BillEntity
-import cn.edu.shmtu.terminal.android.data.mapper.EntityMappers
 import cn.edu.shmtu.terminal.android.data.remote.EpayAdapter
 import cn.edu.shmtu.terminal.android.domain.model.Account
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
@@ -16,7 +15,9 @@ class SyncAccountBillsUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(account: Account): SyncResult {
         try {
-            val accountDb = billDbManager.getAccountDatabase(account.id)
+            // 账号数据库: account_{studentId}.sqlite
+            val accountDb = billDbManager.getAccountDatabase(account.userId)
+            // 身份合并数据库: identity_{identityId}.sqlite
             val identityDb = billDbManager.getIdentityDatabase(account.identityId)
             val isFirstSync = accountDb.billDao().getCount() == 0
 
@@ -27,16 +28,17 @@ class SyncAccountBillsUseCase @Inject constructor(
             while (shouldContinue) {
                 val result = epayAdapter.fetchBillPage(account.id, pageNo)
 
-                if (result.first == 302) {
+                if (result.isFailure) {
+                    return SyncResult(allNewBills.size, false, result.exceptionOrNull()?.message ?: "未知错误")
+                }
+
+                val html = result.getOrNull() ?: ""
+                
+                if (html == "SESSION_EXPIRED") {
                     accountRepository.updateLoginStatus(account.id, "LOGGED_OUT")
                     return SyncResult(0, false, "Session expired, need re-login")
                 }
 
-                if (result.first != 200) {
-                    return SyncResult(allNewBills.size, false, "HTTP ${result.first}")
-                }
-
-                val html = result.second
                 val pageCount = epayAdapter.getPageCount(html)
                 val pageBills = epayAdapter.parseBillList(html).map { map ->
                     BillEntity(

@@ -159,7 +159,7 @@ fun IdentityListScreen(
         EditIdentityDialog(
             identity = identity,
             onConfirm = { name ->
-                viewModel.updateIdentity(identity.id, name)
+                viewModel.updateIdentity(identity.copy(remark = name))
             },
             onDismiss = { viewModel.cancelEdit() }
         )
@@ -169,7 +169,7 @@ fun IdentityListScreen(
         EditIdentityDetailsDialog(
             identity = identity,
             onConfirm = { name, birthday, enrollmentDate, graduationDate ->
-                viewModel.updateIdentityDetails(identity.id, name, birthday, enrollmentDate, graduationDate)
+                viewModel.updateIdentityDetails(identity.copy(remark = name, birthday = birthday, enrollmentDate = enrollmentDate, graduationDate = graduationDate))
             },
             onDismiss = { viewModel.cancelEditDetails() }
         )
@@ -178,7 +178,7 @@ fun IdentityListScreen(
     deletingIdentity?.let { identity ->
         DeleteConfirmDialog(
             title = "删除身份",
-            message = "确定要删除「${identity.name}」吗？所有关联账号也会被删除。",
+            message = "确定要删除「${identity.remark}」吗？所有关联账号也会被删除。",
             onConfirm = {
                 viewModel.deleteIdentity(identity.id)
             },
@@ -290,7 +290,7 @@ fun SwipeableIdentityCard(
         ) {
             Box {
                 ListItem(
-                    headlineContent = { Text(identity.name) },
+                    headlineContent = { Text(identity.remark) },
                     supportingContent = {
                         val details = listOfNotNull(
                             identity.birthday.takeIf { it.isNotBlank() }?.let { "生日: $it" },
@@ -407,7 +407,7 @@ fun EditIdentityDialog(
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var name by remember { mutableStateOf(identity.name) }
+    var name by remember { mutableStateOf(identity.remark) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -445,7 +445,7 @@ fun EditIdentityDetailsDialog(
     onConfirm: (String, String, String, String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var name by remember { mutableStateOf(identity.name) }
+    var name by remember { mutableStateOf(identity.remark) }
     var birthday by remember { mutableStateOf(identity.birthday) }
     var enrollmentDate by remember { mutableStateOf(identity.enrollmentDate) }
     var graduationDate by remember { mutableStateOf(identity.graduationDate) }

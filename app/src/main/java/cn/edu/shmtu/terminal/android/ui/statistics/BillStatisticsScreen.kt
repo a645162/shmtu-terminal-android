@@ -167,7 +167,7 @@ private fun IdentityFilterChips(
             FilterChip(
                 selected = selectedIdentityId == identity.id,
                 onClick = { onSelected(identity.id) },
-                label = { Text(identity.name) }
+                label = { Text(identity.remark) }
             )
         }
     }
@@ -262,6 +262,14 @@ private fun OverviewCards(overview: BillOverview?) {
                         "${if (overview.netChange >= 0) "+" else ""}¥%,.2f".format(overview.netChange),
                         style = MaterialTheme.typography.titleMedium,
                         color = if (overview.netChange >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                    )
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("日均消费", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        "¥%,.2f".format(overview.dailyAverage),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.tertiary
                     )
                 }
                 Column(horizontalAlignment = Alignment.End) {

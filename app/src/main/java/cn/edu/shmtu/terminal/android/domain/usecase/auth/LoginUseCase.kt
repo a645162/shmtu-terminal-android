@@ -6,7 +6,7 @@ import javax.inject.Inject
 class LoginUseCase @Inject constructor(
     private val epayAdapter: EpayAdapter
 ) {
-    suspend fun testLoginStatus(accountId: Long): Boolean {
+    suspend fun testLoginStatus(accountId: Long): Result<Boolean> {
         return epayAdapter.testLoginStatus(accountId)
     }
 }

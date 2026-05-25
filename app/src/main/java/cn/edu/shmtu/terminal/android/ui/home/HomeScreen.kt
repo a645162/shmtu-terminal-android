@@ -160,6 +160,14 @@ private fun BillOverviewSection(overview: BillOverview?) {
                     )
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("日均消费", style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        "¥%,.2f".format(overview.dailyAverage),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("交易笔数", style = MaterialTheme.typography.labelSmall)
                     Text("${overview.transactionCount} 笔", style = MaterialTheme.typography.titleSmall)
                 }

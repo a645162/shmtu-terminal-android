@@ -4,14 +4,11 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.terminal.android.data.local.datastore.SecureStorage
-import cn.edu.shmtu.terminal.android.data.remote.CasAuthAdapter
 import cn.edu.shmtu.terminal.android.data.remote.WechatAuthAdapter
 import cn.edu.shmtu.terminal.android.domain.model.HotWaterBuilding
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.HotWaterRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,7 +29,6 @@ class HotWaterViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
     private val hotWaterRepository: HotWaterRepository,
     private val wechatAuthAdapter: WechatAuthAdapter,
-    private val casAuthAdapter: CasAuthAdapter,
     private val secureStorage: SecureStorage
 ) : ViewModel() {
 
@@ -41,7 +37,6 @@ class HotWaterViewModel @Inject constructor(
     val uiState: StateFlow<HotWaterUiState> = _uiState.asStateFlow()
 
     private var pendingAccountId: Long = 0
-    private var pendingJSessionId: String = ""
 
     init {
         viewModelScope.launch {
@@ -79,38 +74,39 @@ class HotWaterViewModel @Inject constructor(
     private fun tryLogin(accountId: Long) {
         viewModelScope.launch {
             try {
-                val isLoggedIn = wechatAuthAdapter.testLoginStatus(accountId)
-                if (isLoggedIn) {
+                // 测试登录状态
+                val testResult = wechatAuthAdapter.testLoginStatus(accountId)
+                
+                if (testResult.isSuccess && testResult.getOrNull() == true) {
+                    // 已登录，重试
                     loadHotWater(accountId)
                     return@launch
                 }
 
-                val wechatAuth = wechatAuthAdapter.getWechatAuth(accountId)
-                val loginWUrl = wechatAuth.getLoginWUrl()
-                if (loginWUrl.isBlank()) {
+                // 需要登录，获取验证码
+                val challengeResult = wechatAuthAdapter.prepareChallenge(accountId)
+                
+                if (challengeResult.isFailure) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        error = "无法获取登录页面"
+                        error = "获取验证码失败"
                     )
                     return@launch
                 }
 
-                // WechatAuth flow: captcha without cookie (unlike E-pay)
-                val captchaResult = casAuthAdapter.getCaptcha()
-                if (captchaResult == null) {
+                val challenge = challengeResult.getOrNull()
+                if (challenge == null) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        error = "无法获取验证码"
+                        error = "获取验证码失败"
                     )
                     return@launch
                 }
-
-                pendingJSessionId = captchaResult.cookie
 
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     showCaptchaDialog = true,
-                    captchaImage = captchaResult.imageData
+                    captchaImage = challenge.captchaImage
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
@@ -140,15 +136,24 @@ class HotWaterViewModel @Inject constructor(
                     return@launch
                 }
 
-                val success = wechatAuthAdapter.loginWithCaptcha(
+                // 提交登录
+                val submitResult = wechatAuthAdapter.submitLogin(
                     pendingAccountId,
                     account.userId,
                     password,
-                    captchaCode,
-                    pendingJSessionId
+                    captchaCode
                 )
 
-                if (!success) {
+                if (submitResult.isFailure) {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = "登录异常: ${submitResult.exceptionOrNull()?.message}"
+                    )
+                    return@launch
+                }
+
+                val submitValue = submitResult.getOrNull()
+                if (submitValue !is cn.edu.shmtu.cas.session.LoginSubmitResult.Success) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         error = "登录失败，验证码错误或已过期"
@@ -156,6 +161,7 @@ class HotWaterViewModel @Inject constructor(
                     return@launch
                 }
 
+                // 登录成功，重新加载热水数据
                 loadHotWater(pendingAccountId)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(

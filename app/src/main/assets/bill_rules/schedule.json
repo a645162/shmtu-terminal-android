@@ -1,0 +1,30 @@
+[
+  {
+    "valid_date": {
+      "start_date": "2019.9.1",
+      "end_date": "now"
+    },
+    "timetable": {
+      "breakfast": {
+        "name": "早餐",
+        "start_time": "6:30",
+        "end_time": "8:30"
+      },
+      "lunch": {
+        "name": "午餐",
+        "start_time": "10:45",
+        "end_time": "12:30"
+      },
+      "dinner": {
+        "name": "晚餐",
+        "start_time": "16:30",
+        "end_time": "18:15"
+      },
+      "midnight_snack": {
+        "name": "夜宵",
+        "start_time": "18:15",
+        "end_time": "21:00"
+      }
+    }
+  }
+]

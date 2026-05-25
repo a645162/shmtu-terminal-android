@@ -9,13 +9,21 @@ class DeleteAccountUseCase @Inject constructor(
     private val billDbManager: BillDatabaseManager
 ) {
     suspend operator fun invoke(accountId: Long, identityId: Long) {
-        val identityDb = billDbManager.getIdentityDatabase(identityId)
-        identityDb.billDao().deleteByAccountId(accountId)
+        // 获取账号信息
+        val account = accountRepository.getAccountById(accountId)
+        
+        if (account != null) {
+            // 删除身份数据库中该账号的账单 (identity_{identityId}.sqlite)
+            billDbManager.getIdentityDatabase(identityId).billDao().deleteByAccountId(accountId)
+            
+            // 删除账号数据库 (account_{studentId}.sqlite)
+            billDbManager.deleteAccountDatabase(account.userId)
+        }
 
-        billDbManager.deleteAccountDatabase(accountId)
-
+        // 删除账号记录
         accountRepository.deleteAccount(accountId)
-
+        
+        // 删除密码
         accountRepository.removePassword(accountId)
     }
 }

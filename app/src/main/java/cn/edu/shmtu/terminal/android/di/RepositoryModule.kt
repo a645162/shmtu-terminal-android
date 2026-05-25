@@ -4,10 +4,12 @@ import cn.edu.shmtu.terminal.android.data.repository.AccountRepositoryImpl
 import cn.edu.shmtu.terminal.android.data.repository.BillRepositoryImpl
 import cn.edu.shmtu.terminal.android.data.repository.HotWaterRepositoryImpl
 import cn.edu.shmtu.terminal.android.data.repository.IdentityRepositoryImpl
+import cn.edu.shmtu.terminal.android.data.repository.SessionRepositoryImpl
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
 import cn.edu.shmtu.terminal.android.domain.repository.HotWaterRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
+import cn.edu.shmtu.terminal.android.domain.repository.SessionRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -33,4 +35,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindHotWaterRepository(impl: HotWaterRepositoryImpl): HotWaterRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindSessionRepository(impl: SessionRepositoryImpl): SessionRepository
 }

@@ -3,19 +3,16 @@ package cn.edu.shmtu.terminal.android.ui.account
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import cn.edu.shmtu.cas.session.LoginSubmitResult
 import cn.edu.shmtu.terminal.android.data.local.datastore.SecureStorage
-import cn.edu.shmtu.terminal.android.data.remote.CasAuthAdapter
 import cn.edu.shmtu.terminal.android.data.remote.EpayAdapter
 import cn.edu.shmtu.terminal.android.domain.model.Account
 import cn.edu.shmtu.terminal.android.domain.model.Identity
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
-import cn.edu.shmtu.terminal.android.domain.repository.SyncResult
 import cn.edu.shmtu.terminal.android.domain.usecase.account.DeleteAccountUseCase
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.SyncAccountBillsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -42,7 +39,6 @@ class IdentityDetailViewModel @Inject constructor(
     private val deleteAccountUseCase: DeleteAccountUseCase,
     private val syncAccountBillsUseCase: SyncAccountBillsUseCase,
     private val epayAdapter: EpayAdapter,
-    private val casAuthAdapter: CasAuthAdapter,
     private val secureStorage: SecureStorage
 ) : ViewModel() {
 
@@ -80,46 +76,55 @@ class IdentityDetailViewModel @Inject constructor(
             }
 
             if (result.errorMessage == "Session expired, need re-login") {
+                // 测试登录状态
+                val testResult = epayAdapter.testLoginStatus(account.id)
+                
+                if (testResult.isSuccess && testResult.getOrNull() == true) {
+                    // 已登录，重试同步
+                    val retryResult = syncAccountBillsUseCase(account)
+                    _uiState.value = _uiState.value.copy(
+                        isSyncing = false,
+                        syncMessage = if (retryResult.success)
+                            "同步成功，新增 ${retryResult.newCount} 条记录"
+                        else
+                            "同步失败: ${retryResult.errorMessage}"
+                    )
+                    return@launch
+                }
+
+                // 需要重新登录，获取验证码
                 try {
-                    val isLoggedIn = epayAdapter.testLoginStatus(account.id)
-                    if (isLoggedIn) {
-                        val retryResult = syncAccountBillsUseCase(account)
+                    val probeResult = epayAdapter.probeLogin(account.id)
+                    if (probeResult.isFailure) {
                         _uiState.value = _uiState.value.copy(
                             isSyncing = false,
-                            syncMessage = if (retryResult.success)
-                                "同步成功，新增 ${retryResult.newCount} 条记录"
-                            else
-                                "同步失败: ${retryResult.errorMessage}"
+                            syncMessage = "探测登录状态失败"
                         )
                         return@launch
                     }
 
-                    val epayAuth = epayAdapter.getEpayAuth(account.id)
-                    val loginUrl = epayAuth.getLoginUrl()
-                    if (loginUrl.isBlank()) {
+                    val challengeResult = epayAdapter.prepareChallenge(account.id)
+                    if (challengeResult.isFailure) {
                         _uiState.value = _uiState.value.copy(
                             isSyncing = false,
-                            syncMessage = "无法获取登录页面"
+                            syncMessage = "获取验证码失败"
                         )
                         return@launch
                     }
 
-                    val loginCookie = epayAuth.getLoginCookie()
-                    val captchaResult = casAuthAdapter.getCaptcha(loginCookie)
-                    if (captchaResult == null) {
+                    val challenge = challengeResult.getOrNull()
+                    if (challenge == null) {
                         _uiState.value = _uiState.value.copy(
                             isSyncing = false,
-                            syncMessage = "无法获取验证码"
+                            syncMessage = "获取验证码失败"
                         )
                         return@launch
                     }
-
-                    epayAuth.setLoginCookie(captchaResult.cookie)
 
                     _uiState.value = _uiState.value.copy(
                         isSyncing = false,
                         showCaptchaDialog = true,
-                        captchaImage = captchaResult.imageData,
+                        captchaImage = challenge.captchaImage,
                         captchaAccount = account
                     )
                 } catch (e: Exception) {
@@ -157,25 +162,45 @@ class IdentityDetailViewModel @Inject constructor(
                     return@launch
                 }
 
-                val success = epayAdapter.loginWithCaptcha(account.id, account.userId, password, captchaCode)
-
-                if (!success) {
+                // 重新获取 challenge（execution 是一次性的）
+                val challengeResult = epayAdapter.prepareChallenge(account.id)
+                if (challengeResult.isFailure) {
                     _uiState.value = _uiState.value.copy(
                         isSyncing = false,
-                        syncMessage = "登录失败，验证码错误或已过期"
+                        syncMessage = "获取验证码失败，请重试"
                     )
                     return@launch
                 }
 
-                val result = syncAccountBillsUseCase(account)
+                val submitResult = epayAdapter.submitLogin(account.id, account.userId, password, captchaCode)
 
-                _uiState.value = _uiState.value.copy(
-                    isSyncing = false,
-                    syncMessage = if (result.success)
-                        "同步成功，新增 ${result.newCount} 条记录"
-                    else
-                        "同步失败: ${result.errorMessage}"
-                )
+                when {
+                    submitResult.isFailure -> {
+                        _uiState.value = _uiState.value.copy(
+                            isSyncing = false,
+                            syncMessage = "登录异常: ${submitResult.exceptionOrNull()?.message}"
+                        )
+                    }
+                    
+                    submitResult.getOrNull() !is LoginSubmitResult.Success -> {
+                        _uiState.value = _uiState.value.copy(
+                            isSyncing = false,
+                            syncMessage = "登录失败，验证码错误或已过期"
+                        )
+                    }
+                    
+                    else -> {
+                        // 登录成功，执行同步
+                        val result = syncAccountBillsUseCase(account)
+                        _uiState.value = _uiState.value.copy(
+                            isSyncing = false,
+                            syncMessage = if (result.success)
+                                "同步成功，新增 ${result.newCount} 条记录"
+                            else
+                                "同步失败: ${result.errorMessage}"
+                        )
+                    }
+                }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isSyncing = false,

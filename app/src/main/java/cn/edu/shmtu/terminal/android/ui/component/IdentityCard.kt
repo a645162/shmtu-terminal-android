@@ -18,7 +18,7 @@ fun IdentityCard(
         colors = CardDefaults.elevatedCardColors()
     ) {
         ListItem(
-            headlineContent = { Text(identity.name) },
+            headlineContent = { Text(identity.remark) },
             supportingContent = { Text("${identity.accountCount} 个账号") }
         )
     }

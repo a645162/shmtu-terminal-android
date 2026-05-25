@@ -73,4 +73,11 @@ interface BillDao {
         ORDER BY month DESC
     """)
     fun getMonthlySummary(): Flow<List<MonthlyTypeSum>>
+
+    @Query("""
+        SELECT DISTINCT substr(dateTimeStrFormat, 1, 10) as dateStr
+        FROM bills
+        WHERE dateTimeStrFormat >= :startDate AND dateTimeStrFormat <= :endDate
+    """)
+    fun getActiveDaysInRange(startDate: String, endDate: String): Flow<List<String>>
 }

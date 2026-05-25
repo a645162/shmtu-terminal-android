@@ -3,6 +3,8 @@ package cn.edu.shmtu.terminal.android.data.remote
 import android.util.Log
 import cn.edu.shmtu.cas.auth.WechatAuth
 import cn.edu.shmtu.cas.parser.HotWaterParser
+import cn.edu.shmtu.cas.session.LoginSubmitResult
+import cn.edu.shmtu.cas.session.SessionProbe
 import cn.edu.shmtu.terminal.android.data.local.datastore.SecureStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,36 +25,89 @@ class WechatAuthAdapter @Inject constructor(
 
     private fun createWechatAuthWithCookies(accountId: Long): WechatAuth {
         val wechatAuth = WechatAuth()
+        
+        // 恢复会话 cookies
+        secureStorage.getWechatCookie(accountId)?.let { cookie ->
+            val result = wechatAuth.restoreSession(cookie)
+            if (result.isSuccess) {
+                Log.d(TAG, "Restored wechatCookie for account $accountId")
+            }
+        }
+        
+        // 恢复登录 URL
         secureStorage.getWechatLoginUrl(accountId)?.let { url ->
             wechatAuth.setLoginWUrl(url)
+            Log.d(TAG, "Restored wechatLoginUrl for account $accountId")
         }
-        secureStorage.getWechatCookie(accountId)?.let { cookie ->
-            wechatAuth.setCookie(cookie)
-        }
+        
         return wechatAuth
     }
 
-    suspend fun testLoginStatus(accountId: Long): Boolean = withContext(Dispatchers.IO) {
+    /**
+     * 探测热水登录状态
+     */
+    suspend fun probeLogin(accountId: Long): Result<SessionProbe> = withContext(Dispatchers.IO) {
+        val result = getWechatAuth(accountId).probeLogin()
+        Log.d(TAG, "probeLogin for account $accountId: $result")
+        result
+    }
+
+    /**
+     * 获取验证码图片
+     */
+    suspend fun prepareChallenge(accountId: Long) = withContext(Dispatchers.IO) {
+        val result = getWechatAuth(accountId).prepareChallenge()
+        Log.d(TAG, "prepareChallenge for account $accountId")
+        result
+    }
+
+    /**
+     * 提交登录（自动获取 execution）
+     */
+    suspend fun submitLogin(accountId: Long, username: String, password: String, captchaCode: String): Result<LoginSubmitResult> = withContext(Dispatchers.IO) {
+        Log.d(TAG, "submitLogin for account $accountId")
+        val wechatAuth = getWechatAuth(accountId)
+        
+        // 先获取 execution
+        val challengeResult = wechatAuth.prepareChallenge()
+        if (challengeResult.isFailure) {
+            Log.e(TAG, "prepareChallenge failed: ${challengeResult.exceptionOrNull()?.message}")
+            return@withContext Result.failure(challengeResult.exceptionOrNull() ?: Exception("获取验证码失败"))
+        }
+        
+        val challenge = challengeResult.getOrNull()
+        if (challenge == null) {
+            return@withContext Result.failure(Exception("获取验证码失败"))
+        }
+        
+        // 提交登录
+        val result = wechatAuth.submitLogin(username, password, captchaCode, challenge.execution)
+        
+        if (result.isSuccess && result.getOrNull() is LoginSubmitResult.Success) {
+            val cookiesJson = wechatAuth.extractSession()
+            secureStorage.saveWechatCookie(accountId, cookiesJson)
+            secureStorage.saveWechatLoginUrl(accountId, wechatAuth.getLoginWUrl())
+            Log.d(TAG, "Saved cookies after successful login for account $accountId")
+        }
+        
+        result
+    }
+
+    /**
+     * 测试登录状态
+     */
+    suspend fun testLoginStatus(accountId: Long): Result<Boolean> = withContext(Dispatchers.IO) {
         val result = getWechatAuth(accountId).testLoginStatus()
         Log.d(TAG, "testLoginStatus for account $accountId: $result")
         result
     }
 
-    suspend fun loginWithCaptcha(accountId: Long, username: String, password: String, captchaCode: String, jSessionId: String): Boolean = withContext(Dispatchers.IO) {
-        Log.d(TAG, "loginWithCaptcha for account $accountId")
-        val wechatAuth = getWechatAuth(accountId)
-        val success = wechatAuth.loginWithCaptcha(username, password, captchaCode, jSessionId)
-        Log.d(TAG, "loginWithCaptcha result: $success")
-        if (success) {
-            secureStorage.saveWechatLoginUrl(accountId, wechatAuth.getLoginWUrl())
-            secureStorage.saveWechatCookie(accountId, wechatAuth.getCookie())
-        }
-        success
-    }
-
-    suspend fun fetchHotWater(accountId: Long): Triple<Int, String, String> = withContext(Dispatchers.IO) {
+    /**
+     * 获取热水数据
+     */
+    suspend fun fetchHotWater(accountId: Long): Result<String> = withContext(Dispatchers.IO) {
         val result = getWechatAuth(accountId).getHotWater()
-        Log.d(TAG, "fetchHotWater account=$accountId resultCode=${result.first}")
+        Log.d(TAG, "fetchHotWater account=$accountId")
         result
     }
 

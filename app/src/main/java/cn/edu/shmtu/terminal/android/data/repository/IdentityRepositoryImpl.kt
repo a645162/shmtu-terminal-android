@@ -8,6 +8,7 @@ import cn.edu.shmtu.terminal.android.domain.model.Identity
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -27,16 +28,46 @@ class IdentityRepositoryImpl @Inject constructor(
         }
     }
 
+    override fun getIdentityByIdFlow(id: Long): Flow<Identity?> {
+        return identityDao.getAllIdentities().map { list ->
+            list.find { it.id == id }?.toDomain()
+        }
+    }
+
     override suspend fun getIdentityById(id: Long): Identity? {
         return identityDao.getById(id)?.toDomain()
     }
 
-    override suspend fun addIdentity(name: String, birthday: String, enrollmentDate: String, graduationDate: String): Long {
-        return identityDao.insert(IdentityEntity(name = name, birthday = birthday, enrollmentDate = enrollmentDate, graduationDate = graduationDate))
+    override suspend fun addIdentity(
+        username: String,
+        remark: String,
+        birthday: String,
+        enrollmentDate: String,
+        graduationDate: String
+    ): Long {
+        return identityDao.insert(
+            IdentityEntity(
+                username = username,
+                remark = remark,
+                birthday = birthday,
+                enrollmentDate = enrollmentDate,
+                graduationDate = graduationDate
+            )
+        )
     }
 
-    override suspend fun updateIdentity(id: Long, name: String, birthday: String, enrollmentDate: String, graduationDate: String) {
-        identityDao.updateIdentity(id, name, birthday, enrollmentDate, graduationDate)
+    override suspend fun updateIdentity(identity: Identity) {
+        identityDao.update(
+            IdentityEntity(
+                id = identity.id,
+                username = identity.username,
+                remark = identity.remark,
+                birthday = identity.birthday,
+                enrollmentDate = identity.enrollmentDate,
+                graduationDate = identity.graduationDate,
+                displayOrder = identity.displayOrder
+            )
+        )
     }
 
     override suspend fun deleteIdentity(id: Long) {

@@ -1,4 +1,5 @@
 plugins {
+    alias(libs.plugins.kotlinx.serialization)
     id("java-library")
     alias(libs.plugins.jetbrains.kotlin.jvm)
 }
@@ -31,4 +32,5 @@ kotlin {
 dependencies {
     implementation(libs.jsoup)
     implementation(libs.okhttp)
+    implementation(libs.kotlinx.serialization.json)
 }

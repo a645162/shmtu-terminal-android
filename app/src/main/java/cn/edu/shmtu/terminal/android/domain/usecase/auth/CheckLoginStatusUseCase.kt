@@ -8,10 +8,15 @@ class CheckLoginStatusUseCase @Inject constructor(
     private val epayAdapter: EpayAdapter,
     private val accountRepository: AccountRepository
 ) {
-    suspend operator fun invoke(accountId: Long): Boolean {
-        val isLoggedIn = epayAdapter.testLoginStatus(accountId)
-        val status = if (isLoggedIn) "LOGGED_IN" else "LOGGED_OUT"
-        accountRepository.updateLoginStatus(accountId, status)
-        return isLoggedIn
+    suspend operator fun invoke(accountId: Long): Result<Boolean> {
+        val result = epayAdapter.testLoginStatus(accountId)
+        
+        if (result.isSuccess) {
+            val isLoggedIn = result.getOrNull() == true
+            val status = if (isLoggedIn) "LOGGED_IN" else "LOGGED_OUT"
+            accountRepository.updateLoginStatus(accountId, status)
+        }
+        
+        return result
     }
 }

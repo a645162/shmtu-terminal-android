@@ -65,7 +65,7 @@ fun BillListScreen(
                         FilterChip(
                             selected = false,
                             onClick = { viewModel.selectIdentity(identity.id) },
-                            label = { Text(identity.name) }
+                            label = { Text(identity.remark) }
                         )
                     }
                 }

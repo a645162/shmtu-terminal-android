@@ -4,7 +4,9 @@ data class BillOverview(
     val totalSpending: Double,
     val totalIncome: Double,
     val netChange: Double,
+    val dailyAverage: Double,
     val transactionCount: Int,
+    val activeDays: Int,
     val lastMonthSpending: Double,
     val lastMonthIncome: Double
 )

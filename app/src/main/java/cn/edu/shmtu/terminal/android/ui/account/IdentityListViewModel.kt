@@ -52,14 +52,14 @@ class IdentityListViewModel @Inject constructor(
             val result = syncIdentityBillsUseCase(identityId)
 
             val identity = identityRepository.getIdentityById(identityId)
-            val name = identity?.name ?: "身份"
+            val remark = identity?.remark ?: "身份"
 
             _uiState.value = _uiState.value.copy(
                 syncingIdentityId = null,
                 syncMessage = if (result.success)
-                    "$name: 同步成功，新增 ${result.newCount} 条记录"
+                    "$remark: 同步成功，新增 ${result.newCount} 条记录"
                 else
-                    "$name: 同步失败 - ${result.errorMessage}"
+                    "$remark: 同步失败 - ${result.errorMessage}"
             )
         }
     }
@@ -68,11 +68,11 @@ class IdentityListViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(syncMessage = null)
     }
 
-    fun addIdentity(name: String? = null) {
+    fun addIdentity(username: String? = null, remark: String = "") {
         viewModelScope.launch {
             val currentCount = identities.value.size
-            val resolvedName = name?.takeIf { it.isNotBlank() } ?: "身份${currentCount + 1}"
-            identityRepository.addIdentity(name = resolvedName)
+            val resolvedUsername = username?.takeIf { it.isNotBlank() } ?: "user${currentCount + 1}"
+            identityRepository.addIdentity(username = resolvedUsername, remark = remark)
         }
     }
 
@@ -80,9 +80,9 @@ class IdentityListViewModel @Inject constructor(
         _editingIdentity.value = identity
     }
 
-    fun updateIdentity(id: Long, name: String, birthday: String = "", enrollmentDate: String = "", graduationDate: String = "") {
+    fun updateIdentity(identity: Identity) {
         viewModelScope.launch {
-            identityRepository.updateIdentity(id, name, birthday, enrollmentDate, graduationDate)
+            identityRepository.updateIdentity(identity)
             _editingIdentity.value = null
         }
     }
@@ -95,9 +95,9 @@ class IdentityListViewModel @Inject constructor(
         _editingDetailsIdentity.value = identity
     }
 
-    fun updateIdentityDetails(id: Long, name: String, birthday: String, enrollmentDate: String, graduationDate: String) {
+    fun updateIdentityDetails(identity: Identity) {
         viewModelScope.launch {
-            identityRepository.updateIdentity(id, name, birthday, enrollmentDate, graduationDate)
+            identityRepository.updateIdentity(identity)
             _editingDetailsIdentity.value = null
         }
     }

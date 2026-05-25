@@ -25,15 +25,12 @@ class HotWaterRepositoryImpl @Inject constructor(
         return try {
             val result = wechatAuthAdapter.fetchHotWater(accountId)
 
-            if (result.first == 302) {
-                return Result.failure(Exception("Session expired"))
+            if (result.isFailure) {
+                return Result.failure(result.exceptionOrNull() ?: Exception("未知错误"))
             }
 
-            if (result.first != 200) {
-                return Result.failure(Exception("HTTP ${result.first}"))
-            }
-
-            val parsed = wechatAuthAdapter.parseHotWaterList(result.second)
+            val html = result.getOrNull() ?: ""
+            val parsed = wechatAuthAdapter.parseHotWaterList(html)
             val followed = followedBuildingDao.getAll().first().map { it.buildingNumber }.toSet()
 
             val buildings = parsed.map { (temp, level, building) ->

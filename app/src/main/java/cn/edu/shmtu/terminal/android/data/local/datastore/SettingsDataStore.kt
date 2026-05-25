@@ -19,10 +19,12 @@ class SettingsDataStore @Inject constructor(
     private val _captchaModeFlow = MutableStateFlow(getCaptchaMode())
     private val _useLocalOcrFlow = MutableStateFlow(getUseLocalOcr())
     private val _ocrServerUrlFlow = MutableStateFlow(getOcrServerUrl())
+    private val _sessionCheckIntervalFlow = MutableStateFlow(getSessionCheckInterval())
 
     val captchaMode: Flow<CaptchaMode> = _captchaModeFlow.asStateFlow()
     val useLocalOcr: Flow<Boolean> = _useLocalOcrFlow.asStateFlow()
     val ocrServerUrl: Flow<String> = _ocrServerUrlFlow.asStateFlow()
+    val sessionCheckInterval: Flow<Int> = _sessionCheckIntervalFlow.asStateFlow()
 
     fun setCaptchaMode(mode: CaptchaMode) {
         prefs.edit().putString(KEY_CAPTCHA_MODE, when (mode) {
@@ -42,6 +44,14 @@ class SettingsDataStore @Inject constructor(
         _ocrServerUrlFlow.value = url
     }
 
+    fun setSessionCheckInterval(minutes: Int) {
+        prefs.edit().putInt(KEY_SESSION_CHECK_INTERVAL, minutes).apply()
+        _sessionCheckIntervalFlow.value = minutes
+    }
+
+    private fun getSessionCheckInterval(): Int =
+        prefs.getInt(KEY_SESSION_CHECK_INTERVAL, 10)
+
     private fun getCaptchaMode(): CaptchaMode {
         return when (prefs.getString(KEY_CAPTCHA_MODE, "manual")) {
             "auto" -> CaptchaMode.AUTO_OCR
@@ -59,6 +69,7 @@ class SettingsDataStore @Inject constructor(
         private const val KEY_CAPTCHA_MODE = "captcha_mode"
         private const val KEY_USE_LOCAL_OCR = "use_local_ocr"
         private const val KEY_OCR_SERVER_URL = "ocr_server_url"
+        private const val KEY_SESSION_CHECK_INTERVAL = "session_check_interval"
     }
 }
 

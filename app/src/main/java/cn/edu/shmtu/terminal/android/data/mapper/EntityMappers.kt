@@ -13,7 +13,8 @@ object EntityMappers {
 
     fun IdentityEntity.toDomain(accountCount: Int = 0): Identity = Identity(
         id = id,
-        name = name,
+        username = username,
+        remark = remark,
         birthday = birthday,
         enrollmentDate = enrollmentDate,
         graduationDate = graduationDate,
@@ -23,7 +24,8 @@ object EntityMappers {
 
     fun Identity.toEntity(): IdentityEntity = IdentityEntity(
         id = id,
-        name = name,
+        username = username,
+        remark = remark,
         birthday = birthday,
         enrollmentDate = enrollmentDate,
         graduationDate = graduationDate,
