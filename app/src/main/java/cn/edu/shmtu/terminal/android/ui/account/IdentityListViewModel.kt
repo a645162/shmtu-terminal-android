@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.terminal.android.domain.model.Identity
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
-import cn.edu.shmtu.terminal.android.domain.repository.SyncResult
+import cn.edu.shmtu.terminal.android.domain.model.SyncResult
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.SyncIdentityBillsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow

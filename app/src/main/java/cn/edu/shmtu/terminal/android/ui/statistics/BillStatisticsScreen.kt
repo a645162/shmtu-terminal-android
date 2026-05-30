@@ -52,6 +52,7 @@ import cn.edu.shmtu.terminal.android.domain.model.CategoryBreakdown
 import cn.edu.shmtu.terminal.android.domain.model.MonthlySummary
 import cn.edu.shmtu.terminal.android.domain.model.SpendingTrend
 import cn.edu.shmtu.terminal.android.domain.model.TargetUserRanking
+import cn.edu.shmtu.terminal.android.ui.theme.CategoryColors
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -59,14 +60,8 @@ import java.time.format.DateTimeFormatter
 import kotlin.math.abs
 import kotlin.math.min
 
-private val CHART_COLORS = listOf(
-    Color(0xFF6750A4),
-    Color(0xFFE8DEF8),
-    Color(0xFF625B71),
-    Color(0xFF7D5260),
-    Color(0xFFB3261E),
-    Color(0xFFD0BCFF)
-)
+// 使用与 Rust 版对齐的分类颜色
+private val CHART_COLORS = CategoryColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

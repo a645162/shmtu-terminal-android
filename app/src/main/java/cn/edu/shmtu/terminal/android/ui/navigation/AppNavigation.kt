@@ -11,6 +11,7 @@ import cn.edu.shmtu.terminal.android.ui.account.IdentityDetailScreen
 import cn.edu.shmtu.terminal.android.ui.account.IdentityListScreen
 import cn.edu.shmtu.terminal.android.ui.account.LoginScreen
 import cn.edu.shmtu.terminal.android.ui.bill.BillDetailScreen
+import cn.edu.shmtu.terminal.android.ui.datatransfer.DataTransferScreen
 import cn.edu.shmtu.terminal.android.ui.hotwater.HotWaterScreen
 import cn.edu.shmtu.terminal.android.ui.bill.BillListScreen
 import cn.edu.shmtu.terminal.android.ui.features.FeatureHubScreen
@@ -46,7 +47,8 @@ fun AppNavigation(
         }
         composable(TopLevelDestination.FEATURES.route) {
             FeatureHubScreen(
-                onNavigateToBillStatistics = { navController.navigate("bill_statistics") }
+                onNavigateToBillStatistics = { navController.navigate("bill_statistics") },
+                onNavigateToDataTransfer = { navController.navigate("data_transfer") }
             )
         }
         composable(TopLevelDestination.ACCOUNT.route) {
@@ -91,6 +93,11 @@ fun AppNavigation(
         }
         composable("ocr_settings") {
             OcrSettingsScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable("data_transfer") {
+            DataTransferScreen(
                 onBack = { navController.popBackStack() }
             )
         }

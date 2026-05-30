@@ -38,6 +38,7 @@ private data class FeatureItem(
 
 private val features = listOf(
     FeatureItem("账单统计", "多维度账单分析与可视化", R.drawable.ic_bill, true, "bill_statistics"),
+    FeatureItem("数据传输", "导入导出账单数据与快照管理", R.drawable.ic_bill, true, "data_transfer"),
     FeatureItem("热水查询", "宿舍楼热水温度与水位（从账号管理进入）", R.drawable.ic_home, false),
     FeatureItem("电费查询", "宿舍电费余额与用电记录", R.drawable.ic_home, false),
     FeatureItem("课表查询", "本学期课程表与上课提醒", R.drawable.ic_favorite, false),
@@ -49,7 +50,8 @@ private val features = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FeatureHubScreen(
-    onNavigateToBillStatistics: () -> Unit
+    onNavigateToBillStatistics: () -> Unit,
+    onNavigateToDataTransfer: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -68,8 +70,11 @@ fun FeatureHubScreen(
                 FeatureCard(
                     feature = feature,
                     onClick = {
-                        if (feature.available && feature.route == "bill_statistics") {
-                            onNavigateToBillStatistics()
+                        if (feature.available) {
+                            when (feature.route) {
+                                "bill_statistics" -> onNavigateToBillStatistics()
+                                "data_transfer" -> onNavigateToDataTransfer()
+                            }
                         }
                     }
                 )

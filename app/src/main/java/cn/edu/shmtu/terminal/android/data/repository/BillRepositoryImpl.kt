@@ -6,15 +6,26 @@ import cn.edu.shmtu.terminal.android.data.mapper.EntityMappers
 import cn.edu.shmtu.terminal.android.domain.model.BillItem
 import cn.edu.shmtu.terminal.android.domain.model.BillOverview
 import cn.edu.shmtu.terminal.android.domain.model.CategoryBreakdown
+import cn.edu.shmtu.terminal.android.domain.model.ConsumptionBucket
+import cn.edu.shmtu.terminal.android.domain.model.DailyTrend
+import cn.edu.shmtu.terminal.android.domain.model.MealDistribution
 import cn.edu.shmtu.terminal.android.domain.model.MonthlySummary
 import cn.edu.shmtu.terminal.android.domain.model.SpendingTrend
+import cn.edu.shmtu.terminal.android.domain.model.StatisticsSummary
 import cn.edu.shmtu.terminal.android.domain.model.TargetUserRanking
+import cn.edu.shmtu.terminal.android.domain.model.SyncProgress
+import cn.edu.shmtu.terminal.android.domain.model.SyncResult
+import cn.edu.shmtu.terminal.android.domain.model.SyncStatus
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
-import cn.edu.shmtu.terminal.android.domain.repository.SyncResult
+import cn.edu.shmtu.terminal.android.domain.usecase.bill.FullSyncAccountBillsUseCase
+import cn.edu.shmtu.terminal.android.domain.usecase.bill.FullSyncIdentityBillsUseCase
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.SyncAccountBillsUseCase
+import cn.edu.shmtu.terminal.android.domain.usecase.bill.SyncIdentityBillsUseCase
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -25,24 +36,31 @@ import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** 收入关键词 - 对齐 Rust 版 INCOME_KEYWORDS */
+private val INCOME_KEYWORDS = listOf("充值", "冲正", "退款", "返还", "补偿")
+
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @Singleton
 class BillRepositoryImpl @Inject constructor(
     private val billDbManager: BillDatabaseManager,
     private val accountRepository: AccountRepository,
     private val identityRepository: IdentityRepository,
-    private val syncAccountBillsUseCase: SyncAccountBillsUseCase
+    private val syncAccountBillsUseCase: SyncAccountBillsUseCase,
+    private val syncIdentityBillsUseCase: SyncIdentityBillsUseCase,
+    private val fullSyncAccountBillsUseCase: FullSyncAccountBillsUseCase,
+    private val fullSyncIdentityBillsUseCase: FullSyncIdentityBillsUseCase
 ) : BillRepository {
 
+    private val _syncProgress = MutableSharedFlow<SyncProgress>(extraBufferCapacity = 1)
+    override val syncProgress: SharedFlow<SyncProgress> = _syncProgress
+
     override fun getBillsForIdentity(identityId: Long): Flow<List<BillItem>> {
-        // 读取 identity_{identityId}.sqlite 中的合并账单
         return billDbManager.getIdentityDatabase(identityId)
             .billDao().getAllBills()
             .map { list -> list.map { it.toDomain() } }
     }
 
     override fun getBillsForAccount(identityId: Long, accountId: Long): Flow<List<BillItem>> {
-        // 通过 accountId 找到 studentId，然后读取 account_{studentId}.sqlite
         return flow {
             val account = accountRepository.getAccountById(accountId)
             if (account != null) {
@@ -63,28 +81,43 @@ class BillRepositoryImpl @Inject constructor(
     }
 
     override suspend fun syncIdentityBills(identityId: Long): SyncResult {
-        val accountList = accountRepository.getAccountsByIdentity(identityId).first()
-        var totalNew = 0
-        var hasError = false
-        var errorMsg: String? = null
-
-        for (account in accountList) {
-            val result = syncAccountBillsUseCase(account)
-            totalNew += result.newCount
-            if (!result.success) {
-                hasError = true
-                errorMsg = result.errorMessage
-            }
-        }
-
-        return SyncResult(totalNew, !hasError, errorMsg)
+        return syncIdentityBillsUseCase(identityId)
     }
 
     override suspend fun deleteBillsForAccount(accountId: Long, identityId: Long) {
-        // 从 identity 数据库删除该账号的账单
         billDbManager.getIdentityDatabase(identityId)
             .billDao().deleteByAccountId(accountId)
     }
+
+    // ==================== 带进度的同步 ====================
+
+    override suspend fun syncAccountBillsWithProgress(accountId: Long): SyncResult {
+        val account = accountRepository.getAccountById(accountId) ?: return SyncResult(0, false, "Account not found")
+        return syncAccountBillsUseCase(account) { progress ->
+            _syncProgress.tryEmit(progress)
+        }
+    }
+
+    override suspend fun syncIdentityBillsWithProgress(identityId: Long): SyncResult {
+        return syncIdentityBillsUseCase(identityId) { progress ->
+            _syncProgress.tryEmit(progress)
+        }
+    }
+
+    override suspend fun fullSyncAccountWithProgress(accountId: Long): SyncResult {
+        val account = accountRepository.getAccountById(accountId) ?: return SyncResult(0, false, "Account not found")
+        return fullSyncAccountBillsUseCase(account) { progress ->
+            _syncProgress.tryEmit(progress)
+        }
+    }
+
+    override suspend fun fullSyncIdentityWithProgress(identityId: Long): SyncResult {
+        return fullSyncIdentityBillsUseCase(identityId) { progress ->
+            _syncProgress.tryEmit(progress)
+        }
+    }
+
+    // ==================== 统计功能 ====================
 
     override fun getBillOverview(identityId: Long?): Flow<BillOverview> {
         val now = YearMonth.now()
@@ -218,6 +251,156 @@ class BillRepositoryImpl @Inject constructor(
                         income = typeMap.filter { it.key.contains("充值") }.values.sum()
                     )
                 }.sortedByDescending { it.month }
+            }
+        }
+    }
+
+    // ==================== 新增统计功能 - 对齐 Rust 版 ====================
+
+    /**
+     * 统计汇总 - 对齐 Rust 版 get_statistics_summary
+     */
+    override fun getStatisticsSummary(identityId: Long?, dateStart: String?, dateEnd: String?): Flow<StatisticsSummary> {
+        val start = dateStart ?: YearMonth.now().atDay(1).format(DATE_FMT)
+        val end = dateEnd ?: YearMonth.now().atEndOfMonth().format(DATE_FMT_END)
+
+        return getDatabases(identityId).flatMapLatest { dbs ->
+            combine(
+                combine(dbs.map { db ->
+                    db.billDao().getSumByTypeInRange(start, end)
+                }) { results ->
+                    val sums = results.flatMap { it.toList() }
+                    val expenseSum = sums.filter { it.type.contains("消费") }.sumOf { it.total }
+                    val incomeSum = sums.filter { it.type.contains("充值") }.sumOf { it.total }
+                    expenseSum to incomeSum
+                },
+                combine(dbs.map { db ->
+                    db.billDao().getAllBills()
+                }) { results ->
+                    val allBills = results.flatMap { it.toList() }
+                    val expenseCount = allBills.count {
+                        it.status == "交易成功" && it.type.contains("消费")
+                    }
+                    val incomeCount = allBills.count {
+                        it.status == "交易成功" && it.type.contains("充值")
+                    }
+                    expenseCount to incomeCount
+                }
+            ) { (expenseSum, incomeSum), (expenseCount, incomeCount) ->
+                val activeDays = 30 // simplified
+                StatisticsSummary(
+                    totalExpense = expenseSum,
+                    totalIncome = incomeSum,
+                    netExpense = expenseSum - incomeSum,
+                    dailyAverage = if (activeDays > 0) expenseSum / activeDays else 0.0,
+                    expenseCount = expenseCount,
+                    incomeCount = incomeCount
+                )
+            }
+        }
+    }
+
+    /**
+     * 每日趋势 - 对齐 Rust 版 get_daily_trend
+     * 返回每日支出和收入
+     */
+    override fun getDailyTrend(identityId: Long?, dateStart: String?, dateEnd: String?): Flow<List<DailyTrend>> {
+        val start = dateStart ?: YearMonth.now().atDay(1).format(DATE_FMT)
+        val end = dateEnd ?: YearMonth.now().atEndOfMonth().format(DATE_FMT_END)
+
+        return getDatabases(identityId).flatMapLatest { dbs ->
+            combine(dbs.map { db ->
+                db.billDao().getDailyTrendByType(start, end)
+            }) { results ->
+                val merged = mutableMapOf<String, MutableMap<String, Double>>()
+                for (list in results) {
+                    for (item in list) {
+                        val typeMap = merged.getOrPut(item.dateStr) { mutableMapOf() }
+                        typeMap[item.type] = (typeMap[item.type] ?: 0.0) + item.total
+                    }
+                }
+                merged.entries.sortedBy { it.key }.map { (date, typeMap) ->
+                    DailyTrend(
+                        date = date,
+                        expense = typeMap.filter { it.key.contains("消费") }.values.sum(),
+                        income = typeMap.filter { it.key.contains("充值") }.values.sum()
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * 用餐时段分布 - 对齐 Rust 版 get_meal_distribution
+     * 早餐(6-9), 午餐(11-13), 晚餐(17-19), 夜宵(21-23), 其他
+     */
+    override fun getMealDistribution(identityId: Long?, dateStart: String?, dateEnd: String?): Flow<List<MealDistribution>> {
+        val start = dateStart ?: YearMonth.now().atDay(1).format(DATE_FMT)
+        val end = dateEnd ?: YearMonth.now().atEndOfMonth().format(DATE_FMT_END)
+
+        return getDatabases(identityId).flatMapLatest { dbs ->
+            combine(dbs.map { db ->
+                db.billDao().getMealDistribution(start, end)
+            }) { results ->
+                val merged = mutableMapOf<String, MutableMap<String, Double>>()
+                for (list in results) {
+                    for (item in list) {
+                        val typeMap = merged.getOrPut(item.meal) { mutableMapOf() }
+                        typeMap["count"] = (typeMap["count"] ?: 0.0) + item.count
+                        typeMap["amount"] = (typeMap["amount"] ?: 0.0) + item.amount
+                    }
+                }
+                // 固定顺序：早餐, 午餐, 晚餐, 夜宵, 其他
+                val order = listOf("早餐", "午餐", "晚餐", "夜宵", "其他")
+                order.mapNotNull { meal ->
+                    val data = merged[meal] ?: return@mapNotNull null
+                    MealDistribution(meal, data["count"]?.toInt() ?: 0, data["amount"] ?: 0.0)
+                }
+            }
+        }
+    }
+
+    /**
+     * 消费金额分布 - 对齐 Rust 版 get_consumption_distribution
+     * 5 个固定区间: <10元, 10-20元, 20-50元, 50-100元, >100元
+     */
+    override fun getConsumptionDistribution(identityId: Long?, dateStart: String?, dateEnd: String?): Flow<List<ConsumptionBucket>> {
+        val start = dateStart ?: YearMonth.now().atDay(1).format(DATE_FMT)
+        val end = dateEnd ?: YearMonth.now().atEndOfMonth().format(DATE_FMT_END)
+
+        return getDatabases(identityId).flatMapLatest { dbs ->
+            combine(dbs.map { db ->
+                db.billDao().getConsumptionDistribution(start, end)
+            }) { results ->
+                // 合并各数据库的结果
+                val buckets = listOf(
+                    ConsumptionBucket("<10元", 0, 0.0),
+                    ConsumptionBucket("10-20元", 0, 0.0),
+                    ConsumptionBucket("20-50元", 0, 0.0),
+                    ConsumptionBucket("50-100元", 0, 0.0),
+                    ConsumptionBucket(">100元", 0, 0.0)
+                ).toMutableList()
+
+                for (list in results) {
+                    for (item in list) {
+                        val idx = when {
+                            item.bucket == "<10" -> 0
+                            item.bucket == "10-20" -> 1
+                            item.bucket == "20-50" -> 2
+                            item.bucket == "50-100" -> 3
+                            item.bucket == ">100" -> 4
+                            else -> -1
+                        }
+                        if (idx >= 0) {
+                            buckets[idx] = ConsumptionBucket(
+                                buckets[idx].range,
+                                buckets[idx].count + item.count,
+                                buckets[idx].amount + item.amount
+                            )
+                        }
+                    }
+                }
+                buckets
             }
         }
     }

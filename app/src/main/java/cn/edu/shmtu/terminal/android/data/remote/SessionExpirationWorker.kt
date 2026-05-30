@@ -10,7 +10,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import androidx.work.Worker
+import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import cn.edu.shmtu.cas.auth.EpayAuth
 import cn.edu.shmtu.cas.session.SessionProbe
@@ -32,7 +32,7 @@ class SessionExpirationWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted workerParams: WorkerParameters,
     private val sessionRepository: SessionRepository
-) : Worker(context, workerParams) {
+) : CoroutineWorker(context, workerParams) {
 
     companion object {
         const val TAG = "SessionExpirationWorker"
