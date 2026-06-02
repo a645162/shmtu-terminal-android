@@ -57,6 +57,18 @@ fun DataTransferScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("导出", "导入", "快照")
 
+    // 导出：CreateDocument launcher，让用户选择保存位置
+    var pendingExportParams by remember { mutableStateOf<Triple<Long, ExportFormat, String>?>(null) }
+    val createDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        val params = pendingExportParams
+        if (uri != null && params != null) {
+            viewModel.exportDataToUri(params.first, params.second, params.third, uri)
+        }
+        pendingExportParams = null
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -84,7 +96,14 @@ fun DataTransferScreen(
                     identities = identities,
                     exportState = exportState,
                     onExport = { identityId, format, sourceType ->
-                        viewModel.exportData(identityId, format, sourceType)
+                        val ext = when (format) {
+                            ExportFormat.CSV -> "csv"
+                            ExportFormat.JSON -> "json"
+                            ExportFormat.QIANJI -> "json"
+                        }
+                        val fileName = "bills_${System.currentTimeMillis()}.$ext"
+                        pendingExportParams = Triple(identityId, format, sourceType)
+                        createDocumentLauncher.launch(fileName)
                     }
                 )
                 1 -> ImportTab(
@@ -206,7 +225,7 @@ private fun ImportTab(
     var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         selectedFileUri = uri
     }
@@ -224,7 +243,7 @@ private fun ImportTab(
 
         // 文件选择
         OutlinedButton(
-            onClick = { filePickerLauncher.launch("application/json") },
+            onClick = { filePickerLauncher.launch(arrayOf("application/json")) },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(if (selectedFileUri != null) "已选择文件" else "选择 JSON 文件")

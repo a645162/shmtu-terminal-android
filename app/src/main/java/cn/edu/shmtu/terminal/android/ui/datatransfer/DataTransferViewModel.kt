@@ -1,5 +1,6 @@
 package cn.edu.shmtu.terminal.android.ui.datatransfer
 
+import android.app.Application
 import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
@@ -12,7 +13,6 @@ import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
 import cn.edu.shmtu.terminal.android.domain.usecase.export.ExportDataUseCase
 import cn.edu.shmtu.terminal.android.domain.usecase.export.ImportDataUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -49,8 +49,10 @@ class DataTransferViewModel @Inject constructor(
     private val identityRepository: IdentityRepository,
     private val exportDataUseCase: ExportDataUseCase,
     private val importDataUseCase: ImportDataUseCase,
-    @ApplicationContext private val context: Context
+    private val application: Application
 ) : ViewModel() {
+
+    private val context: Context get() = application.applicationContext
 
     val identities: StateFlow<List<Identity>> = identityRepository.getAllIdentities()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -87,9 +89,49 @@ class DataTransferViewModel @Inject constructor(
                 filePath = filePath
             ))
             _exportState.value = result.fold(
-                onSuccess = { ExportState.Success(it) },
+                onSuccess = { ExportState.Success(filePath) },
                 onFailure = { ExportState.Error(it.message ?: "导出失败") }
             )
+        }
+    }
+
+    /**
+     * 导出数据到指定 URI（SAF CreateDocument 选择的保存位置）
+     * 先在内部生成文件，再复制到用户选择的位置
+     */
+    fun exportDataToUri(identityId: Long, format: ExportFormat, sourceType: String, destUri: Uri) {
+        viewModelScope.launch {
+            _exportState.value = ExportState.Exporting
+            try {
+                val ext = when (format) {
+                    ExportFormat.CSV -> "csv"
+                    ExportFormat.JSON -> "json"
+                    ExportFormat.QIANJI -> "json"
+                }
+                val fileName = "export_${System.currentTimeMillis()}.$ext"
+                val exportDir = File(context.filesDir, "export").apply { mkdirs() }
+                val filePath = File(exportDir, fileName).absolutePath
+
+                val result = exportDataUseCase(ExportParams(
+                    identityId = identityId,
+                    format = format,
+                    sourceType = sourceType,
+                    filePath = filePath
+                ))
+
+                result.fold(
+                    onSuccess = {
+                        context.contentResolver.openOutputStream(destUri)?.use { output ->
+                            File(it).inputStream().use { input -> input.copyTo(output) }
+                        }
+                        File(filePath).delete()
+                        _exportState.value = ExportState.Success("已保存")
+                    },
+                    onFailure = { _exportState.value = ExportState.Error(it.message ?: "导出失败") }
+                )
+            } catch (e: Exception) {
+                _exportState.value = ExportState.Error(e.message ?: "导出失败")
+            }
         }
     }
 

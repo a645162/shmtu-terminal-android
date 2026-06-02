@@ -333,12 +333,12 @@ private fun TrendChart(data: List<SpendingTrend>) {
                         val y = padding / 2 + chartH * (1f - (item.amount / maxVal).toFloat())
                         if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
                         drawCircle(
-                            color = Color(0xFF6750A4),
+                            color = Color(0xFFE86452),
                             radius = 4f,
                             center = Offset(x, y)
                         )
                     }
-                    drawPath(path, Color(0xFF6750A4), style = Stroke(width = 2f))
+                    drawPath(path, Color(0xFFE86452), style = Stroke(width = 2f))
                 }
             }
         }

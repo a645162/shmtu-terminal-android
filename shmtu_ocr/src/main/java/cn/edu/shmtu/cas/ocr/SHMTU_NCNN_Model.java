@@ -34,6 +34,8 @@ public class SHMTU_NCNN_Model {
     public static final String FILE_NAME_MODEL_DIGIT_PARAM
             = "resnet34_digit_latest.fp16.param";
 
+    public static final String CHECKSUM_FILENAME = "SHA256SUMS.txt";
+
     public static final String[] MODEL_FILES = {
             FILE_NAME_MODEL_EQUAL_SYMBOL_BIN,
             FILE_NAME_MODEL_EQUAL_SYMBOL_PARAM,
@@ -58,6 +60,11 @@ public class SHMTU_NCNN_Model {
             urls[i] = prefix + MODEL_FILES[i];
         }
         return urls;
+    }
+
+    public static String buildChecksumUrl(ModelSource source) {
+        String prefix = (source == ModelSource.GITHUB) ? URL_MODEL_PREFIX_GITHUB : URL_MODEL_PREFIX_GITEE;
+        return prefix + CHECKSUM_FILENAME;
     }
 
     public static boolean isModelBuiltIn(AssetManager assetManager) {

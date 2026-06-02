@@ -3,6 +3,7 @@ package cn.edu.shmtu.cas.auth
 import cn.edu.shmtu.cas.auth.common.CasAuth
 import cn.edu.shmtu.cas.auth.common.CookieManager
 import cn.edu.shmtu.cas.captcha.Captcha
+import cn.edu.shmtu.cas.captcha.CaptchaResolver
 import cn.edu.shmtu.cas.session.LoginChallenge
 import cn.edu.shmtu.cas.session.LoginSubmitResult
 import cn.edu.shmtu.cas.session.SessionProbe
@@ -16,8 +17,16 @@ import kotlin.coroutines.suspendCoroutine
 /**
  * 上海海事大学-微信认证
  * 微信相关接口主要使用 wengine_new_ticket
+ *
+ * 对齐 C# 版本的设计模式，支持两种验证码路径：
+ * - **自动路径**：构造时注入 [CaptchaResolver]，调用 `submitLogin(username, password)` 自动完成
+ * - **手动路径**：调用 `prepareChallenge()` 获取验证码图片，外部处理后调用 `submitLogin(username, password, validateCode, execution)`
+ *
+ * @param captchaResolver 验证码解析策略（可选），为 null 时仅支持手动路径
  */
-class WechatAuth {
+class WechatAuth(
+    private val captchaResolver: CaptchaResolver? = null
+) {
 
     private companion object {
         val log = Logger.getLogger(WechatAuth::class.java.name)
@@ -202,6 +211,74 @@ class WechatAuth {
                 cont.resume(Result.success(LoginSubmitResult.Failure(loginResult.third ?: "未知错误")))
             }
         }
+    }
+
+    /**
+     * 一键登录（自动路径）
+     *
+     * 内部自动完成：prepareChallenge → resolve → intoFinalAnswer → submitLogin，
+     * 若验证码错误则自动重试最多 [maxRetries] 次。
+     *
+     * 需要构造时注入 [CaptchaResolver]，否则抛出 IllegalStateException。
+     */
+    suspend fun submitLogin(
+        username: String,
+        password: String,
+        maxRetries: Int = 5
+    ): Result<LoginSubmitResult> {
+        val resolver = captchaResolver
+            ?: return Result.failure(IllegalStateException("未设置 CaptchaResolver，请使用构造函数注入或调用 submitLogin(username, password, validateCode, execution)"))
+
+        var lastResult: Result<LoginSubmitResult>? = null
+
+        for (attempt in 1..maxRetries) {
+            log.info("[WechatAuth] submitLogin: attempt $attempt/$maxRetries")
+
+            val challengeResult = prepareChallenge()
+            if (challengeResult.isFailure) {
+                lastResult = Result.failure(challengeResult.exceptionOrNull() ?: Exception("获取 challenge 失败"))
+                continue
+            }
+            val challenge = challengeResult.getOrThrow()
+
+            val resolveResult = resolver.resolve(challenge.captchaImage)
+            if (resolveResult.isFailure) {
+                lastResult = Result.failure(resolveResult.exceptionOrNull() ?: Exception("验证码解析失败"))
+                continue
+            }
+            val captchaAnswer = resolveResult.getOrThrow()
+
+            val finalAnswer = captchaAnswer.intoFinalAnswer()
+            log.info("[WechatAuth] submitLogin: captcha value='${finalAnswer.value}', kind=${finalAnswer.kind}")
+
+            val submitResult = submitLogin(username, password, finalAnswer.value, challenge.execution)
+            if (submitResult.isFailure) {
+                lastResult = submitResult
+                continue
+            }
+
+            val loginResult = submitResult.getOrThrow()
+            when (loginResult) {
+                is LoginSubmitResult.Success -> {
+                    log.info("[WechatAuth] submitLogin: success on attempt $attempt")
+                    return Result.success(LoginSubmitResult.Success)
+                }
+                is LoginSubmitResult.ValidateCodeError -> {
+                    log.info("[WechatAuth] submitLogin: validate code error, will retry")
+                    lastResult = Result.success(LoginSubmitResult.ValidateCodeError)
+                    continue
+                }
+                is LoginSubmitResult.PasswordError -> {
+                    return Result.success(LoginSubmitResult.PasswordError)
+                }
+                is LoginSubmitResult.Failure -> {
+                    lastResult = Result.success(loginResult)
+                    continue
+                }
+            }
+        }
+
+        return lastResult ?: Result.failure(Exception("登录重试次数耗尽"))
     }
 
     /**

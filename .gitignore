@@ -16,3 +16,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# VitePress docs
+node_modules/
+Documents/docs/.vitepress/dist/
+Documents/docs/.vitepress/cache/
