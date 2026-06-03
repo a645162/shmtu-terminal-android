@@ -28,7 +28,8 @@ data class IdentityDetailUiState(
     val showCaptchaDialog: Boolean = false,
     val captchaImage: ByteArray? = null,
     val captchaAccount: Account? = null,
-    val syncMessage: String? = null
+    val syncMessage: String? = null,
+    val syncProgress: cn.edu.shmtu.terminal.android.domain.model.SyncProgress? = null,
 )
 
 @HiltViewModel
@@ -63,13 +64,16 @@ class IdentityDetailViewModel @Inject constructor(
 
     fun refreshAccountBills(account: Account) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isSyncing = true, syncMessage = null)
+            _uiState.value = _uiState.value.copy(isSyncing = true, syncMessage = null, syncProgress = null)
 
-            val result = syncAccountBillsUseCase(account)
+            val result = syncAccountBillsUseCase(account) { progress ->
+                _uiState.value = _uiState.value.copy(syncProgress = progress)
+            }
 
             if (result.success) {
                 _uiState.value = _uiState.value.copy(
                     isSyncing = false,
+                    syncProgress = null,
                     syncMessage = "同步成功，新增 ${result.newCount} 条记录"
                 )
                 return@launch

@@ -11,6 +11,7 @@ import cn.edu.shmtu.cas.datatype.BillType
 import cn.edu.shmtu.cas.parser.BillParser
 import cn.edu.shmtu.cas.session.LoginSubmitResult
 import cn.edu.shmtu.cas.session.SessionProbe
+import cn.edu.shmtu.terminal.android.data.local.db.BillDatabaseManager
 import cn.edu.shmtu.terminal.android.data.local.datastore.SecureStorage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -21,7 +22,9 @@ import javax.inject.Singleton
 @Singleton
 class EpayAdapter @Inject constructor(
     private val secureStorage: SecureStorage,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    /** 由 Hilt 注入 [BillDatabaseManager] 供 [cn.edu.shmtu.terminal.android.data.sync.RoomBillStore] 使用 */
+    val billDbManager: BillDatabaseManager,
 ) {
     private val TAG = "EpayAdapter"
 
@@ -55,6 +58,28 @@ class EpayAdapter @Inject constructor(
 
     fun getEpayAuth(accountId: Long): EpayAuth {
         return instances.getOrPut(accountId) { createEpayAuthWithCookies(accountId) }
+    }
+
+    /**
+     * 保存当前 [EpayAuth] 的 cookies 到 [SecureStorage]（登录成功后调用）
+     */
+    fun saveSessionCookies(accountId: Long, auth: EpayAuth) {
+        try {
+            val cookiesJson = auth.extractSession()
+            secureStorage.saveLoginCookie(accountId, cookiesJson)
+            Log.d(TAG, "Saved cookies for account $accountId")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to save session cookies: ${e.message}")
+        }
+    }
+
+    /**
+     * 清除 session，强制下次 [getEpayAuth] 时新登录
+     */
+    fun invalidateSession(accountId: Long) {
+        secureStorage.removeLoginCookie(accountId)
+        instances.remove(accountId)
+        Log.d(TAG, "Invalidated session for account $accountId")
     }
 
     private fun createEpayAuthWithCookies(accountId: Long): EpayAuth {

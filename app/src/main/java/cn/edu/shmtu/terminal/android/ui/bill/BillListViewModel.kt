@@ -11,6 +11,8 @@ import cn.edu.shmtu.terminal.android.domain.model.SyncStatus
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
+import cn.edu.shmtu.terminal.android.domain.usecase.bill.CaptchaRequiredException
+import cn.edu.shmtu.terminal.android.domain.usecase.bill.SyncAccountBillsUseCase
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.SyncIdentityBillsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,7 +52,8 @@ class BillListViewModel @Inject constructor(
     private val identityRepository: IdentityRepository,
     private val accountRepository: AccountRepository,
     private val billRepository: BillRepository,
-    private val syncIdentityBillsUseCase: SyncIdentityBillsUseCase
+    private val syncIdentityBillsUseCase: SyncIdentityBillsUseCase,
+    private val syncAccountBillsUseCase: SyncAccountBillsUseCase
 ) : ViewModel() {
 
     val identities: StateFlow<List<Identity>> = identityRepository.getAllIdentities()
@@ -126,6 +129,12 @@ class BillListViewModel @Inject constructor(
             .take(PAGE_SIZE)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // ==================== 验证码状态 - 对齐 Rust 版 PendingManualSync ====================
+
+    /** 待处理的验证码请求（非 null 表示需要用户输入验证码） */
+    private val _pendingCaptcha = MutableStateFlow<CaptchaRequiredException?>(null)
+    val pendingCaptcha: StateFlow<CaptchaRequiredException?> = _pendingCaptcha.asStateFlow()
+
     // ==================== 同步状态 ====================
 
     private val _syncProgress = MutableStateFlow<SyncProgress?>(null)
@@ -161,7 +170,13 @@ class BillListViewModel @Inject constructor(
     fun syncAccountBills(accountId: Long) {
         viewModelScope.launch {
             _isSyncingFlag.value = true
-            billRepository.syncAccountBillsWithProgress(accountId)
+            try {
+                billRepository.syncAccountBillsWithProgress(accountId)
+            } catch (e: CaptchaRequiredException) {
+                _syncProgress.value = SyncProgress(status = SyncStatus.GettingCaptcha, accountLabel = e.accountLabel)
+                _pendingCaptcha.value = e
+                return@launch
+            }
             _isSyncingFlag.value = false
         }
     }
@@ -180,6 +195,43 @@ class BillListViewModel @Inject constructor(
             billRepository.fullSyncAccountWithProgress(accountId)
             _isSyncingFlag.value = false
         }
+    }
+
+    /** 提交验证码并继续同步 - 对齐 Rust 版 sync_with_captcha */
+    fun submitCaptcha(captchaCode: String) {
+        val captcha = _pendingCaptcha.value ?: return
+        viewModelScope.launch {
+            val account = accountRepository.getAccountById(captcha.accountId) ?: run {
+                _pendingCaptcha.value = null; _isSyncingFlag.value = false; return@launch
+            }
+            try {
+                syncAccountBillsUseCase.syncWithCaptcha(account, captchaCode, captcha.execution) { _syncProgress.value = it }
+            } catch (e: CaptchaRequiredException) {
+                _syncProgress.value = SyncProgress(status = SyncStatus.GettingCaptcha, accountLabel = e.accountLabel)
+                _pendingCaptcha.value = e
+                return@launch
+            }
+            _pendingCaptcha.value = null
+            _isSyncingFlag.value = false
+        }
+    }
+
+    /** 刷新验证码 - 对齐 Rust 版 refresh_captcha */
+    fun refreshCaptcha() {
+        val captcha = _pendingCaptcha.value ?: return
+        viewModelScope.launch {
+            val newCaptcha = syncAccountBillsUseCase.refreshCaptcha(captcha.accountId)
+            if (newCaptcha != null) {
+                _pendingCaptcha.value = newCaptcha
+            }
+        }
+    }
+
+    /** 取消验证码 */
+    fun dismissCaptcha() {
+        _pendingCaptcha.value = null
+        _isSyncingFlag.value = false
+        _syncProgress.value = null
     }
 
     fun clearSyncProgress() { _syncProgress.value = null }

@@ -50,6 +50,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.domain.model.BillItem
 import cn.edu.shmtu.terminal.android.domain.model.SyncProgress
 import cn.edu.shmtu.terminal.android.domain.model.SyncStatus
+import cn.edu.shmtu.terminal.android.domain.usecase.bill.CaptchaRequiredException
+import cn.edu.shmtu.terminal.android.ui.component.CaptchaDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,6 +69,7 @@ fun BillListScreen(
     val dateRange by viewModel.dateRange.collectAsState()
     val syncProgress by viewModel.syncProgress.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
+    val pendingCaptcha by viewModel.pendingCaptcha.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var selectedIdentityId by remember { mutableStateOf<Long?>(null) }
@@ -205,6 +208,19 @@ fun BillListScreen(
                     is PendingSyncAction.AccountFull -> viewModel.fullSyncAccountBills(action.accountId)
                 }
             }
+        )
+    }
+
+    // 验证码弹窗 - 对齐 Rust 版 ManualCaptchaDialog
+    if (pendingCaptcha != null) {
+        val captcha = pendingCaptcha!!
+        val imageData = remember(captcha.captchaImageBase64) {
+            try { android.util.Base64.decode(captcha.captchaImageBase64, android.util.Base64.DEFAULT) } catch (_: Exception) { null }
+        }
+        CaptchaDialog(
+            captchaImageData = imageData,
+            onConfirm = { viewModel.submitCaptcha(it) },
+            onDismiss = { viewModel.dismissCaptcha() }
         )
     }
 }

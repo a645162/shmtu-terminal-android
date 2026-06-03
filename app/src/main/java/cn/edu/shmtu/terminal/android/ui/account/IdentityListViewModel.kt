@@ -20,7 +20,8 @@ import javax.inject.Inject
 
 data class IdentityListUiState(
     val syncingIdentityId: Long? = null,
-    val syncMessage: String? = null
+    val syncMessage: String? = null,
+    val syncProgress: cn.edu.shmtu.terminal.android.domain.model.SyncProgress? = null,
 )
 
 @HiltViewModel
@@ -47,15 +48,18 @@ class IdentityListViewModel @Inject constructor(
 
     fun syncIdentityBills(identityId: Long) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(syncingIdentityId = identityId, syncMessage = null)
+            _uiState.value = _uiState.value.copy(syncingIdentityId = identityId, syncMessage = null, syncProgress = null)
 
-            val result = syncIdentityBillsUseCase(identityId)
+            val result = syncIdentityBillsUseCase(identityId) { progress ->
+                _uiState.value = _uiState.value.copy(syncProgress = progress)
+            }
 
             val identity = identityRepository.getIdentityById(identityId)
             val remark = identity?.remark ?: "身份"
 
             _uiState.value = _uiState.value.copy(
                 syncingIdentityId = null,
+                syncProgress = null,
                 syncMessage = if (result.success)
                     "$remark: 同步成功，新增 ${result.newCount} 条记录"
                 else
