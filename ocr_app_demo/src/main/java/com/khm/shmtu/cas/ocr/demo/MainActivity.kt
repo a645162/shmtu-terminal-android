@@ -24,7 +24,7 @@ import cn.edu.shmtu.cas.ocr.ModelDownloader
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model
 import com.google.android.material.button.MaterialButtonToggleGroup
-import com.khm.shmtu.cas.captcha.CaptchaAndroid
+import cn.edu.shmtu.cas.captcha.CaptchaAndroid
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope

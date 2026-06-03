@@ -17,9 +17,11 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
 plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
     repositories {
@@ -37,8 +39,11 @@ dependencyResolutionManagement {
 rootProject.name = "shmtu-terminal-android"
 
 includeBuild("lib/shmtu-cas-kotlin") {
+    // shmtu-cas-jvm artifact -> :cas_lib (保留:CLI 之外的子模块如果未来要单独引用,会用到)
     dependencySubstitution {
         substitute(module("cn.edu.shmtu.cas:shmtu-cas-jvm")).using(project(":cas_lib"))
+        // shmtu-cas-android artifact -> :cas_android_lib (app / ocr_app_demo 主用此引用)
+        substitute(module("cn.edu.shmtu.cas:shmtu-cas-android")).using(project(":cas_android_lib"))
     }
 }
 

@@ -59,5 +59,5 @@ dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     implementation(project(":shmtu_ocr"))
-    implementation(libs.shmtu.cas.jvm)
+    implementation(libs.shmtu.cas.android)
 }

@@ -36,6 +36,7 @@ android {
         }
     }
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = jdkVersion
         targetCompatibility = jdkVersion
     }
@@ -93,6 +94,7 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
-    implementation("cn.edu.shmtu.cas:shmtu-cas-jvm:1.0-SNAPSHOT")
+    implementation(libs.shmtu.cas.android)
     implementation(project(":shmtu_ocr"))
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 }
