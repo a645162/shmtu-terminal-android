@@ -1,4 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">上海海事大学验证码识别Demo</string>
+    <string name="app_name">SHMTU OCR Demo</string>
+    <string name="demo_header_eyebrow">On-device + Remote OCR Lab</string>
+    <string name="demo_header_title">验证码识别控制台</string>
+    <string name="demo_header_summary">为本地 NCNN 模型、TCP OCR 服务和 RESTful OCR API 提供统一测试界面，适合手机快速调试，也适合平板横屏展示。</string>
+    <string name="model_status_placeholder">模型状态待检测</string>
+    <string name="remote_status_placeholder">远程链路待检测</string>
+    <string name="preview_card_title">图像预览</string>
+    <string name="image_meta_placeholder">当前还没有载入验证码图片</string>
+    <string name="result_card_title">识别结果</string>
+    <string name="result_placeholder">READY</string>
+    <string name="result_meta_placeholder">结果详情会在这里显示，包括来源、解析值和耗时。</string>
+    <string name="model_card_title">模型控制</string>
+    <string name="model_card_summary">管理本地 OCR 模型的下载、加载、运行设备和释放状态。</string>
+    <string name="action_load_model">加载模型</string>
+    <string name="action_release_model">释放模型</string>
+    <string name="action_download_model">下载模型</string>
+    <string name="action_check_status">查询状态</string>
+    <string name="download_status_idle">下载状态：未开始</string>
+    <string name="source_card_title">图片获取</string>
+    <string name="source_card_summary">从校园验证码接口、本地图库或内置样本选择测试图片，再执行本地或远程识别。</string>
+    <string name="action_fetch_network">网络获取</string>
+    <string name="action_pick_image">本地选图</string>
+    <string name="action_builtin_one">内置样本 A</string>
+    <string name="action_builtin_two">内置样本 B</string>
+    <string name="action_local_ocr">本地模型识别</string>
+    <string name="remote_card_title">远程 OCR</string>
+    <string name="remote_card_summary">支持原始 TCP 协议和 RESTful API。REST 模式遵循 POST /api/ocr 与 GET /api/health。</string>
+    <string name="remote_mode_tcp">TCP 服务</string>
+    <string name="remote_mode_rest">REST API</string>
+    <string name="hint_server_host">服务器地址</string>
+    <string name="hint_server_port">端口</string>
+    <string name="hint_base_url">基础地址，例如 http://127.0.0.1:21600</string>
+    <string name="action_check_remote">检查连通</string>
+    <string name="action_remote_ocr">远程识别</string>
+    <string name="demo_footer">Designed for OCR workflow review on tablets and phones</string>
 </resources>

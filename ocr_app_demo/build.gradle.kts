@@ -31,6 +31,7 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = jdkVersion
         targetCompatibility = jdkVersion
     }
@@ -55,6 +56,7 @@ dependencies {
     implementation(libs.androidx.constraintlayout)
 
     implementation(libs.kotlinx.coroutines.android)
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     implementation(project(":shmtu_ocr"))
     implementation(libs.shmtu.cas.jvm)

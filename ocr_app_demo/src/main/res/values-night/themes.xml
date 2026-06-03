@@ -1,7 +1,10 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Base.Theme.SHMTU_CAS_OCR_DEMO" parent="Theme.Material3.DayNight">
+<resources>
+    <style name="Base.Theme.SHMTU_CAS_OCR_DEMO" parent="Theme.Material3.Light.NoActionBar">
         <item name="android:fitsSystemWindows">true</item>
+        <item name="android:windowBackground">@color/demo_canvas</item>
+        <item name="colorPrimary">@color/demo_ocean</item>
+        <item name="colorSecondary">@color/demo_teal</item>
+        <item name="colorSurface">@color/demo_surface</item>
     </style>
 
     <style name="Theme.SHMTU_CAS_OCR_DEMO" parent="Base.Theme.SHMTU_CAS_OCR_DEMO" />
