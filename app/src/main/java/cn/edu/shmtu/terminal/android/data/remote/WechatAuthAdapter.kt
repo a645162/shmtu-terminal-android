@@ -25,7 +25,7 @@ class WechatAuthAdapter @Inject constructor(
 
     private fun createWechatAuthWithCookies(accountId: Long): WechatAuth {
         val wechatAuth = WechatAuth()
-        
+
         // 恢复会话 cookies
         secureStorage.getWechatCookie(accountId)?.let { cookie ->
             val result = wechatAuth.restoreSession(cookie)
@@ -33,13 +33,7 @@ class WechatAuthAdapter @Inject constructor(
                 Log.d(TAG, "Restored wechatCookie for account $accountId")
             }
         }
-        
-        // 恢复登录 URL
-        secureStorage.getWechatLoginUrl(accountId)?.let { url ->
-            wechatAuth.setLoginWUrl(url)
-            Log.d(TAG, "Restored wechatLoginUrl for account $accountId")
-        }
-        
+
         return wechatAuth
     }
 
@@ -67,29 +61,37 @@ class WechatAuthAdapter @Inject constructor(
     suspend fun submitLogin(accountId: Long, username: String, password: String, captchaCode: String): Result<LoginSubmitResult> = withContext(Dispatchers.IO) {
         Log.d(TAG, "submitLogin for account $accountId")
         val wechatAuth = getWechatAuth(accountId)
-        
+
         // 先获取 execution
         val challengeResult = wechatAuth.prepareChallenge()
         if (challengeResult.isFailure) {
             Log.e(TAG, "prepareChallenge failed: ${challengeResult.exceptionOrNull()?.message}")
             return@withContext Result.failure(challengeResult.exceptionOrNull() ?: Exception("获取验证码失败"))
         }
-        
+
         val challenge = challengeResult.getOrNull()
         if (challenge == null) {
             return@withContext Result.failure(Exception("获取验证码失败"))
         }
-        
+
         // 提交登录
         val result = wechatAuth.submitLogin(username, password, captchaCode, challenge.execution)
-        
+
         if (result.isSuccess && result.getOrNull() is LoginSubmitResult.Success) {
             val cookiesJson = wechatAuth.extractSession()
             secureStorage.saveWechatCookie(accountId, cookiesJson)
-            secureStorage.saveWechatLoginUrl(accountId, wechatAuth.getLoginWUrl())
+            // 新 cas_lib 中 loginWUrl 由 probeLogin() 返回值携带;此处尝试再次 probe 以获取并保存
+            val probe = wechatAuth.probeLogin()
+            if (probe.isSuccess) {
+                val p = probe.getOrNull()
+                if (p is SessionProbe.AlreadyLoggedIn || p is SessionProbe.NeedLogin) {
+                    val url = (p as? SessionProbe.NeedLogin)?.loginUrl ?: ""
+                    if (url.isNotBlank()) secureStorage.saveWechatLoginUrl(accountId, url)
+                }
+            }
             Log.d(TAG, "Saved cookies after successful login for account $accountId")
         }
-        
+
         result
     }
 

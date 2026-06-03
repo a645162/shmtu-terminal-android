@@ -57,5 +57,5 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     implementation(project(":shmtu_ocr"))
-    implementation(project(":cas_lib"))
+    implementation(libs.shmtu.cas.jvm)
 }

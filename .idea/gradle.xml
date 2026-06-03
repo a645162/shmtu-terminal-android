@@ -4,15 +4,31 @@
   <component name="GradleSettings">
     <option name="linkedExternalProjectsSettings">
       <GradleProjectSettings>
+        <compositeConfiguration>
+          <compositeBuild compositeDefinitionSource="SCRIPT">
+            <builds>
+              <build path="$PROJECT_DIR$/lib/shmtu-cas-kotlin" name="shmtu-cas-kotlin">
+                <projects>
+                  <project path="$PROJECT_DIR$/lib/shmtu-cas-kotlin" />
+                  <project path="$PROJECT_DIR$/lib/shmtu-cas-kotlin/cas_android_lib" />
+                  <project path="$PROJECT_DIR$/lib/shmtu-cas-kotlin/cas_cli" />
+                  <project path="$PROJECT_DIR$/lib/shmtu-cas-kotlin/cas_lib" />
+                </projects>
+              </build>
+            </builds>
+          </compositeBuild>
+        </compositeConfiguration>
         <option name="testRunner" value="CHOOSE_PER_TEST" />
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/app" />
-            <option value="$PROJECT_DIR$/cas_demo" />
-            <option value="$PROJECT_DIR$/cas_lib" />
-            <option value="$PROJECT_DIR$/demo" />
+            <option value="$PROJECT_DIR$/lib/shmtu-cas-kotlin" />
+            <option value="$PROJECT_DIR$/lib/shmtu-cas-kotlin/cas_android_lib" />
+            <option value="$PROJECT_DIR$/lib/shmtu-cas-kotlin/cas_cli" />
+            <option value="$PROJECT_DIR$/lib/shmtu-cas-kotlin/cas_lib" />
+            <option value="$PROJECT_DIR$/ocr_app_demo" />
             <option value="$PROJECT_DIR$/shmtu_ocr" />
           </set>
         </option>

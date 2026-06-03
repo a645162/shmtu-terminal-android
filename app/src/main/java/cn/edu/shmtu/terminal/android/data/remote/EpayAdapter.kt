@@ -3,9 +3,11 @@ package cn.edu.shmtu.terminal.android.data.remote
 import android.content.Context
 import android.util.Log
 import cn.edu.shmtu.cas.auth.EpayAuth
+import cn.edu.shmtu.cas.classifier.BillCategory
 import cn.edu.shmtu.cas.classifier.BillClassifier
-import cn.edu.shmtu.cas.classifier.ClassificationResult
 import cn.edu.shmtu.cas.classifier.PositionInfo
+import cn.edu.shmtu.cas.classifier.PositionTranslator
+import cn.edu.shmtu.cas.datatype.BillType
 import cn.edu.shmtu.cas.parser.BillParser
 import cn.edu.shmtu.cas.session.LoginSubmitResult
 import cn.edu.shmtu.cas.session.SessionProbe
@@ -26,16 +28,27 @@ class EpayAdapter @Inject constructor(
     private val instances = mutableMapOf<Long, EpayAuth>()
 
     /**
-     * 账单分类器（懒加载，从 assets/bill_rules/ 加载规则文件）
+     * 账单分类器（懒加载，从 assets/bill_rules/type.json 加载）
      */
     private val classifier: BillClassifier? by lazy {
         try {
             val typeJson = context.assets.open("bill_rules/type.json").bufferedReader().readText()
-            val positionJson = context.assets.open("bill_rules/position.json").bufferedReader().readText()
-            val scheduleJson = context.assets.open("bill_rules/schedule.json").bufferedReader().readText()
-            BillClassifier.fromJson(typeJson, positionJson, scheduleJson)
+            BillClassifier.fromJson(typeJson)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to load bill classifier: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * 位置翻译器（懒加载，从 assets/bill_rules/position.json 加载）
+     */
+    private val positionTranslator: PositionTranslator? by lazy {
+        try {
+            val positionJson = context.assets.open("bill_rules/position.json").bufferedReader().readText()
+            PositionTranslator.fromJson(positionJson)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load position translator: ${e.message}")
             null
         }
     }
@@ -55,17 +68,13 @@ class EpayAdapter @Inject constructor(
             }
         }
 
-        // 恢复登录 URL
-        secureStorage.getLoginUrl(accountId)?.let { url ->
-            epayAuth.setLoginUrl(url)
-            Log.d(TAG, "Restored loginUrl for account $accountId")
-        }
-
         return epayAuth
     }
 
     /**
      * 探测登录状态
+     *
+     * 若返回 NeedLogin(loginUrl)，调用方应自行保存 loginUrl。
      */
     suspend fun probeLogin(accountId: Long): Result<SessionProbe> = withContext(Dispatchers.IO) {
         val epayAuth = getEpayAuth(accountId)
@@ -110,7 +119,15 @@ class EpayAdapter @Inject constructor(
             // 保存会话
             val cookiesJson = epayAuth.extractSession()
             secureStorage.saveLoginCookie(accountId, cookiesJson)
-            secureStorage.saveLoginUrl(accountId, epayAuth.getLoginUrl())
+            // 新 cas_lib 中 loginUrl 由 probeLogin() 返回值携带;此处尝试再次 probe 以获取并保存
+            val probe = epayAuth.probeLogin()
+            if (probe.isSuccess) {
+                val p = probe.getOrNull()
+                if (p is SessionProbe.AlreadyLoggedIn || p is SessionProbe.NeedLogin) {
+                    val url = (p as? SessionProbe.NeedLogin)?.loginUrl ?: ""
+                    if (url.isNotBlank()) secureStorage.saveLoginUrl(accountId, url)
+                }
+            }
             Log.d(TAG, "Saved cookies after successful login for account $accountId")
         }
 
@@ -130,7 +147,8 @@ class EpayAdapter @Inject constructor(
      * 获取账单页面
      */
     suspend fun fetchBillPage(accountId: Long, pageNo: Int): Result<String> = withContext(Dispatchers.IO) {
-        val result = getEpayAuth(accountId).getBill(pageNo)
+        // 显式指定 BillType 以消歧 getBill(Int) 与 getBill(Int, String) 重载
+        val result = getEpayAuth(accountId).getBill(pageNo = pageNo, billType = BillType.ALL)
         Log.d(TAG, "fetchBillPage account=$accountId page=$pageNo")
         result
     }
@@ -139,28 +157,33 @@ class EpayAdapter @Inject constructor(
      * 解析账单 HTML，并在解析后自动分类和翻译
      *
      * 返回的 Map 包含以下额外字段：
-     * - "category": 消费类型标签（如 "canteen"、"deposit"、"other"）
-     * - "building": 建筑名（如 "海馨楼"）
-     * - "room": 房间/餐厅名（如 "海馨第1食堂"）
-     * - "meal": 用餐时段（如 "午餐"）
+     * - "category": 消费类型标签（如 "CANTEEN"、"DEPOSIT"、"OTHER"）
+     * - "building": 建筑名
+     * - "room": 房间/餐厅名
      */
     fun parseBillList(html: String): List<Map<String, String>> {
         val parser = BillParser()
         val bills = parser.getBillTr(html).getBillList().map { it as Map<String, String> }
 
         val clf = classifier
-        if (clf != null) {
+        val tr = positionTranslator
+        if (clf != null || tr != null) {
             return bills.map { bill ->
                 val mutable = bill.toMutableMap()
-                val result = clf.classify(
-                    bill["type"] ?: "",
-                    bill["targetUser"] ?: "",
-                    bill["dateTimeStrFormat"]
-                )
-                mutable["category"] = result.typeLabel
-                mutable["building"] = result.building
-                mutable["room"] = result.room
-                mutable["meal"] = result.meal
+                if (clf != null) {
+                    val category = clf.classify(
+                        bill["type"] ?: "",
+                        bill["targetUser"] ?: ""
+                    )
+                    mutable["category"] = category.name
+                }
+                if (tr != null) {
+                    val pos = tr.translate(bill["targetUser"] ?: "")
+                    if (pos != null) {
+                        mutable["building"] = pos.position
+                        mutable["room"] = pos.room
+                    }
+                }
                 mutable
             }
         }
@@ -180,7 +203,7 @@ class EpayAdapter @Inject constructor(
      * @return 位置信息（建筑名 + 房间名），无匹配返回 null
      */
     fun translateTarget(targetUser: String): PositionInfo? {
-        return classifier?.getPositionTranslator()?.translate(targetUser)
+        return positionTranslator?.translate(targetUser)
     }
 
     /**
@@ -188,11 +211,10 @@ class EpayAdapter @Inject constructor(
      *
      * @param name 账单类型名（如"消费"、"中行云充值"）
      * @param target 对方账户（如"A食堂1楼大餐厅"）
-     * @param dateTimeStr 日期时间（格式：yyyy-MM-dd HH:mm:ss），可选
-     * @return 分类结果，分类器未初始化返回 null
+     * @return 分类枚举，分类器未初始化返回 null
      */
-    fun classifyBill(name: String, target: String, dateTimeStr: String? = null): ClassificationResult? {
-        return classifier?.classify(name, target, dateTimeStr)
+    fun classifyBill(name: String, target: String): BillCategory? {
+        return classifier?.classify(name, target)
     }
 
     /**
@@ -201,7 +223,7 @@ class EpayAdapter @Inject constructor(
      * 对已解析的账单列表进行分类汇总，返回每个分类的总金额。
      *
      * @param bills 已解析的账单列表（来自 [parseBillList] 的返回结果）
-     * @return 分类名 → 总金额 的映射（如 {"canteen": 125.5, "deposit": 200.0}）
+     * @return 分类名 → 总金额 的映射（如 {"CANTEEN": 125.5, "DEPOSIT": 200.0}）
      */
     fun getStatistics(bills: List<Map<String, String>>): Map<String, Double> {
         val result = mutableMapOf<String, Double>()
@@ -209,9 +231,8 @@ class EpayAdapter @Inject constructor(
         for (bill in bills) {
             val category = clf.classify(
                 bill["type"] ?: "",
-                bill["targetUser"] ?: "",
-                bill["dateTimeStrFormat"]
-            ).typeLabel
+                bill["targetUser"] ?: ""
+            ).name
             val money = bill["money"]?.toDoubleOrNull() ?: 0.0
             result[category] = (result[category] ?: 0.0) + money
         }

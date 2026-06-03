@@ -21,7 +21,7 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
     repositories {
         maven { url = uri("https://maven.aliyun.com/repository/central") }
         maven { url = uri("https://maven.aliyun.com/repository/jcenter") }
@@ -36,10 +36,13 @@ dependencyResolutionManagement {
 
 rootProject.name = "shmtu-terminal-android"
 
+includeBuild("lib/shmtu-cas-kotlin") {
+    dependencySubstitution {
+        substitute(module("cn.edu.shmtu.cas:shmtu-cas-jvm")).using(project(":cas_lib"))
+    }
+}
+
 include(":app")
 
-include(":cas_lib")
-include(":cas_demo")
-
-include(":demo")
+include(":ocr_app_demo")
 include(":shmtu_ocr")

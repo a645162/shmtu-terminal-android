@@ -1,0 +1,3 @@
+[submodule "lib/shmtu-cas-kotlin"]
+	path = lib/shmtu-cas-kotlin
+	url = git@github.com:a645162/shmtu-cas-kotlin.git

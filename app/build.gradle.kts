@@ -93,6 +93,6 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
-    implementation(project(":cas_lib"))
+    implementation("cn.edu.shmtu.cas:shmtu-cas-jvm:1.0-SNAPSHOT")
     implementation(project(":shmtu_ocr"))
 }
