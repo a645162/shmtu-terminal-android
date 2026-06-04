@@ -161,23 +161,37 @@ class BillListViewModel @Inject constructor(
     fun syncBills(identityId: Long, onResult: (SyncResult) -> Unit = {}) {
         viewModelScope.launch {
             _isSyncingFlag.value = true
-            val result = syncIdentityBillsUseCase(identityId) { _syncProgress.value = it }
-            _isSyncingFlag.value = false
-            onResult(result)
+            var capturedCaptcha: CaptchaRequiredException? = null
+            try {
+                val result = syncIdentityBillsUseCase(identityId) { _syncProgress.value = it }
+                onResult(result)
+            } catch (e: CaptchaRequiredException) {
+                capturedCaptcha = e
+            } finally {
+                _isSyncingFlag.value = false
+            }
+            capturedCaptcha?.let { e ->
+                _syncProgress.value = SyncProgress(status = SyncStatus.GettingCaptcha, accountLabel = e.accountLabel)
+                _pendingCaptcha.value = e
+            }
         }
     }
 
     fun syncAccountBills(accountId: Long) {
         viewModelScope.launch {
             _isSyncingFlag.value = true
+            var capturedCaptcha: CaptchaRequiredException? = null
             try {
-                billRepository.syncAccountBillsWithProgress(accountId)
+                syncAccountBillsUseCase(accountId) { _syncProgress.value = it }
             } catch (e: CaptchaRequiredException) {
+                capturedCaptcha = e
+            } finally {
+                _isSyncingFlag.value = false
+            }
+            capturedCaptcha?.let { e ->
                 _syncProgress.value = SyncProgress(status = SyncStatus.GettingCaptcha, accountLabel = e.accountLabel)
                 _pendingCaptcha.value = e
-                return@launch
             }
-            _isSyncingFlag.value = false
         }
     }
 

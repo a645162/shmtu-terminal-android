@@ -54,6 +54,28 @@ class SyncIdentityBillsUseCase @Inject constructor(
 
         val summary = syncAccountsParallel(jobs, translated)
 
+        // 手动验证码异常优先：并行场景 lib 内部把 ManualCaptchaRequiredException 包装成 failure，
+        // 这里扫描 results 把第一个 CaptchaRequiredException 重新抛出给 ViewModel 处理
+        val captchaFailure = summary.results.firstOrNull { r ->
+            r.result.exceptionOrNull() is cn.edu.shmtu.terminal.android.domain.usecase.bill.CaptchaRequiredException
+        }
+        if (captchaFailure != null) {
+            throw captchaFailure.result.exceptionOrNull() as cn.edu.shmtu.terminal.android.domain.usecase.bill.CaptchaRequiredException
+        }
+        // lib 端的 ManualCaptchaRequiredException 没被翻译（理论上不会发生，但兜底）
+        val libCaptcha = summary.results.firstOrNull { r ->
+            r.result.exceptionOrNull() is cn.edu.shmtu.cas.session.ManualCaptchaRequiredException
+        }
+        if (libCaptcha != null) {
+            val e = libCaptcha.result.exceptionOrNull() as cn.edu.shmtu.cas.session.ManualCaptchaRequiredException
+            val imgB64 = e.captchaImageBase64.ifBlank {
+                android.util.Base64.encodeToString(e.captchaImageBytes, android.util.Base64.NO_WRAP)
+            }
+            val accId = libCaptcha.context.accountId.toLongOrNull() ?: 0L
+            val accLabel = libCaptcha.context.accountLabel
+            throw cn.edu.shmtu.terminal.android.domain.usecase.bill.CaptchaRequiredException(imgB64, e.execution, accId, accLabel)
+        }
+
         // 后续：更新 lastSyncTime + loginStatus
         accountList.forEach { acc ->
             val r = summary.results.firstOrNull { it.context.accountId == acc.id.toString() }

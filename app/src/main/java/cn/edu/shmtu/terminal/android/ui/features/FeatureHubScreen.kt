@@ -12,6 +12,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccountBalance
+import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.ImportExport
+import androidx.compose.material.icons.outlined.School
+import androidx.compose.material.icons.outlined.Shower
+import androidx.compose.material.icons.outlined.Stadium
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -24,27 +33,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
-import cn.edu.shmtu.terminal.android.R
 
 private data class FeatureItem(
     val title: String,
     val description: String,
-    val iconRes: Int,
+    val icon: ImageVector,
     val available: Boolean,
     val route: String? = null
 )
 
 private val features = listOf(
-    FeatureItem("账单统计", "多维度账单分析与可视化", R.drawable.ic_bill, true, "bill_statistics"),
-    FeatureItem("数据传输", "导入导出账单数据与快照管理", R.drawable.ic_bill, true, "data_transfer"),
-    FeatureItem("热水查询", "宿舍楼热水温度与水位（从账号管理进入）", R.drawable.ic_home, false),
-    FeatureItem("电费查询", "宿舍电费余额与用电记录", R.drawable.ic_home, false),
-    FeatureItem("课表查询", "本学期课程表与上课提醒", R.drawable.ic_favorite, false),
-    FeatureItem("成绩查询", "历年成绩与GPA统计", R.drawable.ic_account_box, false),
-    FeatureItem("研究生系统", "研究生教务系统功能", R.drawable.ic_account_box, false),
-    FeatureItem("场地预约", "校园场地在线预约", R.drawable.ic_home, false)
+    FeatureItem("账单统计", "多维度账单分析与可视化", Icons.Outlined.BarChart, true, "bill_statistics"),
+    FeatureItem("数据传输", "导入导出账单数据与快照管理", Icons.Outlined.ImportExport, true, "data_transfer"),
+    FeatureItem("热水查询", "宿舍楼热水温度与水位（从账号管理进入）", Icons.Outlined.Shower, false),
+    FeatureItem("电费查询", "宿舍电费余额与用电记录", Icons.Outlined.Bolt, false),
+    FeatureItem("课表查询", "本学期课程表与上课提醒", Icons.Outlined.CalendarMonth, false),
+    FeatureItem("成绩查询", "历年成绩与GPA统计", Icons.Outlined.School, false),
+    FeatureItem("研究生系统", "研究生教务系统功能", Icons.Outlined.AccountBalance, false),
+    FeatureItem("场地预约", "校园场地在线预约", Icons.Outlined.Stadium, false)
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -107,7 +114,7 @@ private fun FeatureCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = ImageVector.vectorResource(feature.iconRes),
+                imageVector = feature.icon,
                 contentDescription = feature.title,
                 modifier = Modifier.size(40.dp),
                 tint = if (feature.available)

@@ -16,7 +16,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import cn.edu.shmtu.terminal.android.ui.navigation.AppNavigation
@@ -52,7 +51,7 @@ fun ShmtuterminalandroidApp() {
                 item(
                     icon = {
                         Icon(
-                            painter = painterResource(destination.icon),
+                            imageVector = destination.icon,
                             contentDescription = destination.label
                         )
                     },

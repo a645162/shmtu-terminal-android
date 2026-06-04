@@ -1,15 +1,21 @@
 package cn.edu.shmtu.terminal.android.ui.navigation
 
-import cn.edu.shmtu.terminal.android.R
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Widgets
+import androidx.compose.ui.graphics.vector.ImageVector
 
 enum class TopLevelDestination(
     val route: String,
     val label: String,
-    val icon: Int
+    val icon: ImageVector
 ) {
-    HOME("home", "首页", R.drawable.ic_home),
-    BILL("bill", "账单", R.drawable.ic_bill),
-    FEATURES("features", "功能大全", R.drawable.ic_favorite),
-    ACCOUNT("account", "账号", R.drawable.ic_person_add),
-    SETTINGS("settings", "设置", R.drawable.ic_settings)
+    HOME("home", "首页", Icons.Outlined.Home),
+    BILL("bill", "账单", Icons.AutoMirrored.Outlined.ReceiptLong),
+    FEATURES("features", "功能大全", Icons.Outlined.Widgets),
+    ACCOUNT("account", "账号", Icons.Outlined.AccountCircle),
+    SETTINGS("settings", "设置", Icons.Outlined.Settings)
 }

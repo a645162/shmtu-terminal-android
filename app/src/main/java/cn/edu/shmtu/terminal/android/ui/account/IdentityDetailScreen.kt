@@ -21,6 +21,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -30,7 +34,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,13 +63,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import cn.edu.shmtu.terminal.android.R
 import cn.edu.shmtu.terminal.android.domain.model.Account
 import cn.edu.shmtu.terminal.android.domain.model.LoginStatus
 
@@ -102,7 +104,7 @@ fun IdentityDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            painter = painterResource(R.drawable.ic_home),
+                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = "返回"
                         )
                     }
@@ -353,10 +355,10 @@ private fun SwipeableAccountCard(
                 },
                 label = "swipe_color"
             )
-            val icon = when (direction) {
-                SwipeToDismissBoxValue.StartToEnd -> R.drawable.ic_edit
-                SwipeToDismissBoxValue.EndToStart -> R.drawable.ic_delete
-                else -> 0
+            val icon: ImageVector? = when (direction) {
+                SwipeToDismissBoxValue.StartToEnd -> Icons.Outlined.Edit
+                SwipeToDismissBoxValue.EndToStart -> Icons.Outlined.Delete
+                else -> null
             }
             val text = when (direction) {
                 SwipeToDismissBoxValue.StartToEnd -> "编辑"
@@ -379,10 +381,10 @@ private fun SwipeableAccountCard(
                     .padding(horizontal = 20.dp),
                 contentAlignment = alignment
             ) {
-                if (icon != 0) {
+                icon?.let {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            painter = painterResource(icon),
+                            imageVector = it,
                             contentDescription = text,
                             tint = tint
                         )
