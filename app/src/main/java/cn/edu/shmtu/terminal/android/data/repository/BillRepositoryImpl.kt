@@ -52,7 +52,9 @@ class BillRepositoryImpl @Inject constructor(
     private val syncAccountBillsUseCase: SyncAccountBillsUseCase,
     private val syncIdentityBillsUseCase: SyncIdentityBillsUseCase,
     private val fullSyncAccountBillsUseCase: FullSyncAccountBillsUseCase,
-    private val fullSyncIdentityBillsUseCase: FullSyncIdentityBillsUseCase
+    private val fullSyncIdentityBillsUseCase: FullSyncIdentityBillsUseCase,
+    /** GitHub 同步的规则文件管理器 — classifier/mealClassifier 走它读取本地缓存 */
+    private val billRulesManager: cn.edu.shmtu.terminal.android.data.sync.BillRulesManager,
 ) : BillRepository {
 
     private val _syncProgress = MutableSharedFlow<SyncProgress>(extraBufferCapacity = 1)
@@ -454,15 +456,12 @@ class BillRepositoryImpl @Inject constructor(
     /**
      * 用餐时段分类器(由 [BillRepositoryImpl] 构造时或首次访问时懒加载 schedule.toml)。
      * 加载失败时降级为 [MealClassifier.defaultRules] — 与 Tauri schedule.toml 默认内容完全一致。
+     * 优先走 [BillRulesManager] 本地缓存(GitHub 同步目标),缺失回退到 assets/bill/。
      */
     private val mealClassifier: cn.edu.shmtu.cas.classifier.MealClassifier by lazy {
         try {
-            val rulesToml = runCatching {
-                billDbManager.appContext.assets.open("bill/rules.toml").bufferedReader().readText()
-            }.getOrNull()
-            val scheduleToml = runCatching {
-                billDbManager.appContext.assets.open("bill/schedule.toml").bufferedReader().readText()
-            }.getOrNull()
+            val rulesToml = runCatching { billRulesManager.readFile("rules.toml") }.getOrNull()
+            val scheduleToml = runCatching { billRulesManager.readFile("schedule.toml") }.getOrNull()
             val text = rulesToml ?: scheduleToml
             if (text != null) {
                 cn.edu.shmtu.cas.classifier.MealClassifier.fromRulesToml(text)
@@ -477,15 +476,12 @@ class BillRepositoryImpl @Inject constructor(
     /**
      * 账单分类器(由 [BillRepositoryImpl] 构造时或首次访问时懒加载 rules.toml),
      * 用于 [getCategoryBreakdown] 内部对 category 字段为空的老数据做兜底分类。
+     * 优先走 [BillRulesManager] 本地缓存(GitHub 同步目标),缺失回退到 assets/bill/。
      */
     private val billClassifier: cn.edu.shmtu.cas.classifier.BillClassifier? by lazy {
         try {
-            val rulesToml = runCatching {
-                billDbManager.appContext.assets.open("bill/rules.toml").bufferedReader().readText()
-            }.getOrNull()
-            val typeToml = runCatching {
-                billDbManager.appContext.assets.open("bill/type.toml").bufferedReader().readText()
-            }.getOrNull()
+            val rulesToml = runCatching { billRulesManager.readFile("rules.toml") }.getOrNull()
+            val typeToml = runCatching { billRulesManager.readFile("type.toml") }.getOrNull()
             val text = rulesToml ?: typeToml ?: return@lazy null
             cn.edu.shmtu.cas.classifier.BillClassifier.fromRulesToml(text)
         } catch (_: Exception) {

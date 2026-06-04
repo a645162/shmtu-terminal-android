@@ -13,6 +13,7 @@ import cn.edu.shmtu.cas.session.LoginSubmitResult
 import cn.edu.shmtu.cas.session.SessionProbe
 import cn.edu.shmtu.terminal.android.data.local.db.BillDatabaseManager
 import cn.edu.shmtu.terminal.android.data.local.datastore.SecureStorage
+import cn.edu.shmtu.terminal.android.data.sync.BillRulesManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -25,28 +26,27 @@ class EpayAdapter @Inject constructor(
     @ApplicationContext private val context: Context,
     /** 由 Hilt 注入 [BillDatabaseManager] 供 [cn.edu.shmtu.terminal.android.data.sync.RoomBillStore] 使用 */
     val billDbManager: BillDatabaseManager,
+    /** 由 Hilt 注入 [BillRulesManager], 走 filesDir/bill/ 本地缓存(缺失回退到 assets/bill/) */
+    private val billRulesManager: BillRulesManager,
 ) {
     private val TAG = "EpayAdapter"
 
     private val instances = mutableMapOf<Long, EpayAuth>()
 
     /**
-     * 账单分类器（懒加载，从 assets/bill/rules.toml 加载,优先使用合并 rules.toml,
-     * 若不存在则回退到 assets/bill/type.toml）。
-     * 加载失败时为 null,分类功能降级为 OTHER。
+     * 账单分类器（懒加载，从 [BillRulesManager.readFile] 加载,
+     * 优先使用合并 rules.toml,回退到 type.toml。
+     * 本地缓存与 assets/bill/ 内的出厂默认都会被自动 fallback 处理,
+     * 与 Tauri `db_file_manager.read_file("rules.toml")` 行为一致。
      */
     val classifier: BillClassifier? by lazy {
         try {
-            val rulesToml = runCatching {
-                context.assets.open("bill/rules.toml").bufferedReader().readText()
-            }.getOrNull()
-            val typeToml = runCatching {
-                context.assets.open("bill/type.toml").bufferedReader().readText()
-            }.getOrNull()
+            val rulesToml = runCatching { billRulesManager.readFile("rules.toml") }.getOrNull()
+            val typeToml = runCatching { billRulesManager.readFile("type.toml") }.getOrNull()
             val text = rulesToml ?: typeToml
             if (text != null) {
                 BillClassifier.fromRulesToml(text).also {
-                    Log.d(TAG, "BillClassifier loaded: ${it.ruleCount()} rules from ${if (rulesToml != null) "rules.toml" else "type.toml"}")
+                    Log.d(TAG, "BillClassifier loaded: ${it.ruleCount()} rules from ${if (rulesToml != null) "rules.toml" else "type.toml"} (local=${billRulesManager.hasLocalFile(if (rulesToml != null) "rules.toml" else "type.toml")})")
                 }
             } else {
                 Log.w(TAG, "no bill/*.toml found, classifier disabled")
@@ -59,16 +59,12 @@ class EpayAdapter @Inject constructor(
     }
 
     /**
-     * 位置翻译器（懒加载，从 assets/bill/position.toml 加载,优先使用合并 rules.toml）。
+     * 位置翻译器（懒加载，走 [BillRulesManager.readFile], 优先合并 rules.toml）。
      */
     val positionTranslator: PositionTranslator? by lazy {
         try {
-            val rulesToml = runCatching {
-                context.assets.open("bill/rules.toml").bufferedReader().readText()
-            }.getOrNull()
-            val positionToml = runCatching {
-                context.assets.open("bill/position.toml").bufferedReader().readText()
-            }.getOrNull()
+            val rulesToml = runCatching { billRulesManager.readFile("rules.toml") }.getOrNull()
+            val positionToml = runCatching { billRulesManager.readFile("position.toml") }.getOrNull()
             val text = rulesToml ?: positionToml
             if (text != null) {
                 PositionTranslator.fromRulesToml(text)
