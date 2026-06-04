@@ -118,27 +118,21 @@ class EpayAdapter @Inject constructor(
     }
 
     /**
-     * 提交登录（自动获取 execution）
+     * 提交登录。调用方必须传入与当前验证码图片匹配的 execution。
      */
-    suspend fun submitLogin(accountId: Long, username: String, password: String, captchaCode: String): Result<LoginSubmitResult> = withContext(Dispatchers.IO) {
+    suspend fun submitLogin(
+        accountId: Long,
+        username: String,
+        password: String,
+        captchaCode: String,
+        execution: String,
+    ): Result<LoginSubmitResult> = withContext(Dispatchers.IO) {
         Log.d(TAG, "submitLogin for account $accountId")
 
         val epayAuth = getEpayAuth(accountId)
 
-        // 先获取 execution
-        val challengeResult = epayAuth.prepareChallenge()
-        if (challengeResult.isFailure) {
-            Log.e(TAG, "prepareChallenge failed: ${challengeResult.exceptionOrNull()?.message}")
-            return@withContext Result.failure(challengeResult.exceptionOrNull() ?: Exception("获取验证码失败"))
-        }
-
-        val challenge = challengeResult.getOrNull()
-        if (challenge == null) {
-            return@withContext Result.failure(Exception("获取验证码失败"))
-        }
-
         // 提交登录
-        val result = epayAuth.submitLogin(username, password, captchaCode, challenge.execution)
+        val result = epayAuth.submitLogin(username, password, captchaCode, execution)
 
         if (result.isSuccess && result.getOrNull() is LoginSubmitResult.Success) {
             // 保存会话

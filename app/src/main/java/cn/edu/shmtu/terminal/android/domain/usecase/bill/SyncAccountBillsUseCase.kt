@@ -1,5 +1,6 @@
 package cn.edu.shmtu.terminal.android.domain.usecase.bill
 
+import android.util.Log
 import android.util.Base64
 import cn.edu.shmtu.cas.auth.EpayAuth
 import cn.edu.shmtu.cas.captcha.Captcha
@@ -25,6 +26,7 @@ import cn.edu.shmtu.terminal.android.domain.model.SyncProgress
 import cn.edu.shmtu.terminal.android.domain.model.SyncResult
 import cn.edu.shmtu.terminal.android.domain.model.SyncStatus
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
+import cn.edu.shmtu.terminal.android.domain.usecase.bill.Purpose
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -45,6 +47,8 @@ class SyncAccountBillsUseCase @Inject constructor(
     private val accountRepository: AccountRepository,
     private val settingsDataStore: SettingsDataStore,
 ) {
+    private val tag = "SyncAccountBills"
+
     suspend operator fun invoke(account: Account): SyncResult = invoke(account, SyncRangePreset.Month) {}
 
     suspend operator fun invoke(
@@ -89,11 +93,21 @@ class SyncAccountBillsUseCase @Inject constructor(
         onProgress: (SyncProgress) -> Unit,
     ): SyncResult = withContext(Dispatchers.IO) {
         val auth = epayAdapter.getEpayAuth(account.id)
+        val password = accountRepository.getPassword(account.id).orEmpty()
         try {
+            Log.d(
+                tag,
+                "syncWithCaptcha start accountId=${account.id} label=${account.label} fullSync=$fullSync range=$syncRange execution=${execution.take(16)}..."
+            )
             onProgress(SyncProgress(status = SyncStatus.LoggingIn, accountLabel = account.label))
-            val submitResult = auth.submitLogin("", "", captchaCode, execution)
+            if (password.isBlank()) {
+                Log.w(tag, "syncWithCaptcha missing password for accountId=${account.id}")
+                return@withContext SyncResult(0, false, "未找到密码，请重新保存账号密码")
+            }
+            val submitResult = auth.submitLogin(account.userId, password, captchaCode, execution)
             when (val r = submitResult.getOrNull()) {
                 is LoginSubmitResult.Success -> {
+                    Log.d(tag, "syncWithCaptcha login success accountId=${account.id}, continue fullSync=$fullSync")
                     epayAdapter.saveSessionCookies(account.id, auth)
                     val store = createStore(account)
                     val libResult = if (fullSync) {
@@ -113,6 +127,10 @@ class SyncAccountBillsUseCase @Inject constructor(
                     }
                     accountRepository.updateLastSyncTime(account.id)
                     accountRepository.updateLoginStatus(account.id, "LOGGED_IN")
+                    Log.d(
+                        tag,
+                        "syncWithCaptcha completed accountId=${account.id} success=${libResult.isSuccess} newCount=${libResult.getOrNull()?.newCount ?: 0}"
+                    )
                     SyncResult(
                         newCount = libResult.getOrNull()?.newCount ?: 0,
                         success = libResult.isSuccess,
@@ -120,6 +138,7 @@ class SyncAccountBillsUseCase @Inject constructor(
                     )
                 }
                 is LoginSubmitResult.ValidateCodeError -> {
+                    Log.w(tag, "syncWithCaptcha captcha invalid accountId=${account.id}")
                     val challenge = auth.prepareChallenge().getOrNull()
                     if (challenge != null) {
                         val b64 = Base64.encodeToString(challenge.captchaImage, Base64.NO_WRAP)
@@ -130,17 +149,28 @@ class SyncAccountBillsUseCase @Inject constructor(
                             accountLabel = account.label,
                             syncRange = syncRange,
                             isFullSync = fullSync,
+                            purpose = Purpose.SYNC,
                         )
                     }
                     SyncResult(0, false, "验证码错误")
                 }
-                is LoginSubmitResult.PasswordError -> SyncResult(0, false, "用户名或密码错误")
-                is LoginSubmitResult.Failure -> SyncResult(0, false, r.message)
-                else -> SyncResult(0, false, "登录失败")
+                is LoginSubmitResult.PasswordError -> {
+                    Log.w(tag, "syncWithCaptcha password error accountId=${account.id}")
+                    SyncResult(0, false, "用户名或密码错误")
+                }
+                is LoginSubmitResult.Failure -> {
+                    Log.w(tag, "syncWithCaptcha login failure accountId=${account.id} message=${r.message}")
+                    SyncResult(0, false, r.message)
+                }
+                else -> {
+                    Log.w(tag, "syncWithCaptcha unknown login result accountId=${account.id}")
+                    SyncResult(0, false, "登录失败")
+                }
             }
         } catch (e: CaptchaRequiredException) {
             throw e
         } catch (e: Exception) {
+            Log.e(tag, "syncWithCaptcha exception accountId=${account.id}", e)
             onProgress(SyncProgress(status = SyncStatus.Failed(e.message ?: e.javaClass.simpleName), accountLabel = account.label))
             SyncResult(0, false, e.message)
         }
@@ -159,6 +189,7 @@ class SyncAccountBillsUseCase @Inject constructor(
             accountLabel = account.label,
             syncRange = SyncRangePreset.Month,
             isFullSync = false,
+            purpose = Purpose.SYNC,
         )
     }
 
@@ -173,9 +204,15 @@ class SyncAccountBillsUseCase @Inject constructor(
             CaptchaMode.MANUAL -> null
             CaptchaMode.AUTO_OCR -> autoOcrResolver()
         }
+        val password = accountRepository.getPassword(account.id).orEmpty()
+        Log.d(
+            tag,
+            "runAccountSync start accountId=${account.id} label=${account.label} fullSync=$fullSync range=$syncRange captchaMode=$captchaMode hasPassword=${password.isNotBlank()}"
+        )
 
         if (fullSync) {
             epayAdapter.invalidateSession(account.id)
+            Log.d(tag, "runAccountSync invalidated session for full sync accountId=${account.id}")
         }
         val auth = epayAdapter.getEpayAuth(account.id)
 
@@ -188,18 +225,25 @@ class SyncAccountBillsUseCase @Inject constructor(
                     accountLabel = account.label,
                 ),
                 resolver = resolver,
+                username = account.userId,
+                password = password,
                 options = if (fullSync) SyncOptions.full(syncRange) else SyncOptions.incremental(syncRange),
                 fullSync = fullSync,
                 onProgress = { p -> onProgress(p.toDomain()) },
             )
             accountRepository.updateLastSyncTime(account.id)
             accountRepository.updateLoginStatus(account.id, "LOGGED_IN")
+            Log.d(
+                tag,
+                "runAccountSync success accountId=${account.id} fullSync=$fullSync newCount=${libResult.getOrNull()?.newCount ?: 0}"
+            )
             SyncResult(
                 newCount = libResult.getOrNull()?.newCount ?: 0,
                 success = libResult.isSuccess,
                 errorMessage = libResult.exceptionOrNull()?.message,
             )
         } catch (e: ManualCaptchaRequiredException) {
+            Log.w(tag, "runAccountSync captcha required accountId=${account.id} fullSync=$fullSync")
             val imgB64 = e.captchaImageBase64.ifBlank {
                 Base64.encodeToString(e.captchaImageBytes, Base64.NO_WRAP)
             }
@@ -211,8 +255,10 @@ class SyncAccountBillsUseCase @Inject constructor(
                 accountLabel = account.label,
                 syncRange = syncRange,
                 isFullSync = fullSync,
+                purpose = Purpose.SYNC,
             )
         } catch (e: Exception) {
+            Log.e(tag, "runAccountSync failure accountId=${account.id} fullSync=$fullSync", e)
             onProgress(SyncProgress(status = SyncStatus.Failed(e.message ?: e.javaClass.simpleName), accountLabel = account.label))
             SyncResult(0, false, e.message)
         }

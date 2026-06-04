@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.domain.model.Account
 import cn.edu.shmtu.terminal.android.domain.model.LoginStatus
+import cn.edu.shmtu.terminal.android.ui.component.PasswordTextField
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -186,11 +187,17 @@ fun IdentityDetailScreen(
     }
 
     editingAccount?.let { account ->
+        val initialPassword = remember(account.id) { viewModel.getStoredPassword(account.id) }
         EditAccountDialog(
             account = account,
-            onConfirm = { label, userId ->
-                viewModel.updateAccount(account.id, label, userId)
+            initialPassword = initialPassword,
+            onConfirm = { label, userId, password ->
+                viewModel.updateAccount(account.id, label, userId, password)
             },
+            onLoginAndSave = { label, userId, password ->
+                viewModel.loginAndSave(account.id, label, userId, password)
+            },
+            isLoading = uiState.isLoggingInForSave,
             onDismiss = { viewModel.cancelEditAccount() }
         )
     }
@@ -476,11 +483,15 @@ private fun SwipeableAccountCard(
 @Composable
 private fun EditAccountDialog(
     account: Account,
-    onConfirm: (String, String) -> Unit,
+    initialPassword: String,
+    onConfirm: (String, String, String) -> Unit,
+    onLoginAndSave: (String, String, String) -> Unit,
+    isLoading: Boolean,
     onDismiss: () -> Unit
 ) {
     var label by remember { mutableStateOf(account.label) }
     var userId by remember { mutableStateOf(account.userId) }
+    var password by remember { mutableStateOf(initialPassword) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -501,19 +512,50 @@ private fun EditAccountDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                PasswordTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("密码") },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = { if (label.isNotBlank() && userId.isNotBlank()) onConfirm(label, userId) },
-                enabled = label.isNotBlank() && userId.isNotBlank()
-            ) {
-                Text("保存")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = {
+                        if (label.isNotBlank() && userId.isNotBlank() && password.isNotBlank()) {
+                            onLoginAndSave(label, userId, password)
+                        }
+                    },
+                    enabled = label.isNotBlank() && userId.isNotBlank() && password.isNotBlank() && !isLoading
+                ) {
+                    Text("登录并保存")
+                }
+                TextButton(
+                    onClick = {
+                        if (label.isNotBlank() && userId.isNotBlank() && password.isNotBlank()) {
+                            onConfirm(label, userId, password)
+                        }
+                    },
+                    enabled = label.isNotBlank() && userId.isNotBlank() && password.isNotBlank() && !isLoading
+                ) {
+                    Text("保存")
+                }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                }
+                TextButton(onClick = onDismiss, enabled = !isLoading) {
+                    Text("取消")
+                }
             }
         }
     )

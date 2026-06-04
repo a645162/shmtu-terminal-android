@@ -13,4 +13,10 @@ class CaptchaRequiredException(
     val accountLabel: String,
     val syncRange: SyncRangePreset,
     val isFullSync: Boolean,
+    val purpose: Purpose = Purpose.SYNC,
 ) : Exception("MANUAL_CAPTCHA_REQUIRED|$captchaImageBase64|$execution")
+
+enum class Purpose {
+    SYNC,
+    LOGIN_SAVE,
+}

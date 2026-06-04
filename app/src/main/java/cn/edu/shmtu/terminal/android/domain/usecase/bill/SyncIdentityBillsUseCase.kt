@@ -10,6 +10,7 @@ import cn.edu.shmtu.terminal.android.data.sync.RoomBillStore
 import cn.edu.shmtu.terminal.android.domain.model.SyncProgress
 import cn.edu.shmtu.terminal.android.domain.model.SyncResult
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
+import cn.edu.shmtu.terminal.android.domain.usecase.bill.Purpose
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -94,6 +95,7 @@ class SyncIdentityBillsUseCase @Inject constructor(
                 accountLabel = accLabel,
                 syncRange = syncRange,
                 isFullSync = false,
+                purpose = Purpose.SYNC,
             )
         }
 

@@ -1,5 +1,6 @@
 package cn.edu.shmtu.terminal.android.ui.bill
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.cas.sync.SyncRangePreset as CasSyncRangePreset
@@ -60,6 +61,7 @@ class BillListViewModel @Inject constructor(
     private val fullSyncIdentityBillsUseCase: FullSyncIdentityBillsUseCase,
     private val fullSyncAccountBillsUseCase: FullSyncAccountBillsUseCase,
 ) : ViewModel() {
+    private val tag = "BillListViewModel"
 
     val identities: StateFlow<List<Identity>> = identityRepository.getAllIdentities()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -165,6 +167,7 @@ class BillListViewModel @Inject constructor(
 
     fun syncBills(identityId: Long, range: SyncRangePreset, onResult: (SyncResult) -> Unit = {}) {
         viewModelScope.launch {
+            Log.d(tag, "syncBills identityId=$identityId range=$range")
             beginSync("增量更新当前身份", range)
             var capturedCaptcha: CaptchaRequiredException? = null
             try {
@@ -177,6 +180,7 @@ class BillListViewModel @Inject constructor(
                 _isSyncingFlag.value = false
             }
             capturedCaptcha?.let { e ->
+                Log.d(tag, "syncBills pending captcha accountId=${e.accountId} label=${e.accountLabel} purpose=${e.purpose}")
                 _syncProgress.value = SyncProgress(status = SyncStatus.GettingCaptcha, accountLabel = e.accountLabel)
                 _pendingCaptcha.value = e
             }
@@ -185,6 +189,7 @@ class BillListViewModel @Inject constructor(
 
     fun syncAccountBills(accountId: Long, range: SyncRangePreset) {
         viewModelScope.launch {
+            Log.d(tag, "syncAccountBills accountId=$accountId range=$range")
             val account = accountRepository.getAccountById(accountId)
             if (account == null) {
                 _syncProgress.value = SyncProgress(
@@ -204,6 +209,7 @@ class BillListViewModel @Inject constructor(
                 _isSyncingFlag.value = false
             }
             capturedCaptcha?.let { e ->
+                Log.d(tag, "syncAccountBills pending captcha accountId=${e.accountId} label=${e.accountLabel} purpose=${e.purpose}")
                 _syncProgress.value = SyncProgress(status = SyncStatus.GettingCaptcha, accountLabel = e.accountLabel)
                 _pendingCaptcha.value = e
             }
@@ -212,6 +218,7 @@ class BillListViewModel @Inject constructor(
 
     fun fullSyncBills(identityId: Long, range: SyncRangePreset) {
         viewModelScope.launch {
+            Log.d(tag, "fullSyncBills identityId=$identityId range=$range")
             beginSync("全量更新当前身份", range)
             var capturedCaptcha: CaptchaRequiredException? = null
             try {
@@ -223,6 +230,7 @@ class BillListViewModel @Inject constructor(
                 _isSyncingFlag.value = false
             }
             capturedCaptcha?.let { e ->
+                Log.d(tag, "fullSyncBills pending captcha accountId=${e.accountId} label=${e.accountLabel} purpose=${e.purpose}")
                 _syncProgress.value = SyncProgress(status = SyncStatus.GettingCaptcha, accountLabel = e.accountLabel)
                 _pendingCaptcha.value = e
             }
@@ -231,6 +239,7 @@ class BillListViewModel @Inject constructor(
 
     fun fullSyncAccountBills(accountId: Long, range: SyncRangePreset) {
         viewModelScope.launch {
+            Log.d(tag, "fullSyncAccountBills accountId=$accountId range=$range")
             val account = accountRepository.getAccountById(accountId)
             if (account == null) {
                 _syncProgress.value = SyncProgress(
@@ -250,6 +259,7 @@ class BillListViewModel @Inject constructor(
                 _isSyncingFlag.value = false
             }
             capturedCaptcha?.let { e ->
+                Log.d(tag, "fullSyncAccountBills pending captcha accountId=${e.accountId} label=${e.accountLabel} purpose=${e.purpose}")
                 _syncProgress.value = SyncProgress(status = SyncStatus.GettingCaptcha, accountLabel = e.accountLabel)
                 _pendingCaptcha.value = e
             }
@@ -260,6 +270,10 @@ class BillListViewModel @Inject constructor(
     fun submitCaptcha(captchaCode: String) {
         val captcha = _pendingCaptcha.value ?: return
         viewModelScope.launch {
+            Log.d(
+                tag,
+                "submitCaptcha accountId=${captcha.accountId} label=${captcha.accountLabel} fullSync=${captcha.isFullSync} range=${captcha.syncRange} purpose=${captcha.purpose}"
+            )
             val account = accountRepository.getAccountById(captcha.accountId) ?: run {
                 _pendingCaptcha.value = null; _isSyncingFlag.value = false; return@launch
             }
@@ -275,6 +289,7 @@ class BillListViewModel @Inject constructor(
                 ) { _syncProgress.value = it }
                 completeSync(result, fallbackLabel = account.label)
             } catch (e: CaptchaRequiredException) {
+                Log.d(tag, "submitCaptcha captcha required again accountId=${e.accountId} label=${e.accountLabel}")
                 _syncProgress.value = SyncProgress(status = SyncStatus.GettingCaptcha, accountLabel = e.accountLabel)
                 _pendingCaptcha.value = e
                 return@launch

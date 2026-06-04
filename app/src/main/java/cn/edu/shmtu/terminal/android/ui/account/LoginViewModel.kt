@@ -171,7 +171,8 @@ class LoginViewModel @Inject constructor(
                     currentAccountId,
                     account.userId,
                     password,
-                    captchaCode
+                    captchaCode,
+                    challenge.execution,
                 )
 
                 when {

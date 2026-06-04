@@ -4,13 +4,14 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.cas.session.LoginSubmitResult
-import cn.edu.shmtu.terminal.android.data.local.datastore.SecureStorage
-import cn.edu.shmtu.terminal.android.data.remote.EpayAdapter
 import cn.edu.shmtu.terminal.android.domain.model.Account
 import cn.edu.shmtu.terminal.android.domain.model.Identity
+import cn.edu.shmtu.terminal.android.data.remote.EpayAdapter
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
 import cn.edu.shmtu.terminal.android.domain.usecase.account.DeleteAccountUseCase
+import cn.edu.shmtu.terminal.android.domain.usecase.bill.CaptchaRequiredException
+import cn.edu.shmtu.terminal.android.domain.usecase.bill.Purpose
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.SyncAccountBillsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,9 +26,12 @@ import javax.inject.Inject
 
 data class IdentityDetailUiState(
     val isSyncing: Boolean = false,
+    val isLoggingInForSave: Boolean = false,
     val showCaptchaDialog: Boolean = false,
     val captchaImage: ByteArray? = null,
     val captchaAccount: Account? = null,
+    val captchaExecution: String? = null,
+    val pendingCaptcha: CaptchaRequiredException? = null,
     val syncMessage: String? = null,
     val syncProgress: cn.edu.shmtu.terminal.android.domain.model.SyncProgress? = null,
 )
@@ -40,7 +44,6 @@ class IdentityDetailViewModel @Inject constructor(
     private val deleteAccountUseCase: DeleteAccountUseCase,
     private val syncAccountBillsUseCase: SyncAccountBillsUseCase,
     private val epayAdapter: EpayAdapter,
-    private val secureStorage: SecureStorage
 ) : ViewModel() {
     private val stateHandle = savedStateHandle
 
@@ -66,9 +69,24 @@ class IdentityDetailViewModel @Inject constructor(
     fun refreshAccountBills(account: Account) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSyncing = true, syncMessage = null, syncProgress = null)
-
-            val result = syncAccountBillsUseCase(account) { progress ->
-                _uiState.value = _uiState.value.copy(syncProgress = progress)
+            val result = try {
+                syncAccountBillsUseCase(account) { progress ->
+                    _uiState.value = _uiState.value.copy(syncProgress = progress)
+                }
+            } catch (e: CaptchaRequiredException) {
+                _uiState.value = _uiState.value.copy(
+                    isSyncing = false,
+                    showCaptchaDialog = true,
+                    captchaImage = android.util.Base64.decode(e.captchaImageBase64, android.util.Base64.DEFAULT),
+                    captchaAccount = account,
+                    captchaExecution = e.execution,
+                    pendingCaptcha = e,
+                    syncProgress = cn.edu.shmtu.terminal.android.domain.model.SyncProgress(
+                        status = cn.edu.shmtu.terminal.android.domain.model.SyncStatus.GettingCaptcha,
+                        accountLabel = account.label,
+                    ),
+                )
+                return@launch
             }
 
             if (result.success) {
@@ -77,67 +95,6 @@ class IdentityDetailViewModel @Inject constructor(
                     syncProgress = null,
                     syncMessage = "同步成功，新增 ${result.newCount} 条记录"
                 )
-                return@launch
-            }
-
-            if (result.errorMessage == "Session expired, need re-login") {
-                // 测试登录状态
-                val testResult = epayAdapter.testLoginStatus(account.id)
-                
-                if (testResult.isSuccess && testResult.getOrNull() == true) {
-                    // 已登录，重试同步
-                    val retryResult = syncAccountBillsUseCase(account)
-                    _uiState.value = _uiState.value.copy(
-                        isSyncing = false,
-                        syncMessage = if (retryResult.success)
-                            "同步成功，新增 ${retryResult.newCount} 条记录"
-                        else
-                            "同步失败: ${retryResult.errorMessage}"
-                    )
-                    return@launch
-                }
-
-                // 需要重新登录，获取验证码
-                try {
-                    val probeResult = epayAdapter.probeLogin(account.id)
-                    if (probeResult.isFailure) {
-                        _uiState.value = _uiState.value.copy(
-                            isSyncing = false,
-                            syncMessage = "探测登录状态失败"
-                        )
-                        return@launch
-                    }
-
-                    val challengeResult = epayAdapter.prepareChallenge(account.id)
-                    if (challengeResult.isFailure) {
-                        _uiState.value = _uiState.value.copy(
-                            isSyncing = false,
-                            syncMessage = "获取验证码失败"
-                        )
-                        return@launch
-                    }
-
-                    val challenge = challengeResult.getOrNull()
-                    if (challenge == null) {
-                        _uiState.value = _uiState.value.copy(
-                            isSyncing = false,
-                            syncMessage = "获取验证码失败"
-                        )
-                        return@launch
-                    }
-
-                    _uiState.value = _uiState.value.copy(
-                        isSyncing = false,
-                        showCaptchaDialog = true,
-                        captchaImage = challenge.captchaImage,
-                        captchaAccount = account
-                    )
-                } catch (e: Exception) {
-                    _uiState.value = _uiState.value.copy(
-                        isSyncing = false,
-                        syncMessage = "获取验证码失败: ${e.message}"
-                    )
-                }
                 return@launch
             }
 
@@ -150,73 +107,139 @@ class IdentityDetailViewModel @Inject constructor(
 
     fun submitCaptcha(captchaCode: String) {
         val account = _uiState.value.captchaAccount ?: return
+        val pendingCaptcha = _uiState.value.pendingCaptcha ?: return
 
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                isSyncing = true,
-                showCaptchaDialog = false
-            )
-
-            try {
-                val password = secureStorage.getPassword(account.id)
-                if (password == null) {
+            when (pendingCaptcha.purpose) {
+                Purpose.SYNC -> {
                     _uiState.value = _uiState.value.copy(
-                        isSyncing = false,
-                        syncMessage = "未找到密码，请重新添加账号"
+                        isSyncing = true,
+                        showCaptchaDialog = false,
+                        syncMessage = null,
                     )
-                    return@launch
-                }
 
-                // 重新获取 challenge（execution 是一次性的）
-                val challengeResult = epayAdapter.prepareChallenge(account.id)
-                if (challengeResult.isFailure) {
-                    _uiState.value = _uiState.value.copy(
-                        isSyncing = false,
-                        syncMessage = "获取验证码失败，请重试"
-                    )
-                    return@launch
-                }
+                    try {
+                        val result = syncAccountBillsUseCase.syncWithCaptcha(
+                            account = account,
+                            captchaCode = captchaCode,
+                            execution = pendingCaptcha.execution,
+                            syncRange = pendingCaptcha.syncRange,
+                            fullSync = pendingCaptcha.isFullSync,
+                        ) { progress ->
+                            _uiState.value = _uiState.value.copy(syncProgress = progress)
+                        }
 
-                val submitResult = epayAdapter.submitLogin(account.id, account.userId, password, captchaCode)
-
-                when {
-                    submitResult.isFailure -> {
                         _uiState.value = _uiState.value.copy(
                             isSyncing = false,
-                            syncMessage = "登录异常: ${submitResult.exceptionOrNull()?.message}"
-                        )
-                    }
-                    
-                    submitResult.getOrNull() !is LoginSubmitResult.Success -> {
-                        _uiState.value = _uiState.value.copy(
-                            isSyncing = false,
-                            syncMessage = "登录失败，验证码错误或已过期"
-                        )
-                    }
-                    
-                    else -> {
-                        // 登录成功，执行同步
-                        val result = syncAccountBillsUseCase(account)
-                        _uiState.value = _uiState.value.copy(
-                            isSyncing = false,
+                            captchaImage = null,
+                            captchaAccount = null,
+                            captchaExecution = null,
+                            pendingCaptcha = null,
+                            syncProgress = null,
                             syncMessage = if (result.success)
                                 "同步成功，新增 ${result.newCount} 条记录"
                             else
                                 "同步失败: ${result.errorMessage}"
                         )
+                    } catch (e: CaptchaRequiredException) {
+                        _uiState.value = _uiState.value.copy(
+                            isSyncing = false,
+                            showCaptchaDialog = true,
+                            captchaImage = android.util.Base64.decode(e.captchaImageBase64, android.util.Base64.DEFAULT),
+                            captchaAccount = account,
+                            captchaExecution = e.execution,
+                            pendingCaptcha = e,
+                            syncMessage = "验证码错误，请重试"
+                        )
+                    } catch (e: Exception) {
+                        _uiState.value = _uiState.value.copy(
+                            isSyncing = false,
+                            syncMessage = "登录异常: ${e.message}"
+                        )
                     }
                 }
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    isSyncing = false,
-                    syncMessage = "登录异常: ${e.message}"
-                )
+                Purpose.LOGIN_SAVE -> submitCaptchaForLoginSave(account, pendingCaptcha, captchaCode)
             }
         }
     }
 
+    fun updateAccount(accountId: Long, label: String, userId: String, password: String) {
+        viewModelScope.launch {
+            accountRepository.updateAccount(accountId, label, userId)
+            if (password.isNotBlank()) {
+                accountRepository.savePassword(accountId, password)
+            }
+            _editingAccount.value = null
+        }
+    }
+
+    fun getStoredPassword(accountId: Long): String {
+        return accountRepository.getPassword(accountId).orEmpty()
+    }
+
+    fun loginAndSave(accountId: Long, label: String, userId: String, password: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isLoggingInForSave = true,
+                syncMessage = null,
+                showCaptchaDialog = false,
+                captchaImage = null,
+                captchaAccount = null,
+                captchaExecution = null,
+                pendingCaptcha = null,
+            )
+
+            accountRepository.updateAccount(accountId, label, userId)
+            accountRepository.savePassword(accountId, password)
+
+            val updatedAccount = accountRepository.getAccountById(accountId)
+            if (updatedAccount == null) {
+                _uiState.value = _uiState.value.copy(
+                    isLoggingInForSave = false,
+                    syncMessage = "账号不存在"
+                )
+                return@launch
+            }
+
+            val challenge = epayAdapter.prepareChallenge(accountId).getOrNull()
+            if (challenge != null) {
+                _uiState.value = _uiState.value.copy(
+                    isLoggingInForSave = false,
+                    showCaptchaDialog = true,
+                    captchaImage = challenge.captchaImage,
+                    captchaAccount = updatedAccount,
+                    captchaExecution = challenge.execution,
+                    pendingCaptcha = CaptchaRequiredException(
+                        captchaImageBase64 = android.util.Base64.encodeToString(challenge.captchaImage, android.util.Base64.NO_WRAP),
+                        execution = challenge.execution,
+                        accountId = updatedAccount.id,
+                        accountLabel = updatedAccount.label,
+                        syncRange = cn.edu.shmtu.cas.sync.SyncRangePreset.Month,
+                        isFullSync = false,
+                        purpose = Purpose.LOGIN_SAVE,
+                    ),
+                    syncMessage = "请输入验证码以完成登录并保存"
+                )
+                return@launch
+            }
+
+            _uiState.value = _uiState.value.copy(
+                isLoggingInForSave = false,
+                syncMessage = "获取验证码失败"
+            )
+        }
+    }
+
     fun dismissCaptchaDialog() {
-        _uiState.value = _uiState.value.copy(showCaptchaDialog = false)
+        _uiState.value = _uiState.value.copy(
+            showCaptchaDialog = false,
+            captchaImage = null,
+            captchaAccount = null,
+            captchaExecution = null,
+            pendingCaptcha = null,
+            isSyncing = false,
+            isLoggingInForSave = false,
+        )
     }
 
     fun clearSyncMessage() {
@@ -239,14 +262,96 @@ class IdentityDetailViewModel @Inject constructor(
         _editingAccount.value = account
     }
 
-    fun updateAccount(accountId: Long, label: String, userId: String) {
-        viewModelScope.launch {
-            accountRepository.updateAccount(accountId, label, userId)
-            _editingAccount.value = null
-        }
-    }
-
     fun cancelEditAccount() {
         _editingAccount.value = null
+    }
+
+    private suspend fun submitCaptchaForLoginSave(
+        account: Account,
+        pendingCaptcha: CaptchaRequiredException,
+        captchaCode: String,
+    ) {
+        _uiState.value = _uiState.value.copy(
+            isLoggingInForSave = true,
+            showCaptchaDialog = false,
+            syncMessage = null,
+        )
+
+        try {
+            val password = accountRepository.getPassword(account.id)
+            if (password.isNullOrBlank()) {
+                _uiState.value = _uiState.value.copy(
+                    isLoggingInForSave = false,
+                    syncMessage = "未找到密码，请重新填写后再试"
+                )
+                return
+            }
+
+            val result = epayAdapter.submitLogin(
+                accountId = account.id,
+                username = account.userId,
+                password = password,
+                captchaCode = captchaCode,
+                execution = pendingCaptcha.execution,
+            )
+            when (result.getOrNull()) {
+                is LoginSubmitResult.Success -> {
+                    accountRepository.updateLoginStatus(account.id, "LOGGED_IN")
+                    _uiState.value = _uiState.value.copy(
+                        isLoggingInForSave = false,
+                        captchaImage = null,
+                        captchaAccount = null,
+                        captchaExecution = null,
+                        pendingCaptcha = null,
+                        syncMessage = "登录成功，凭据和 Cookies 已保存"
+                    )
+                }
+                is LoginSubmitResult.ValidateCodeError -> {
+                    val challenge = epayAdapter.prepareChallenge(account.id).getOrNull()
+                    _uiState.value = _uiState.value.copy(
+                        isLoggingInForSave = false,
+                        showCaptchaDialog = challenge != null,
+                        captchaImage = challenge?.captchaImage,
+                        captchaAccount = account,
+                        captchaExecution = challenge?.execution,
+                        pendingCaptcha = challenge?.let {
+                            CaptchaRequiredException(
+                                captchaImageBase64 = android.util.Base64.encodeToString(it.captchaImage, android.util.Base64.NO_WRAP),
+                                execution = it.execution,
+                                accountId = account.id,
+                                accountLabel = account.label,
+                                syncRange = cn.edu.shmtu.cas.sync.SyncRangePreset.Month,
+                                isFullSync = false,
+                                purpose = Purpose.LOGIN_SAVE,
+                            )
+                        },
+                        syncMessage = "验证码错误，请重试"
+                    )
+                }
+                is LoginSubmitResult.PasswordError -> {
+                    _uiState.value = _uiState.value.copy(
+                        isLoggingInForSave = false,
+                        syncMessage = "密码错误"
+                    )
+                }
+                is LoginSubmitResult.Failure -> {
+                    _uiState.value = _uiState.value.copy(
+                        isLoggingInForSave = false,
+                        syncMessage = "登录失败: ${(result.getOrNull() as LoginSubmitResult.Failure).message}"
+                    )
+                }
+                else -> {
+                    _uiState.value = _uiState.value.copy(
+                        isLoggingInForSave = false,
+                        syncMessage = "登录失败"
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            _uiState.value = _uiState.value.copy(
+                isLoggingInForSave = false,
+                syncMessage = "登录异常: ${e.message}"
+            )
+        }
     }
 }
