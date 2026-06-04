@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -37,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -54,6 +56,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -112,6 +115,8 @@ fun HomeScreen(
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val isLoadingStatistics by viewModel.isLoadingStatistics.collectAsState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val configuration = LocalConfiguration.current
+    val ultraWide = configuration.screenWidthDp >= 1200
 
     Scaffold(
         topBar = {
@@ -148,53 +153,131 @@ fun HomeScreen(
             )
         }
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .padding(innerPadding)
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        if (ultraWide) {
             if (currentIdentity == null) {
-                EmptyIdentityCard(
-                    identityCount = identities.size,
-                    onNavigateToMe = onNavigateToMe
-                )
-                return@Column
+                Column(
+                    modifier = Modifier
+                        .padding(innerPadding)
+                        .nestedScroll(scrollBehavior.nestedScrollConnection)
+                        .verticalScroll(rememberScrollState())
+                        .padding(20.dp)
+                ) {
+                    EmptyIdentityCard(
+                        identityCount = identities.size,
+                        onNavigateToMe = onNavigateToMe
+                    )
+                }
+                return@Scaffold
             }
-            // 4 个统计卡: 今日/本月消费(支出) + 本月充值/卡片余额(收入/其他)
-            StatCardsSection(
-                todaySummary = todaySummary,
-                monthSummary = monthSummary,
-                billOverview = billOverview,
-                isLoading = isLoadingStatistics
-            )
-            TrendChartCard(
-                legacyData = weeklyTrend,
-                dailyTrend = dailyTrend,
-                isLoading = isLoadingStatistics
-            )
-            CategoryPieCard(categoryBreakdown, isLoading = isLoadingStatistics)
-            MonthComparisonCard(monthlySummary)
-            ForgotCardAlertCard(forgotCardRisk)
-            RecentTransactionsCard(
-                bills = recentBills,
-                onBillClick = onBillClick
-            )
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                FilledTonalButton(
-                    onClick = onNavigateToBill,
-                    modifier = Modifier.weight(1f)
-                ) { Text("查看账单") }
-                FilledTonalButton(
-                    onClick = onNavigateToMe,
-                    modifier = Modifier.weight(1f)
-                ) { Text("切换身份") }
+                Column(
+                    modifier = Modifier
+                        .weight(0.95f)
+                        .padding(innerPadding)
+                        .nestedScroll(scrollBehavior.nestedScrollConnection)
+                        .verticalScroll(rememberScrollState())
+                        .padding(start = 20.dp, top = 16.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    HomeDeskIntroCard()
+                    StatCardsSection(
+                        todaySummary = todaySummary,
+                        monthSummary = monthSummary,
+                        billOverview = billOverview,
+                        isLoading = isLoadingStatistics,
+                        wide = true
+                    )
+                    ForgotCardAlertCard(forgotCardRisk)
+                    QuickActionsCard(
+                        onNavigateToBill = onNavigateToBill,
+                        onNavigateToMe = onNavigateToMe
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1.45f)
+                        .padding(top = innerPadding.calculateTopPadding(), end = 20.dp, bottom = 16.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        TrendChartCard(
+                            legacyData = weeklyTrend,
+                            dailyTrend = dailyTrend,
+                            isLoading = isLoadingStatistics,
+                            modifier = Modifier.weight(1.2f)
+                        )
+                        CategoryPieCard(
+                            data = categoryBreakdown,
+                            isLoading = isLoadingStatistics,
+                            modifier = Modifier.weight(0.9f)
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        MonthComparisonCard(
+                            data = monthlySummary,
+                            modifier = Modifier.weight(0.82f)
+                        )
+                        RecentTransactionsCard(
+                            bills = recentBills,
+                            onBillClick = onBillClick,
+                            modifier = Modifier.weight(1.18f),
+                            compact = true
+                        )
+                    }
+                }
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .nestedScroll(scrollBehavior.nestedScrollConnection)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (currentIdentity == null) {
+                    EmptyIdentityCard(
+                        identityCount = identities.size,
+                        onNavigateToMe = onNavigateToMe
+                    )
+                    return@Column
+                }
+                StatCardsSection(
+                    todaySummary = todaySummary,
+                    monthSummary = monthSummary,
+                    billOverview = billOverview,
+                    isLoading = isLoadingStatistics
+                )
+                TrendChartCard(
+                    legacyData = weeklyTrend,
+                    dailyTrend = dailyTrend,
+                    isLoading = isLoadingStatistics
+                )
+                CategoryPieCard(categoryBreakdown, isLoading = isLoadingStatistics)
+                MonthComparisonCard(monthlySummary)
+                ForgotCardAlertCard(forgotCardRisk)
+                RecentTransactionsCard(
+                    bills = recentBills,
+                    onBillClick = onBillClick
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    FilledTonalButton(
+                        onClick = onNavigateToBill,
+                        modifier = Modifier.weight(1f)
+                    ) { Text("查看账单") }
+                    FilledTonalButton(
+                        onClick = onNavigateToMe,
+                        modifier = Modifier.weight(1f)
+                    ) { Text("切换身份") }
+                }
             }
         }
     }
@@ -258,7 +341,8 @@ private fun StatCardsSection(
     todaySummary: StatisticsSummary?,
     monthSummary: StatisticsSummary?,
     billOverview: BillOverview?,
-    isLoading: Boolean
+    isLoading: Boolean,
+    wide: Boolean = false
 ) {
     val todayExpenseText = when {
         todaySummary != null -> "¥%,.2f".format(abs(todaySummary.totalExpense))
@@ -277,39 +361,78 @@ private fun StatCardsSection(
     }
     val isFirstLoad = isLoading && todaySummary == null && monthSummary == null && billOverview == null
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        StatCard(
-            title = "今日消费",
-            value = if (isFirstLoad) "加载中..." else todayExpenseText,
-            valueColor = RedForeground3,
-            modifier = Modifier.weight(1f)
-        )
-        StatCard(
-            title = "本月消费",
-            value = if (isFirstLoad) "加载中..." else monthExpenseText,
-            valueColor = RedForeground3,
-            modifier = Modifier.weight(1f)
-        )
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        StatCard(
-            title = "本月充值",
-            value = if (isFirstLoad) "加载中..." else monthIncomeText,
-            valueColor = GreenForeground3,
-            modifier = Modifier.weight(1f)
-        )
-        StatCard(
-            title = "卡片余额",
-            value = "暂不可用",
-            valueColor = BrandForeground1,
-            modifier = Modifier.weight(1f)
-        )
+    if (wide) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                StatCard(
+                    title = "今日消费",
+                    value = if (isFirstLoad) "加载中..." else todayExpenseText,
+                    valueColor = RedForeground3,
+                    modifier = Modifier.weight(1f)
+                )
+                StatCard(
+                    title = "本月消费",
+                    value = if (isFirstLoad) "加载中..." else monthExpenseText,
+                    valueColor = RedForeground3,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                StatCard(
+                    title = "本月充值",
+                    value = if (isFirstLoad) "加载中..." else monthIncomeText,
+                    valueColor = GreenForeground3,
+                    modifier = Modifier.weight(1f)
+                )
+                StatCard(
+                    title = "卡片余额",
+                    value = "暂不可用",
+                    valueColor = BrandForeground1,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    } else {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            StatCard(
+                title = "今日消费",
+                value = if (isFirstLoad) "加载中..." else todayExpenseText,
+                valueColor = RedForeground3,
+                modifier = Modifier.weight(1f)
+            )
+            StatCard(
+                title = "本月消费",
+                value = if (isFirstLoad) "加载中..." else monthExpenseText,
+                valueColor = RedForeground3,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            StatCard(
+                title = "本月充值",
+                value = if (isFirstLoad) "加载中..." else monthIncomeText,
+                valueColor = GreenForeground3,
+                modifier = Modifier.weight(1f)
+            )
+            StatCard(
+                title = "卡片余额",
+                value = "暂不可用",
+                valueColor = BrandForeground1,
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 }
 
@@ -333,11 +456,12 @@ private fun StatCard(
 private fun TrendChartCard(
     legacyData: List<SpendingTrend>,
     dailyTrend: List<DailyTrend>,
-    isLoading: Boolean
+    isLoading: Boolean,
+    modifier: Modifier = Modifier
 ) {
     // 优先使用新 DailyTrend (双线), 否则使用老 SpendingTrend
     val useDaily = dailyTrend.isNotEmpty()
-    ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
+    ElevatedCard(modifier = modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("近7天消费趋势", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
@@ -380,8 +504,8 @@ private fun TrendChartCard(
 // ==================== 分类占比饼图 ====================
 
 @Composable
-private fun CategoryPieCard(data: List<CategoryBreakdown>, isLoading: Boolean) {
-    ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
+private fun CategoryPieCard(data: List<CategoryBreakdown>, isLoading: Boolean, modifier: Modifier = Modifier) {
+    ElevatedCard(modifier = modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("本月消费分类", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
@@ -419,9 +543,9 @@ private fun CategoryPieCard(data: List<CategoryBreakdown>, isLoading: Boolean) {
 // ==================== 月度对比卡片 ====================
 
 @Composable
-private fun MonthComparisonCard(data: List<MonthlySummary>) {
+private fun MonthComparisonCard(data: List<MonthlySummary>, modifier: Modifier = Modifier) {
     if (data.isEmpty()) return
-    ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
+    ElevatedCard(modifier = modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("月度对比", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
@@ -455,8 +579,17 @@ private fun ForgotCardAlertCard(risk: ForgotCardRisk) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                 Text("异常提醒", style = MaterialTheme.typography.titleMedium)
-                Badge {
-                    Text(if (hasRisk) "${risk.count} 条" else "正常")
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = if (hasRisk) MaterialTheme.colorScheme.error.copy(alpha = 0.12f) else GreenForeground3.copy(alpha = 0.14f),
+                    tonalElevation = 0.dp
+                ) {
+                    Text(
+                        text = if (hasRisk) "${risk.count} 条" else "正常",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (hasRisk) MaterialTheme.colorScheme.error else GreenForeground3,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                    )
                 }
             }
             Spacer(modifier = Modifier.height(4.dp))
@@ -498,11 +631,13 @@ private fun EmptyIdentityCard(identityCount: Int, onNavigateToMe: () -> Unit) {
 @Composable
 private fun RecentTransactionsCard(
     bills: List<BillItem>,
-    onBillClick: (Long) -> Unit
+    onBillClick: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
     val clipboard = LocalClipboardManager.current
-    ElevatedCard(colors = CardDefaults.elevatedCardColors()) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    ElevatedCard(modifier = modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
+        Column(modifier = Modifier.padding(if (compact) 14.dp else 16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -519,7 +654,7 @@ private fun RecentTransactionsCard(
             if (bills.isEmpty()) {
                 Text("暂无交易记录", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
-                bills.forEach { bill ->
+                bills.take(if (compact) 8 else bills.size).forEach { bill ->
                     BillRow(
                         bill = bill,
                         onClick = { onBillClick(bill.id) },
@@ -527,6 +662,57 @@ private fun RecentTransactionsCard(
                         onCopyMoney = { clipboard.setText(AnnotatedString("¥${bill.money}")) }
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeDeskIntroCard() {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("首页工作台", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "超宽平板下把概览、提醒和图表拆开，左侧看状态，右侧看趋势与明细，不再是一条很长的纵向信息流。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickActionsCard(
+    onNavigateToBill: () -> Unit,
+    onNavigateToMe: () -> Unit
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("快捷入口", style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                FilledTonalButton(
+                    onClick = onNavigateToBill,
+                    modifier = Modifier.weight(1f)
+                ) { Text("查看账单") }
+                FilledTonalButton(
+                    onClick = onNavigateToMe,
+                    modifier = Modifier.weight(1f)
+                ) { Text("切换身份") }
             }
         }
     }

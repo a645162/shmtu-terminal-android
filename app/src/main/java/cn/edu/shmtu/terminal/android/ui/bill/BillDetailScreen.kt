@@ -1,18 +1,25 @@
 package cn.edu.shmtu.terminal.android.ui.bill
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
@@ -23,12 +30,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -66,6 +76,9 @@ fun BillDetailScreen(
     val notes by viewModel.notes.collectAsState()
     val editing by viewModel.editingNotes.collectAsState()
     val clipboard = LocalClipboardManager.current
+    val configuration = LocalConfiguration.current
+    val ultraWide = configuration.screenWidthDp >= 1200
+    val wideLayout = configuration.screenWidthDp >= 900
 
     Scaffold(
         topBar = {
@@ -73,7 +86,7 @@ fun BillDetailScreen(
                 title = { Text("账单详情") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 }
             )
@@ -115,75 +128,70 @@ fun BillDetailScreen(
         )
         val feedback = fields.joinToString("\n") { (k, v) -> "$k: $v" } +
             "\n备注: ${notes.ifBlank { "—" }}"
+        val amountText = if (isIncome) "+¥${item.money}" else "-¥${item.money}"
+        val amountColor = if (isIncome) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
-        ) {
-            // 大字金额(对齐 Tauri Dialog 顶部 amount 风格)
-            Text(
-                text = if (isIncome) "+¥${item.money}" else "-¥${item.money}",
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Bold,
-                color = if (isIncome) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            fields.forEachIndexed { index, (label, value) ->
-                DetailRow(label = label, value = value)
-                if (index < fields.lastIndex) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider()
-            Spacer(modifier = Modifier.height(8.dp))
-            // 备注区(对齐 Tauri 的备注编辑)
+        if (wideLayout) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                Text(
-                    "备注",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                BillDetailSummaryPanel(
+                    modifier = Modifier.width(if (ultraWide) 360.dp else 320.dp),
+                    title = item.type.ifBlank { "未分类交易" },
+                    amountText = amountText,
+                    amountColor = amountColor,
+                    status = item.status.ifBlank { "未知状态" },
+                    account = item.accountLabel.ifBlank { item.accountId.toString() },
+                    targetUser = item.targetUser.ifBlank { "—" },
+                    dateTime = item.dateTimeStrFormat.ifBlank { "—" },
+                    onCopy = { clipboard.setText(AnnotatedString(feedback)) },
+                    onStartEdit = { viewModel.startEditNotes() }
                 )
-                if (!editing) {
-                    Row {
-                        IconButton(onClick = { viewModel.startEditNotes() }) {
-                            Icon(Icons.Filled.Edit, contentDescription = "编辑备注")
-                        }
-                        IconButton(onClick = { clipboard.setText(AnnotatedString(feedback)) }) {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = "复制全部字段")
-                        }
-                    }
-                }
+                BillDetailFieldsPanel(
+                    modifier = Modifier.weight(1f),
+                    fields = fields,
+                    notes = notes,
+                    editing = editing,
+                    ultraWide = ultraWide,
+                    onUpdateNotes = viewModel::updateNotes,
+                    onCancelEdit = viewModel::cancelEditNotes,
+                    onSaveNotes = viewModel::saveNotes
+                )
             }
-            if (editing) {
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = viewModel::updateNotes,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp),
-                    placeholder = { Text("添加备注...") }
-                )
-                Row(
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                BillDetailSummaryPanel(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = { viewModel.cancelEditNotes() }) { Text("取消") }
-                    Spacer(modifier = Modifier.padding(start = 8.dp))
-                    Button(onClick = { viewModel.saveNotes() }) { Text("保存") }
-                }
-            } else {
-                Text(
-                    text = notes.ifBlank { "暂无备注" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (notes.isBlank()) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface
+                    title = item.type.ifBlank { "未分类交易" },
+                    amountText = amountText,
+                    amountColor = amountColor,
+                    status = item.status.ifBlank { "未知状态" },
+                    account = item.accountLabel.ifBlank { item.accountId.toString() },
+                    targetUser = item.targetUser.ifBlank { "—" },
+                    dateTime = item.dateTimeStrFormat.ifBlank { "—" },
+                    onCopy = { clipboard.setText(AnnotatedString(feedback)) },
+                    onStartEdit = { viewModel.startEditNotes() }
+                )
+                BillDetailFieldsPanel(
+                    modifier = Modifier.fillMaxWidth(),
+                    fields = fields,
+                    notes = notes,
+                    editing = editing,
+                    ultraWide = false,
+                    onUpdateNotes = viewModel::updateNotes,
+                    onCancelEdit = viewModel::cancelEditNotes,
+                    onSaveNotes = viewModel::saveNotes
                 )
             }
         }
@@ -191,24 +199,222 @@ fun BillDetailScreen(
 }
 
 @Composable
-private fun DetailRow(label: String, value: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Top
+private fun BillDetailSummaryPanel(
+    modifier: Modifier,
+    title: String,
+    amountText: String,
+    amountColor: androidx.compose.ui.graphics.Color,
+    status: String,
+    account: String,
+    targetUser: String,
+    dateTime: String,
+    onCopy: () -> Unit,
+    onStartEdit: () -> Unit
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(30.dp),
+        color = androidx.compose.ui.graphics.Color.Transparent
+    ) {
+        Column(
+            modifier = Modifier
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.surfaceContainerHigh,
+                            MaterialTheme.colorScheme.surface
+                        )
+                    )
+                )
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            StatusTonePill(status = status)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                Text(amountText, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = amountColor)
+            }
+            DetailHighlightCard(label = "对方账户", value = targetUser)
+            DetailHighlightCard(label = "来源账号", value = account)
+            DetailHighlightCard(label = "发生时间", value = dateTime)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TextButton(onClick = onStartEdit) { Text("编辑备注") }
+                TextButton(onClick = onCopy) { Text("复制全部") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BillDetailFieldsPanel(
+    modifier: Modifier,
+    fields: List<Pair<String, String>>,
+    notes: String,
+    editing: Boolean,
+    ultraWide: Boolean,
+    onUpdateNotes: (String) -> Unit,
+    onCancelEdit: () -> Unit,
+    onSaveNotes: () -> Unit
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(30.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        tonalElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text("消费详细信息", style = MaterialTheme.typography.titleLarge)
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(if (ultraWide) 2 else 1),
+                modifier = Modifier.weight(1f, fill = false),
+                contentPadding = PaddingValues(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                userScrollEnabled = false
+            ) {
+                items(fields) { (label, value) ->
+                    DetailFieldCard(label = label, value = value)
+                }
+            }
+            HorizontalDivider()
+            BillNotesCard(
+                notes = notes,
+                editing = editing,
+                onUpdateNotes = onUpdateNotes,
+                onCancelEdit = onCancelEdit,
+                onSaveNotes = onSaveNotes
+            )
+        }
+    }
+}
+
+@Composable
+private fun DetailHighlightCard(label: String, value: String) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.bodyLarge)
+        }
+    }
+}
+
+@Composable
+private fun StatusTonePill(status: String) {
+    val color = when {
+        status.contains("成功") -> MaterialTheme.colorScheme.primary
+        status.contains("失败") -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.outline
+    }
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = color.copy(alpha = 0.10f),
+        tonalElevation = 0.dp
     ) {
         Text(
-            text = label,
+            text = status,
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(end = 16.dp)
+            color = color,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
         )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.weight(1f, fill = false)
-        )
+    }
+}
+
+@Composable
+private fun DetailFieldCard(label: String, value: String) {
+    Surface(
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+    }
+}
+
+@Composable
+private fun BillNotesCard(
+    notes: String,
+    editing: Boolean,
+    onUpdateNotes: (String) -> Unit,
+    onCancelEdit: () -> Unit,
+    onSaveNotes: () -> Unit
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                "备注",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (editing) {
+                Icon(Icons.Filled.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+        if (editing) {
+            OutlinedTextField(
+                value = notes,
+                onValueChange = onUpdateNotes,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp),
+                placeholder = { Text("添加备注...") }
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onCancelEdit) { Text("取消") }
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(onClick = onSaveNotes) { Text("保存") }
+            }
+        } else {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 0.dp
+            ) {
+                Text(
+                    text = notes.ifBlank { "暂无备注" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (notes.isBlank()) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                )
+            }
+        }
     }
 }

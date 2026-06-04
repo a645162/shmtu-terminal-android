@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -98,6 +101,7 @@ fun BillListScreen(
     val coroutineScope = rememberCoroutineScope()
     val configuration = LocalConfiguration.current
     val wideLayout = configuration.screenWidthDp >= 960
+    val ultraWideLayout = configuration.screenWidthDp >= 1200
 
     Scaffold(
         topBar = {
@@ -138,6 +142,7 @@ fun BillListScreen(
                 totalPages = totalPages,
                 typeFilter = typeFilter,
                 dateRange = dateRange,
+                ultraWideLayout = ultraWideLayout,
                 searchInput = searchInput,
                 onTypeFilterChange = { viewModel.setTypeFilter(it) },
                 onDateRangeChange = { viewModel.setDateRange(it) },
@@ -311,6 +316,7 @@ private fun WideBillListLayout(
     totalPages: Int,
     typeFilter: BillTypeFilter,
     dateRange: DateRangeFilter,
+    ultraWideLayout: Boolean,
     searchInput: String,
     onTypeFilterChange: (BillTypeFilter) -> Unit,
     onDateRangeChange: (DateRangeFilter) -> Unit,
@@ -335,10 +341,10 @@ private fun WideBillListLayout(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(18.dp)
+        horizontalArrangement = Arrangement.spacedBy(if (ultraWideLayout) 20.dp else 18.dp)
     ) {
         LazyColumn(
-            modifier = Modifier.width(330.dp),
+            modifier = Modifier.width(if (ultraWideLayout) 360.dp else 330.dp),
             contentPadding = PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -410,7 +416,8 @@ private fun WideBillListLayout(
                     accounts = accounts,
                     isSyncing = isSyncing,
                     onAccountIncremental = onAccountIncremental,
-                    onAccountFull = onAccountFull
+                    onAccountFull = onAccountFull,
+                    compact = true
                 )
             }
         }
@@ -441,7 +448,7 @@ private fun WideBillListLayout(
                         Column(modifier = Modifier.weight(1f)) {
                             Text("账单明细", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                if (bills.isEmpty()) "当前筛选下暂无记录" else "横屏下优先展示列表，减少滚动切换成本",
+                                if (bills.isEmpty()) "当前筛选下暂无记录" else if (ultraWideLayout) "超宽平板下切换为桌面化工作区，右侧优先展示更多项目" else "横屏下优先展示列表，减少滚动切换成本",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -469,7 +476,8 @@ private fun WideBillListLayout(
                     totalPages = totalPages,
                     currentPage = currentPage,
                     onPageChange = onPageChange,
-                    compact = true
+                    compact = true,
+                    ultraWide = ultraWideLayout
                 )
             }
         }
@@ -580,7 +588,8 @@ private fun BillListContent(
     totalPages: Int,
     currentPage: Int,
     onPageChange: (Int) -> Unit,
-    compact: Boolean = false
+    compact: Boolean = false,
+    ultraWide: Boolean = false
 ) {
     if (currentIdentityId == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -602,20 +611,41 @@ private fun BillListContent(
         }
     } else {
         Column(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(
-                contentPadding = PaddingValues(
-                    horizontal = if (compact) 2.dp else 16.dp,
-                    vertical = if (compact) 4.dp else 8.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                items(bills, key = { it.id }) { bill ->
-                    BillItemRow(
-                        bill = bill,
-                        onClick = { onBillClick(bill.id) },
-                        compact = compact
-                    )
+            if (ultraWide) {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 340.dp),
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(
+                        horizontal = if (compact) 2.dp else 16.dp,
+                        vertical = if (compact) 4.dp else 8.dp
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(bills, key = { it.id }) { bill ->
+                        BillItemRow(
+                            bill = bill,
+                            onClick = { onBillClick(bill.id) },
+                            compact = compact
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(
+                        horizontal = if (compact) 2.dp else 16.dp,
+                        vertical = if (compact) 4.dp else 8.dp
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    items(bills, key = { it.id }) { bill ->
+                        BillItemRow(
+                            bill = bill,
+                            onClick = { onBillClick(bill.id) },
+                            compact = compact
+                        )
+                    }
                 }
             }
             if (totalPages > 1) {

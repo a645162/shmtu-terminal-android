@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
@@ -29,7 +31,6 @@ import androidx.compose.material.icons.outlined.ImportExport
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Shower
 import androidx.compose.material.icons.outlined.Stadium
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -73,6 +75,9 @@ fun FeatureHubScreen(
     onNavigateToBillStatistics: () -> Unit,
     onNavigateToDataTransfer: () -> Unit = {}
 ) {
+    val configuration = LocalConfiguration.current
+    val ultraWide = configuration.screenWidthDp >= 1200
+
     Scaffold(
         topBar = {
             MediumTopAppBar(
@@ -80,37 +85,78 @@ fun FeatureHubScreen(
             )
         }
     ) { innerPadding ->
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 168.dp),
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                FeatureHeroCard()
+        if (ultraWide) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                Column(
+                    modifier = Modifier.width(360.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    FeatureHeroCard(compact = false)
+                    FeatureDeskSummary()
+                }
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    items(features) { feature ->
+                        FeatureTile(
+                            feature = feature,
+                            compact = false,
+                            onClick = {
+                                if (feature.available) {
+                                    when (feature.route) {
+                                        "bill_statistics" -> onNavigateToBillStatistics()
+                                        "data_transfer" -> onNavigateToDataTransfer()
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
             }
-            items(features) { feature ->
-                FeatureTile(
-                    feature = feature,
-                    onClick = {
-                        if (feature.available) {
-                            when (feature.route) {
-                                "bill_statistics" -> onNavigateToBillStatistics()
-                                "data_transfer" -> onNavigateToDataTransfer()
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 168.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    FeatureHeroCard(compact = true)
+                }
+                items(features) { feature ->
+                    FeatureTile(
+                        feature = feature,
+                        compact = true,
+                        onClick = {
+                            if (feature.available) {
+                                when (feature.route) {
+                                    "bill_statistics" -> onNavigateToBillStatistics()
+                                    "data_transfer" -> onNavigateToDataTransfer()
+                                }
                             }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun FeatureHeroCard() {
+private fun FeatureHeroCard(compact: Boolean) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
@@ -128,12 +174,12 @@ private fun FeatureHeroCard() {
                         )
                     )
                 )
-                .padding(20.dp)
+                .padding(if (compact) 20.dp else 24.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     text = "校园服务入口",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -168,19 +214,62 @@ private fun HeroPill(text: String) {
 }
 
 @Composable
+private fun FeatureDeskSummary() {
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 0.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("当前工作台", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "超宽平板下保留左侧概览，右侧把功能卡片作为主要工作区，避免页面像放大的手机九宫格。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            DeskSummaryPill("优先突出已上线入口")
+            DeskSummaryPill("未开放功能降噪展示")
+            DeskSummaryPill("减少重阴影和边框感")
+        }
+    }
+}
+
+@Composable
+private fun DeskSummaryPill(text: String) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+        )
+    }
+}
+
+@Composable
 private fun FeatureTile(
     feature: FeatureItem,
+    compact: Boolean,
     onClick: () -> Unit
 ) {
     val enabledBg = Brush.verticalGradient(
         listOf(
-            feature.accent.copy(alpha = 0.18f),
+            feature.accent.copy(alpha = 0.15f),
+            feature.accent.copy(alpha = 0.05f),
             MaterialTheme.colorScheme.surface
         )
     )
     val disabledBg = Brush.verticalGradient(
         listOf(
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
             MaterialTheme.colorScheme.surface
         )
     )
@@ -188,18 +277,19 @@ private fun FeatureTile(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(0.9f)
+            .aspectRatio(if (compact) 0.9f else 1.08f)
             .then(if (feature.available) Modifier.clickable(onClick = onClick) else Modifier),
         shape = RoundedCornerShape(24.dp),
         color = Color.Transparent,
-        tonalElevation = if (feature.available) 2.dp else 0.dp,
-        shadowElevation = if (feature.available) 6.dp else 0.dp
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .clip(RoundedCornerShape(24.dp))
                 .background(if (feature.available) enabledBg else disabledBg)
-                .padding(16.dp),
+                .padding(if (compact) 16.dp else 18.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
@@ -209,10 +299,10 @@ private fun FeatureTile(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(46.dp)
+                        .size(if (compact) 46.dp else 52.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .background(
-                            if (feature.available) feature.accent.copy(alpha = 0.16f)
+                            if (feature.available) feature.accent.copy(alpha = 0.14f)
                             else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f)
                         ),
                     contentAlignment = Alignment.Center
@@ -221,7 +311,7 @@ private fun FeatureTile(
                         imageVector = feature.icon,
                         contentDescription = feature.title,
                         tint = if (feature.available) feature.accent else MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(if (compact) 24.dp else 26.dp)
                     )
                 }
                 StatusTag(
@@ -234,13 +324,14 @@ private fun FeatureTile(
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     text = feature.title,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
                     color = if (feature.available) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = feature.description,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    minLines = if (compact) 2 else 3
                 )
             }
 
@@ -259,7 +350,7 @@ private fun FeatureTile(
                         modifier = Modifier
                             .size(32.dp)
                             .clip(CircleShape)
-                            .background(feature.accent.copy(alpha = 0.12f)),
+                            .background(feature.accent.copy(alpha = 0.10f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
