@@ -13,9 +13,9 @@ enum class TopLevelDestination(
     val label: String,
     val icon: ImageVector
 ) {
+    ME("me", "当前身份", Icons.Outlined.AccountCircle),
     HOME("home", "首页", Icons.Outlined.Home),
     BILL("bill", "账单", Icons.AutoMirrored.Outlined.ReceiptLong),
     FEATURES("features", "功能大全", Icons.Outlined.Widgets),
-    ME("me", "我", Icons.Outlined.AccountCircle),
     SETTINGS("settings", "设置", Icons.Outlined.Settings)
 }

@@ -178,10 +178,6 @@ fun HomeScreen(
             CategoryPieCard(categoryBreakdown, isLoading = isLoadingStatistics)
             MonthComparisonCard(monthlySummary)
             ForgotCardAlertCard(forgotCardRisk)
-            IdentityOverviewCard(
-                currentIdentity = currentIdentity,
-                identityCount = identities.size
-            )
             RecentTransactionsCard(
                 bills = recentBills,
                 onBillClick = onBillClick
@@ -472,27 +468,6 @@ private fun ForgotCardAlertCard(risk: ForgotCardRisk) {
             } else {
                 Text("当前没有检测到明显的忘拔卡高风险记录。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        }
-    }
-}
-
-// ==================== 身份总览 ====================
-
-@Composable
-private fun IdentityOverviewCard(currentIdentity: Identity?, identityCount: Int) {
-    ElevatedCard(colors = CardDefaults.elevatedCardColors()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("当前身份", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                currentIdentity?.remark?.ifBlank { currentIdentity.username } ?: "未选择身份",
-                style = MaterialTheme.typography.bodyLarge
-            )
-            Text(
-                "${currentIdentity?.accountCount ?: 0} 个账号 · 共 $identityCount 个身份",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 }

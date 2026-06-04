@@ -27,7 +27,8 @@ import cn.edu.shmtu.terminal.android.domain.model.BillItem
 @Composable
 fun BillItemCard(
     bill: BillItem,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    compact: Boolean = false
 ) {
     val isIncome = bill.isIncomeLike()
     val amountColor = if (isIncome) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
@@ -44,8 +45,11 @@ fun BillItemCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(
+                    horizontal = if (compact) 14.dp else 16.dp,
+                    vertical = if (compact) 12.dp else 14.dp
+                ),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -75,7 +79,8 @@ fun BillItemCard(
                 AmountChip(
                     text = "¥$amountPrefix${bill.normalizedMoney()}",
                     textColor = amountColor,
-                    containerColor = amountColor.copy(alpha = 0.10f)
+                    containerColor = amountColor.copy(alpha = 0.10f),
+                    compact = compact
                 )
             }
 
@@ -91,7 +96,7 @@ fun BillItemCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
                 )
-                StatusChip(bill.status)
+                StatusChip(bill.status, compact = compact)
             }
 
             Row(
@@ -118,7 +123,8 @@ fun BillItemCard(
 private fun AmountChip(
     text: String,
     textColor: Color,
-    containerColor: Color
+    containerColor: Color,
+    compact: Boolean = false
 ) {
     Surface(
         shape = RoundedCornerShape(999.dp),
@@ -130,13 +136,16 @@ private fun AmountChip(
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
             color = textColor,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            modifier = Modifier.padding(
+                horizontal = if (compact) 10.dp else 12.dp,
+                vertical = if (compact) 6.dp else 8.dp
+            )
         )
     }
 }
 
 @Composable
-private fun StatusChip(status: String) {
+private fun StatusChip(status: String, compact: Boolean = false) {
     val color = when {
         status.contains("成功") -> MaterialTheme.colorScheme.primary
         status.contains("失败") -> MaterialTheme.colorScheme.error
@@ -151,7 +160,10 @@ private fun StatusChip(status: String) {
             text = status.ifBlank { "未知状态" },
             style = MaterialTheme.typography.labelSmall,
             color = color,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+            modifier = Modifier.padding(
+                horizontal = if (compact) 8.dp else 10.dp,
+                vertical = if (compact) 4.dp else 5.dp
+            )
         )
     }
 }
