@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.terminal.android.domain.model.BillItem
+import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -24,7 +25,8 @@ import javax.inject.Inject
 class BillDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val identityRepository: IdentityRepository,
-    private val billRepository: BillRepository
+    private val billRepository: BillRepository,
+    private val accountRepository: AccountRepository
 ) : ViewModel() {
 
     private val billId: Long = savedStateHandle.get<String>("billId")?.toLongOrNull() ?: 0L
@@ -38,6 +40,9 @@ class BillDetailViewModel @Inject constructor(
     private val _editingNotes = MutableStateFlow(false)
     val editingNotes: StateFlow<Boolean> = _editingNotes.asStateFlow()
 
+    private val _sourceAccountLabel = MutableStateFlow("—")
+    val sourceAccountLabel: StateFlow<String> = _sourceAccountLabel.asStateFlow()
+
     init {
         loadBill()
     }
@@ -50,6 +55,9 @@ class BillDetailViewModel @Inject constructor(
             _bill.value = found
             if (found != null) {
                 _notes.value = found.notes.orEmpty()
+                val account = accountRepository.getAccountById(found.accountId)
+                _sourceAccountLabel.value = account?.userId
+                    ?: found.accountLabel.ifBlank { found.accountId.toString() }
             }
         }
     }

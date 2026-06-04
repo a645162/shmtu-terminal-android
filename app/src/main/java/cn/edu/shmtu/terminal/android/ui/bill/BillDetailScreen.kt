@@ -75,6 +75,7 @@ fun BillDetailScreen(
     val bill by viewModel.bill.collectAsState()
     val notes by viewModel.notes.collectAsState()
     val editing by viewModel.editingNotes.collectAsState()
+    val sourceAccountLabel by viewModel.sourceAccountLabel.collectAsState()
     val clipboard = LocalClipboardManager.current
     val configuration = LocalConfiguration.current
     val ultraWide = configuration.screenWidthDp >= 1200
@@ -123,7 +124,7 @@ fun BillDetailScreen(
             "支付方式" to item.method.ifBlank { "—" },
             "状态" to item.status.ifBlank { "—" },
             "是否合并" to "否",
-            "来源学号" to (item.accountLabel.ifBlank { item.accountId.toString() }),
+            "来源学号" to sourceAccountLabel,
             "同步时间" to "—"
         )
         val feedback = fields.joinToString("\n") { (k, v) -> "$k: $v" } +
@@ -145,7 +146,7 @@ fun BillDetailScreen(
                     amountText = amountText,
                     amountColor = amountColor,
                     status = item.status.ifBlank { "未知状态" },
-                    account = item.accountLabel.ifBlank { item.accountId.toString() },
+                    account = sourceAccountLabel,
                     targetUser = item.targetUser.ifBlank { "—" },
                     dateTime = item.dateTimeStrFormat.ifBlank { "—" },
                     onCopy = { clipboard.setText(AnnotatedString(feedback)) },
@@ -177,7 +178,7 @@ fun BillDetailScreen(
                     amountText = amountText,
                     amountColor = amountColor,
                     status = item.status.ifBlank { "未知状态" },
-                    account = item.accountLabel.ifBlank { item.accountId.toString() },
+                    account = sourceAccountLabel,
                     targetUser = item.targetUser.ifBlank { "—" },
                     dateTime = item.dateTimeStrFormat.ifBlank { "—" },
                     onCopy = { clipboard.setText(AnnotatedString(feedback)) },

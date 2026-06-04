@@ -40,7 +40,7 @@ class RoomBillStore @Inject constructor(
     }
 
     override fun merge(newBills: List<BillItem>) {
-        val entities: List<BillEntity> = newBills.map { it.toEntity(accountId) }
+        val entities: List<BillEntity> = newBills.map { it.toEntity(accountId, studentId) }
         kotlinx.coroutines.runBlocking {
             accountDb.billDao().insertAll(entities)
             identityDb.billDao().insertAll(entities)

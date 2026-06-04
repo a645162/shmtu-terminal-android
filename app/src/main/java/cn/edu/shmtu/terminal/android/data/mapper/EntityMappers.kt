@@ -84,10 +84,10 @@ object EntityMappers {
      * 把 lib 域的 [cn.edu.shmtu.cas.datatype.BillItem] 转成 Room 实体。
      * 供 [cn.edu.shmtu.terminal.android.data.sync.RoomBillStore] 在 lib→app 边界使用。
      */
-    fun cn.edu.shmtu.cas.datatype.BillItem.toEntity(accountId: Long): BillEntity = BillEntity(
+    fun cn.edu.shmtu.cas.datatype.BillItem.toEntity(accountId: Long, accountLabel: String): BillEntity = BillEntity(
         id = 0,                              // 由 Room autoGenerate
         accountId = accountId,
-        accountLabel = "",                   // 简化：accountLabel 由调用方需要时回填
+        accountLabel = accountLabel,
         dateStr = dateStr,
         timeStr = timeStr,
         dateTimeStrFormat = dateTimeFormat,
