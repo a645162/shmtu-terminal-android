@@ -176,6 +176,20 @@ class BillStatisticsViewModel @Inject constructor(
         ForgotCardStats(0, 0.0, emptyList())
     )
 
+    /**
+     * 当前选中分类(非"all")下的所有 bill 明细(对齐 Tauri category_bills)
+     * 切换 selectedCategory/period/identity 都重新拉取
+     */
+    val categoryBills: StateFlow<List<cn.edu.shmtu.terminal.android.domain.model.BillItem>> =
+        combine(
+            _selectedIdentityId,
+            _selectedCategory,
+            dateRangeFlow,
+            _refreshTick
+        ) { identityId, category, range, _ ->
+            billRepository.getCategoryBills(identityId, category, range.first, range.second)
+        }.flatMapLatest { it }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // ==================== 选择器操作 ====================
 
     fun selectIdentity(id: Long?) {

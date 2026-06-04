@@ -1,6 +1,8 @@
 package cn.edu.shmtu.terminal.android.ui.bill
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,11 +16,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FilterAlt
+import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.ManageSearch
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
@@ -27,6 +36,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -43,6 +53,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -51,6 +63,7 @@ import cn.edu.shmtu.terminal.android.domain.model.BillItem
 import cn.edu.shmtu.terminal.android.domain.model.SyncProgress
 import cn.edu.shmtu.terminal.android.domain.model.SyncStatus
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.CaptchaRequiredException
+import cn.edu.shmtu.terminal.android.ui.component.BillItemCard
 import cn.edu.shmtu.terminal.android.ui.component.CaptchaDialog
 import kotlinx.coroutines.launch
 
@@ -116,6 +129,13 @@ fun BillListScreen(
                     title = currentIdentity!!.remark.ifBlank { currentIdentity!!.username },
                     subtitle = "当前身份 · ${currentIdentity!!.accountCount} 个账号"
                 )
+                BillSummaryDeck(
+                    totalFiltered = totalFiltered,
+                    currentPage = currentPage,
+                    totalPages = totalPages,
+                    typeFilter = typeFilter,
+                    dateRange = dateRange
+                )
             }
 
             // 筛选栏
@@ -150,19 +170,46 @@ fun BillListScreen(
 
             // 账号级同步面板
             AnimatedVisibility(visible = showAccountPanel && accounts.isNotEmpty()) {
-                ElevatedCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                ElevatedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    )
+                ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text("账号级别同步", style = MaterialTheme.typography.labelMedium)
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("账号级同步", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "对单个账号执行增量或全量同步，适合定位异常数据。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
                         accounts.forEach { account ->
-                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(account.label, style = MaterialTheme.typography.bodyMedium)
-                                    Text(account.userId, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    TextButton(onClick = { pendingSyncAction = PendingSyncAction.AccountIncremental(account.id) }, enabled = !isSyncing, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("增量", style = MaterialTheme.typography.labelSmall) }
-                                    TextButton(onClick = { pendingSyncAction = PendingSyncAction.AccountFull(account.id) }, enabled = !isSyncing, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("全量", style = MaterialTheme.typography.labelSmall) }
+                            Surface(
+                                shape = RoundedCornerShape(18.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                tonalElevation = 0.dp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(account.label, style = MaterialTheme.typography.bodyLarge)
+                                        Text(account.userId, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        TextButton(onClick = { pendingSyncAction = PendingSyncAction.AccountIncremental(account.id) }, enabled = !isSyncing, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("增量", style = MaterialTheme.typography.labelSmall) }
+                                        TextButton(onClick = { pendingSyncAction = PendingSyncAction.AccountFull(account.id) }, enabled = !isSyncing, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("全量", style = MaterialTheme.typography.labelSmall) }
+                                    }
                                 }
                             }
                         }
@@ -173,17 +220,31 @@ fun BillListScreen(
             // 账单列表
             if (currentIdentityId == null) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("暂无账单", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("请先在“我”里切换身份", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Surface(
+                        shape = RoundedCornerShape(28.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        modifier = Modifier.padding(24.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            IconBubble(Icons.Outlined.Inventory2, MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text("暂无账单", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                            Text("请先在“我”里切换身份", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             } else {
-                LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
-                    item {
-                        Text("共 $totalFiltered 条" + if (totalPages > 1) " · 第 $currentPage/$totalPages 页" else "", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(bottom = 4.dp))
+                LazyColumn(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    items(bills, key = { it.id }) { bill ->
+                        BillItemRow(bill = bill, onClick = { onBillClick(bill.id) })
                     }
-                    items(bills, key = { it.id }) { BillItemRow(bill = it, onClick = { onBillClick(it.id) }) }
                 }
                 if (totalPages > 1) {
                     PaginationBar(currentPage, totalPages) { viewModel.setPage(it) }
@@ -270,17 +331,84 @@ private fun TerminalSyncStatusCard(
 
 @Composable
 private fun IdentityScopeCard(title: String, subtitle: String) {
-    ElevatedCard(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(28.dp),
+        color = Color.Transparent
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
+        Box(
+            modifier = Modifier
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.92f),
+                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.82f)
+                        )
+                    )
+                )
+                .padding(18.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(title, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimary)
+                Text("账单列表", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f))
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.86f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BillSummaryDeck(
+    totalFiltered: Int,
+    currentPage: Int,
+    totalPages: Int,
+    typeFilter: BillTypeFilter,
+    dateRange: DateRangeFilter
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        SummaryStatCard("筛选结果", totalFiltered.toString(), Modifier.weight(1f))
+        SummaryStatCard("当前页", "$currentPage/$totalPages", Modifier.weight(1f))
+        SummaryStatCard("筛选", "${typeFilter.label} · ${dateRange.label}", Modifier.weight(1f), compact = true)
+    }
+}
+
+@Composable
+private fun SummaryStatCard(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
             Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
+                label,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                value,
+                style = if (compact) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
     }
@@ -295,27 +423,67 @@ private fun FilterBar(
     onTypeFilterChange: (BillTypeFilter) -> Unit, onDateRangeChange: (DateRangeFilter) -> Unit,
     onSearchInputChanged: (String) -> Unit, onSearch: () -> Unit
 ) {
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-        TabRow(selectedTabIndex = BillTypeFilter.entries.indexOf(typeFilter), modifier = Modifier.fillMaxWidth()) {
-            BillTypeFilter.entries.forEach { filter ->
-                Tab(selected = filter == typeFilter, onClick = { onTypeFilterChange(filter) }, text = { Text(filter.label, style = MaterialTheme.typography.labelSmall) })
-            }
-        }
-        Spacer(modifier = Modifier.height(4.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            var dateExpanded by remember { mutableStateOf(false) }
-            ExposedDropdownMenuBox(dateExpanded, { dateExpanded = it }) {
-                OutlinedTextField(dateRange.label, {}, readOnly = true, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(dateExpanded) },
-                    modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).width(120.dp), textStyle = MaterialTheme.typography.bodySmall)
-                ExposedDropdownMenu(dateExpanded, { dateExpanded = false }) {
-                    DateRangeFilter.entries.forEach { range ->
-                        DropdownMenuItem({ Text(range.label) }, { onDateRangeChange(range); dateExpanded = false })
-                    }
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        )
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconBubble(Icons.Outlined.FilterAlt, MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text("筛选与搜索", style = MaterialTheme.typography.titleSmall)
+                    Text("按状态、时间和关键词快速缩小范围", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            OutlinedTextField(searchInput, onSearchInputChanged, placeholder = { Text("搜索...", style = MaterialTheme.typography.bodySmall) },
-                singleLine = true, modifier = Modifier.weight(1f), textStyle = MaterialTheme.typography.bodySmall,
-                trailingIcon = { TextButton(onClick = onSearch, contentPadding = PaddingValues(4.dp)) { Text("搜索", style = MaterialTheme.typography.labelSmall) } })
+            Spacer(modifier = Modifier.height(12.dp))
+            TabRow(
+                selectedTabIndex = BillTypeFilter.entries.indexOf(typeFilter),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                BillTypeFilter.entries.forEach { filter ->
+                    Tab(selected = filter == typeFilter, onClick = { onTypeFilterChange(filter) }, text = { Text(filter.label, style = MaterialTheme.typography.labelSmall) })
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                var dateExpanded by remember { mutableStateOf(false) }
+                ExposedDropdownMenuBox(dateExpanded, { dateExpanded = it }) {
+                    OutlinedTextField(
+                        dateRange.label,
+                        {},
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(dateExpanded) },
+                        modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).width(130.dp),
+                        textStyle = MaterialTheme.typography.bodySmall
+                    )
+                    ExposedDropdownMenu(dateExpanded, { dateExpanded = false }) {
+                        DateRangeFilter.entries.forEach { range ->
+                            DropdownMenuItem({ Text(range.label) }, { onDateRangeChange(range); dateExpanded = false })
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    searchInput,
+                    onSearchInputChanged,
+                    placeholder = { Text("搜索商户、类型、流水号", style = MaterialTheme.typography.bodySmall) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    leadingIcon = {
+                        Icon(
+                            Icons.Outlined.ManageSearch,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    trailingIcon = { TextButton(onClick = onSearch, contentPadding = PaddingValues(4.dp)) { Text("搜索", style = MaterialTheme.typography.labelSmall) } }
+                )
+            }
         }
     }
 }
@@ -324,12 +492,36 @@ private fun FilterBar(
 
 @Composable
 private fun PaginationBar(currentPage: Int, totalPages: Int, onPageChange: (Int) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-        TextButton(onClick = { onPageChange(1) }, enabled = currentPage > 1, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("首页", style = MaterialTheme.typography.labelSmall) }
-        TextButton(onClick = { onPageChange(currentPage - 1) }, enabled = currentPage > 1, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("上一页", style = MaterialTheme.typography.labelSmall) }
-        Text("$currentPage / $totalPages", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 12.dp))
-        TextButton(onClick = { onPageChange(currentPage + 1) }, enabled = currentPage < totalPages, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("下一页", style = MaterialTheme.typography.labelSmall) }
-        TextButton(onClick = { onPageChange(totalPages) }, enabled = currentPage < totalPages, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("末页", style = MaterialTheme.typography.labelSmall) }
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = { onPageChange(1) }, enabled = currentPage > 1, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("首页", style = MaterialTheme.typography.labelSmall) }
+                TextButton(onClick = { onPageChange(currentPage - 1) }, enabled = currentPage > 1, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("上一页", style = MaterialTheme.typography.labelSmall) }
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                ) {
+                    Text(
+                        "$currentPage / $totalPages",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+                TextButton(onClick = { onPageChange(currentPage + 1) }, enabled = currentPage < totalPages, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("下一页", style = MaterialTheme.typography.labelSmall) }
+                TextButton(onClick = { onPageChange(totalPages) }, enabled = currentPage < totalPages, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("末页", style = MaterialTheme.typography.labelSmall) }
+            }
+        }
     }
 }
 
@@ -359,14 +551,21 @@ private fun SyncStatusPanel(progress: SyncProgress, message: String) {
 
 @Composable
 fun BillItemRow(bill: BillItem, onClick: () -> Unit) {
-    OutlinedCard(onClick = onClick) {
-        androidx.compose.material3.ListItem(
-            headlineContent = { Text(bill.type, style = MaterialTheme.typography.titleSmall) },
-            supportingContent = { Text("${bill.dateTimeStrFormat} · ${bill.targetUser}", style = MaterialTheme.typography.bodySmall) },
-            trailingContent = {
-                val isIncome = bill.type.contains("充值") || bill.type.contains("冲正") || bill.type.contains("退款")
-                Text("¥${bill.money}", style = MaterialTheme.typography.titleMedium, color = if (isIncome) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-            }
+    BillItemCard(bill = bill, onClick = onClick)
+}
+
+@Composable
+private fun IconBubble(icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color) {
+    Box(
+        modifier = Modifier
+            .background(color.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+            .padding(10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = color
         )
     }
 }

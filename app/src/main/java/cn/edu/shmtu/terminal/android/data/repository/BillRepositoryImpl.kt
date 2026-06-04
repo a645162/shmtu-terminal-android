@@ -407,6 +407,24 @@ class BillRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * 取指定 type + 时间区间内所有 bill(对齐 Rust get_category_bills)
+     */
+    override fun getCategoryBills(
+        identityId: Long?,
+        category: String,
+        startDate: String?,
+        endDate: String?
+    ): Flow<List<BillItem>> {
+        val start = startDate ?: YearMonth.now().atDay(1).format(DATE_FMT)
+        val end = endDate ?: YearMonth.now().atEndOfMonth().format(DATE_FMT_END)
+        return getDatabases(identityId).flatMapLatest { dbs ->
+            combine(dbs.map { db -> db.billDao().getBillsByTypeInRange(category, start, end) }) { results ->
+                results.flatMap { it.toList() }.map { it.toDomain() }
+            }
+        }
+    }
+
     private fun getDatabases(identityId: Long?): Flow<List<BillDatabase>> {
         return if (identityId != null) {
             flow { emit(listOf(billDbManager.getIdentityDatabase(identityId))) }

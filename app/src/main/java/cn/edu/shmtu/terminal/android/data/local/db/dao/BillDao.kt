@@ -162,6 +162,20 @@ interface BillDao {
     fun getDailyTrendByTypeDotFormat(startDate: String, endDate: String): Flow<List<DailyTypeSum>>
 
     /**
+     * 取指定 type + 时间区间内所有 bill(对齐 Rust get_category_bills)
+     * 兼容 "yyyy.MM.dd HH:mm:ss" 格式
+     */
+    @Query("""
+        SELECT * FROM bills
+        WHERE type = :type
+          AND REPLACE(substr(dateTimeStrFormat, 1, 10), '.', '-') || substr(dateTimeStrFormat, 11) >= :startDate
+          AND REPLACE(substr(dateTimeStrFormat, 1, 10), '.', '-') || substr(dateTimeStrFormat, 11) <= :endDate
+          AND status = 'SUCCESS'
+        ORDER BY dateTimeStrFormat DESC
+    """)
+    fun getBillsByTypeInRange(type: String, startDate: String, endDate: String): Flow<List<BillEntity>>
+
+    /**
      * 用餐时段分布 - 对齐 Rust 版 get_meal_distribution
      * 根据时间判断时段：
      * - 早餐: 6:00-9:00

@@ -50,4 +50,10 @@ interface BillRepository {
     fun getForgotCardStats(identityId: Long?, dateStart: String?, dateEnd: String?): Flow<ForgotCardStats>
     fun getMealDistribution(identityId: Long?, dateStart: String?, dateEnd: String?): Flow<List<MealDistribution>>
     fun getConsumptionDistribution(identityId: Long?, dateStart: String?, dateEnd: String?): Flow<List<ConsumptionBucket>>
+
+    /**
+     * 取指定 type + 时间区间内所有 bill(对齐 Rust get_category_bills)
+     * 用于"分类分析" Tab 选中具体分类时显示消费明细
+     */
+    fun getCategoryBills(identityId: Long?, category: String, startDate: String?, endDate: String?): Flow<List<BillItem>>
 }

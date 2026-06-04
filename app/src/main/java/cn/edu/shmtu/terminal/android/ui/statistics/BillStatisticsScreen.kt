@@ -52,6 +52,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import cn.edu.shmtu.terminal.android.domain.model.BillItem
 import cn.edu.shmtu.terminal.android.domain.model.BillOverview
 import cn.edu.shmtu.terminal.android.domain.model.CategoryBreakdown
 import cn.edu.shmtu.terminal.android.domain.model.ForgotCardStats
@@ -60,6 +61,7 @@ import cn.edu.shmtu.terminal.android.domain.model.MonthlySummary
 import cn.edu.shmtu.terminal.android.domain.model.SpendingTrend
 import cn.edu.shmtu.terminal.android.domain.model.StatisticsSummary
 import cn.edu.shmtu.terminal.android.domain.model.TargetUserRanking
+import cn.edu.shmtu.terminal.android.ui.component.BillItemCard
 import cn.edu.shmtu.terminal.android.ui.component.AppDonutChart
 import cn.edu.shmtu.terminal.android.ui.component.AppDonutSlice
 import cn.edu.shmtu.terminal.android.ui.component.AppLineChart
@@ -95,6 +97,7 @@ fun BillStatisticsScreen(
     val monthly by viewModel.monthlySummary.collectAsState()
     val statisticsSummary by viewModel.statisticsSummary.collectAsState()
     val forgotCardStats by viewModel.forgotCardStats.collectAsState()
+    val categoryBills by viewModel.categoryBills.collectAsState()
     val selectedIdentityId by viewModel.selectedIdentityId.collectAsState()
     val selectedPeriod by viewModel.selectedPeriod.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
@@ -197,7 +200,24 @@ fun BillStatisticsScreen(
                                 onCategoryClick = { viewModel.selectCategory(it) }
                             )
                         }
-                        item { CategoryLegend(categories = categories) }
+                        // 分类图例 - 可点击切换 selectedCategory(对齐 Tauri 分类图例)
+                        item {
+                            CategoryLegend(
+                                categories = categories,
+                                selectedCategory = selectedCategory,
+                                onClickCategory = { viewModel.selectCategory(it) }
+                            )
+                        }
+                        // 选中具体分类时,显示该分类的消费明细表格(对齐 Tauri 消费明细)
+                        if (selectedCategory != "all") {
+                            item {
+                                CategoryBillsTableCard(
+                                    category = selectedCategory,
+                                    bills = categoryBills,
+                                    onBillClick = { /* TODO: navigate to bill detail */ }
+                                )
+                            }
+                        }
                     }
                     StatisticsTab.POSITION -> {
                         item { PositionRankingCard(ranking = ranking) }
@@ -728,30 +748,98 @@ private fun CategoryBarChartCard(categories: List<CategoryBreakdown>) {
 }
 
 @Composable
-private fun CategoryLegend(categories: List<CategoryBreakdown>) {
+private fun CategoryLegend(
+    categories: List<CategoryBreakdown>,
+    selectedCategory: String,
+    onClickCategory: (String) -> Unit
+) {
     if (categories.isEmpty()) return
     ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text("分类图例", style = MaterialTheme.typography.titleSmall)
             Spacer(modifier = Modifier.height(8.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                itemsIndexed(categories) { _, item ->
+            // 模仿 Tauri 分类图例:可点击的 Chip,选中时实心,未选中时描边
+            androidx.compose.foundation.layout.FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                categories.forEach { item ->
                     val color = CategoryDisplay.color(item.type)
+                    val isSelected = item.type == selectedCategory
                     Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        shape = MaterialTheme.shapes.small
+                        onClick = { onClickCategory(if (isSelected) "all" else item.type) },
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                        color = if (isSelected) color else MaterialTheme.colorScheme.surface,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, color)
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Canvas(modifier = Modifier.size(8.dp)) { drawCircle(color) }
+                            Canvas(modifier = Modifier.size(8.dp)) {
+                                drawCircle(if (isSelected) androidx.compose.ui.graphics.Color.White else color)
+                            }
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 "${CategoryDisplay.displayName(item.type)} ${(item.percentage * 100).toInt()}%",
-                                style = MaterialTheme.typography.labelSmall
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isSelected) androidx.compose.ui.graphics.Color.White else MaterialTheme.colorScheme.onSurface
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 选中具体分类时,在分类分析 Tab 底部显示该分类的所有消费明细(对齐 Tauri 消费明细表格)
+ * 用现有 BillItemCard 列表渲染,点击行 → 跳账单详情(待接入路由)
+ */
+@Composable
+private fun CategoryBillsTableCard(
+    category: String,
+    bills: List<BillItem>,
+    onBillClick: (Long) -> Unit
+) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "${CategoryDisplay.displayName(category)} — 消费明细",
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Text(
+                    "共 ${bills.size} 笔",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            if (bills.isEmpty()) {
+                Text(
+                    "暂无该分类的消费记录",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(vertical = 16.dp)
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    bills.take(50).forEach { bill ->
+                        BillItemCard(bill = bill, onClick = { onBillClick(bill.id) })
+                    }
+                    if (bills.size > 50) {
+                        Text(
+                            "... 还有 ${bills.size - 50} 笔,前往账单页按分类查看全部",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
                     }
                 }
             }
