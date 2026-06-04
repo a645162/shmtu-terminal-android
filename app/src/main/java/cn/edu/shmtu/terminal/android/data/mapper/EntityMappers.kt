@@ -62,7 +62,12 @@ object EntityMappers {
         targetUser = targetUser,
         money = money,
         method = method,
-        status = status
+        status = status,
+        // 落库时已经计算并写入,直接带过去
+        position = position ?: building,
+        room = room,
+        category = category,
+        building = building
     )
 
     fun BillItem.toEntity(): BillEntity = BillEntity(
@@ -80,7 +85,8 @@ object EntityMappers {
         status = status,
         position = position,
         room = room,
-        category = category
+        category = category,
+        building = building
     )
 
     /**

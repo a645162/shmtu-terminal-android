@@ -28,8 +28,7 @@ class BillDatabaseManager @Inject constructor(
 
     /**
      * 对外暴露的 Application Context 访问器(只读),
-     * 供 [cn.edu.shmtu.terminal.android.data.repository.BillRepositoryImpl]
-     * 在懒加载 assets/bill/*.toml 时使用。
+     * 供 BillRepositoryImpl 在懒加载账单规则 TOML 时使用。
      */
     @Suppress("unused")
     val appContext: Context get() = context.applicationContext
@@ -43,7 +42,11 @@ class BillDatabaseManager @Inject constructor(
             Room.databaseBuilder(
                 context, BillDatabase::class.java,
                 "account_${studentId}.sqlite"
-            ).build()
+            )
+                // BillEntity 字段调整后, 旧库 schema hash 不再匹配;
+                // 启用 destructive migration 让旧库自动重建, 用户重新同步账单即可。
+                .fallbackToDestructiveMigration(false)
+                .build()
         }
 
     /**
@@ -55,7 +58,9 @@ class BillDatabaseManager @Inject constructor(
             Room.databaseBuilder(
                 context, BillDatabase::class.java,
                 "identity_${identityId}.sqlite"
-            ).build()
+            )
+                .fallbackToDestructiveMigration(false)
+                .build()
         }
 
     fun closeAccountDatabase(studentId: String) {
