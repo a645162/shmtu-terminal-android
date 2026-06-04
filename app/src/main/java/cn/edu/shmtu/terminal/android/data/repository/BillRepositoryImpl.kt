@@ -172,12 +172,17 @@ class BillRepositoryImpl @Inject constructor(
             val merged = bills.filterSuccessful()
                 .filterByRange(startDate, endDate)
                 .filterNot(::isIncome)
-                .groupBy { it.type }
+                // 对齐 Tauri `get_category_distribution`:
+                // 实时按 billClassifier.classifyKey(itemType, targetUser) 拿到 category 内部 key,
+                // 再用 BillEntity.category 字段(merge 落库时已写入)做 group by。
+                // 这里优先用 BillEntity.category; 若落库时未注入 classifier(老数据),则
+                // 用 billDbManager 注入的 EpayAdapter.classifier 即时跑一次。
+                .groupBy { it.category ?: billClassifier?.classifyKey(it.type, it.targetUser) ?: "other" }
                 .mapValues { (_, items) -> items.sumOf { kotlin.math.abs(it.moneyValue()) } }
             val total = merged.values.sum()
             merged.entries.map { (type, amount) ->
                 CategoryBreakdown(type, amount, if (total > 0) (amount / total).toFloat() else 0f)
-            }.sortedByDescending { it.amount}
+            }.sortedByDescending { it.amount }
         }
     }
 
@@ -334,25 +339,36 @@ class BillRepositoryImpl @Inject constructor(
 
     /**
      * 用餐时段分布 - 对齐 Rust 版 get_meal_distribution
-     * 早餐(6-9), 午餐(11-13), 晚餐(17-19), 夜宵(21-23), 其他
+     * 数据源: meal.bill.items (从 bills 表读全量后按 time 在 Kotlin 层分类)
+     * 优先用 MealClassifier (assets/bill/schedule.toml) 与 Tauri 端完全一致;
+     * 不可用时回退到 hour 区间硬编码,保证 UI 永远有数据。
      */
     override fun getMealDistribution(identityId: Long?, dateStart: String?, dateEnd: String?): Flow<List<MealDistribution>> {
         val start = dateStart ?: YearMonth.now().atDay(1).format(DATE_FMT)
         val end = dateEnd ?: YearMonth.now().atEndOfMonth().format(DATE_FMT_END)
 
         return getDatabases(identityId).flatMapLatest { dbs ->
-            combine(dbs.map { db ->
-                db.billDao().getMealDistribution(start, end)
-            }) { results ->
+            combine(dbs.map { db -> db.billDao().getAllBills() }) { results ->
                 val merged = mutableMapOf<String, MutableMap<String, Double>>()
+                val formatter = DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm:ss")
                 for (list in results) {
                     for (item in list) {
-                        val typeMap = merged.getOrPut(item.meal) { mutableMapOf() }
-                        typeMap["count"] = (typeMap["count"] ?: 0.0) + item.count
-                        typeMap["amount"] = (typeMap["amount"] ?: 0.0) + item.amount
+                        if (!isSuccessfulStatus(item.status)) continue
+                        if (isIncome(item)) continue
+                        if (!isInRange(item.dateTimeStrFormat, start, end)) continue
+                        val timestamp = try {
+                            java.time.LocalDateTime
+                                .parse(item.dateTimeStrFormat, formatter)
+                                .atZone(java.time.ZoneId.systemDefault())
+                                .toEpochSecond()
+                        } catch (_: Exception) { 0L }
+                        val meal = mealClassifier.classify(timestamp) ?: inferMealFromHour(item.dateTimeStrFormat) ?: "其他"
+                        val typeMap = merged.getOrPut(meal) { mutableMapOf() }
+                        typeMap["count"] = (typeMap["count"] ?: 0.0) + 1
+                        typeMap["amount"] = (typeMap["amount"] ?: 0.0) + item.moneyValue()
                     }
                 }
-                // 固定顺序：早餐, 午餐, 晚餐, 夜宵, 其他
+                // 固定顺序:早餐, 午餐, 晚餐, 夜宵, 其他
                 val order = listOf("早餐", "午餐", "晚餐", "夜宵", "其他")
                 order.mapNotNull { meal ->
                     val data = merged[meal] ?: return@mapNotNull null
@@ -435,6 +451,48 @@ class BillRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * 用餐时段分类器(由 [BillRepositoryImpl] 构造时或首次访问时懒加载 schedule.toml)。
+     * 加载失败时降级为 [MealClassifier.defaultRules] — 与 Tauri schedule.toml 默认内容完全一致。
+     */
+    private val mealClassifier: cn.edu.shmtu.cas.classifier.MealClassifier by lazy {
+        try {
+            val rulesToml = runCatching {
+                billDbManager.appContext.assets.open("bill/rules.toml").bufferedReader().readText()
+            }.getOrNull()
+            val scheduleToml = runCatching {
+                billDbManager.appContext.assets.open("bill/schedule.toml").bufferedReader().readText()
+            }.getOrNull()
+            val text = rulesToml ?: scheduleToml
+            if (text != null) {
+                cn.edu.shmtu.cas.classifier.MealClassifier.fromRulesToml(text)
+            } else {
+                cn.edu.shmtu.cas.classifier.MealClassifier.defaultRules()
+            }
+        } catch (_: Exception) {
+            cn.edu.shmtu.cas.classifier.MealClassifier.defaultRules()
+        }
+    }
+
+    /**
+     * 账单分类器(由 [BillRepositoryImpl] 构造时或首次访问时懒加载 rules.toml),
+     * 用于 [getCategoryBreakdown] 内部对 category 字段为空的老数据做兜底分类。
+     */
+    private val billClassifier: cn.edu.shmtu.cas.classifier.BillClassifier? by lazy {
+        try {
+            val rulesToml = runCatching {
+                billDbManager.appContext.assets.open("bill/rules.toml").bufferedReader().readText()
+            }.getOrNull()
+            val typeToml = runCatching {
+                billDbManager.appContext.assets.open("bill/type.toml").bufferedReader().readText()
+            }.getOrNull()
+            val text = rulesToml ?: typeToml ?: return@lazy null
+            cn.edu.shmtu.cas.classifier.BillClassifier.fromRulesToml(text)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun mergedBills(identityId: Long?): Flow<List<BillEntity>> {
         return getDatabases(identityId).flatMapLatest { dbs ->
             if (dbs.isEmpty()) {
@@ -455,6 +513,7 @@ class BillRepositoryImpl @Inject constructor(
 
 private fun cn.edu.shmtu.terminal.android.data.local.db.entity.BillEntity.toDomain() = EntityMappers.run { this@toDomain.toDomain() }
 private fun BillEntity.moneyValue(): Double = money.replace("¥", "").replace(",", "").toDoubleOrNull()?.let { kotlin.math.abs(it) } ?: 0.0
+
 private fun isIncome(bill: BillEntity): Boolean {
     val keywords = listOf("充值", "冲正", "退款", "返还", "补偿", "存入", "转入")
     val res = keywords.any { keyword ->
@@ -472,6 +531,40 @@ private fun isBathBill(bill: BillEntity): Boolean {
         type.contains("热水") ||
         target.contains("淋浴") ||
         target.contains("热水")
+}
+
+/**
+ * 兼容多套状态值: SQL 写入用 "SUCCESS" / 中文混合时用 "交易成功"。
+ */
+private fun isSuccessfulStatus(status: String): Boolean =
+    status == "SUCCESS" || status == "交易成功"
+
+/**
+ * 把库内 'dateTimeStrFormat'('yyyy.MM.dd HH:mm:ss' 或 'yyyy-MM-dd HH:mm:ss')的 '.' 替换为 '-' 后
+ * 再与 startDate/endDate 做字符串字典序比较 — 兼容所有时间范围字符串格式。
+ */
+private fun isInRange(dateTimeStrFormat: String, startDate: String, endDate: String): Boolean {
+    val normalized = dateTimeStrFormat.replace(".", "-")
+    return normalized >= startDate && normalized <= endDate
+}
+
+/**
+ * 硬编码 hour → 时段,与 schedule.toml 加载失败时降级使用。
+ * 与原 SQL CASE WHEN 区间完全一致:6-8 早餐 / 11-12 午餐 / 17-18 晚餐 / 21-22 夜宵 / 其他。
+ */
+private fun inferMealFromHour(dateTimeStrFormat: String): String? {
+    // 取第 12-13 位字符(原 SQL substr(dateTimeStrFormat, 12, 2))。
+    return try {
+        if (dateTimeStrFormat.length < 13) return null
+        val h = dateTimeStrFormat.substring(11, 13).toIntOrNull() ?: return null
+        when (h) {
+            in 6..8 -> "早餐"
+            in 11..12 -> "午餐"
+            in 17..18 -> "晚餐"
+            in 21..22 -> "夜宵"
+            else -> "其他"
+        }
+    } catch (_: Exception) { null }
 }
 
 private fun List<BillEntity>.filterSuccessful(): List<BillEntity> {

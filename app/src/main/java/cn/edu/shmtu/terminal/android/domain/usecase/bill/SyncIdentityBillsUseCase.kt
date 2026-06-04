@@ -60,7 +60,11 @@ class SyncIdentityBillsUseCase @Inject constructor(
                     accountId = account.id,
                     studentId = account.userId,
                     identityId = account.identityId,
-                ),
+                ).also {
+                    // 注入 Tauri 兼容的 TOML 规则,落库时即时算 category / position / room / building
+                    it.classifier = epayAdapter.classifier
+                    it.positionTranslator = epayAdapter.positionTranslator
+                },
                 resolver = null,        // 多账号并行场景用手动验证码（如需要可在更外层串行）
                 options = SyncOptions.incremental(syncRange),
                 fullSync = false,

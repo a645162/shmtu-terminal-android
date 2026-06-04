@@ -31,12 +31,27 @@ class EpayAdapter @Inject constructor(
     private val instances = mutableMapOf<Long, EpayAuth>()
 
     /**
-     * 账单分类器（懒加载，从 assets/bill_rules/type.json 加载）
+     * 账单分类器（懒加载，从 assets/bill/rules.toml 加载,优先使用合并 rules.toml,
+     * 若不存在则回退到 assets/bill/type.toml）。
+     * 加载失败时为 null,分类功能降级为 OTHER。
      */
-    private val classifier: BillClassifier? by lazy {
+    val classifier: BillClassifier? by lazy {
         try {
-            val typeJson = context.assets.open("bill_rules/type.json").bufferedReader().readText()
-            BillClassifier.fromJson(typeJson)
+            val rulesToml = runCatching {
+                context.assets.open("bill/rules.toml").bufferedReader().readText()
+            }.getOrNull()
+            val typeToml = runCatching {
+                context.assets.open("bill/type.toml").bufferedReader().readText()
+            }.getOrNull()
+            val text = rulesToml ?: typeToml
+            if (text != null) {
+                BillClassifier.fromRulesToml(text).also {
+                    Log.d(TAG, "BillClassifier loaded: ${it.ruleCount()} rules from ${if (rulesToml != null) "rules.toml" else "type.toml"}")
+                }
+            } else {
+                Log.w(TAG, "no bill/*.toml found, classifier disabled")
+                null
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to load bill classifier: ${e.message}")
             null
@@ -44,12 +59,23 @@ class EpayAdapter @Inject constructor(
     }
 
     /**
-     * 位置翻译器（懒加载，从 assets/bill_rules/position.json 加载）
+     * 位置翻译器（懒加载，从 assets/bill/position.toml 加载,优先使用合并 rules.toml）。
      */
-    private val positionTranslator: PositionTranslator? by lazy {
+    val positionTranslator: PositionTranslator? by lazy {
         try {
-            val positionJson = context.assets.open("bill_rules/position.json").bufferedReader().readText()
-            PositionTranslator.fromJson(positionJson)
+            val rulesToml = runCatching {
+                context.assets.open("bill/rules.toml").bufferedReader().readText()
+            }.getOrNull()
+            val positionToml = runCatching {
+                context.assets.open("bill/position.toml").bufferedReader().readText()
+            }.getOrNull()
+            val text = rulesToml ?: positionToml
+            if (text != null) {
+                PositionTranslator.fromRulesToml(text)
+            } else {
+                Log.w(TAG, "no bill/position.toml found, position translator disabled")
+                null
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to load position translator: ${e.message}")
             null

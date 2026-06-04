@@ -269,7 +269,12 @@ class SyncAccountBillsUseCase @Inject constructor(
         accountId = account.id,
         studentId = account.userId,
         identityId = account.identityId,
-    )
+    ).also {
+        // 把 Tauri 兼容的 TOML 规则 (assets/bill/*.toml) 注入到 store,
+        // merge 时即时计算 category / position / room / building,落库持久化。
+        it.classifier = epayAdapter.classifier
+        it.positionTranslator = epayAdapter.positionTranslator
+    }
 
     /**
      * 构造自动 OCR 验证码解析器，复用 [Captcha.ocrByRemoteTcpServerAutoRetry]。

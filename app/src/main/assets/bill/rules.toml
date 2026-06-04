@@ -1,0 +1,172 @@
+# 合并规则文件 — 包含 type / position / schedule 三个段
+# 与 Tauri Data/database/bill/rules.toml 完全一致
+
+# ==================== type ====================
+
+[type.deposit]
+name = "充值"
+match_field = "item_type"
+match_names = ["中行云充值", "微信充值"]
+
+[type.electricity]
+name = "电费"
+match_field = "item_type"
+match_names = ["电费缴费"]
+
+[type.bath]
+name = "洗澡"
+match_field = "target_user"
+match_targets = ["淋浴", "热水"]
+
+[type.hot_water]
+name = "热水"
+match_field = "item_type"
+match_names = ["水控转账"]
+
+[type.cake]
+name = "西点"
+match_field = "target_user"
+match_targets = ["北区西点房"]
+
+[type.canteen]
+name = "食堂"
+match_field = "target_user"
+match_targets = ["食堂", "餐厅"]
+
+[type.library]
+name = "图书馆"
+match_field = "target_user"
+match_targets = ["图书馆"]
+
+[type.hospital]
+name = "校医院"
+match_field = "target_user"
+match_targets = ["校医院"]
+
+[type.shop]
+name = "超市"
+match_field = "target_user"
+match_targets = ["超市", "教育超市"]
+
+[type.laundry]
+name = "洗衣"
+match_field = "target_user"
+match_targets = ["洗衣"]
+
+[type.network]
+name = "网络"
+match_field = "item_type"
+match_names = ["网络缴费", "网费"]
+
+[type.transport]
+name = "交通"
+match_field = "target_user"
+match_targets = ["公交", "地铁", "交通"]
+
+# ==================== position ====================
+
+[position]
+field = "target_user"
+
+[position.keywords."A食堂1楼大餐厅"]
+building = "海馨楼"
+room = "海馨第1食堂"
+
+[position.keywords."A食堂1楼小餐厅"]
+building = "海馨楼"
+room = "海馨第3食堂"
+
+[position.keywords."A食堂1楼清真餐厅"]
+building = "海馨楼"
+room = "海馨第5食堂(清真)"
+
+[position.keywords."A食堂2楼大餐厅"]
+building = "海馨楼"
+room = "海馨第2食堂"
+
+[position.keywords."A食堂2楼小餐厅"]
+building = "海馨楼"
+room = "海馨第4食堂"
+
+[position.keywords."B食堂1楼"]
+building = "海琴楼"
+room = "海琴1楼"
+
+[position.keywords."B食堂2楼"]
+building = "海琴楼"
+room = "海琴2楼"
+
+[position.keywords."C1大餐厅"]
+building = "海联楼"
+room = "海联1楼"
+
+[position.keywords."C食堂2楼"]
+building = "海联楼"
+room = "海联2楼"
+
+[position.keywords."海馨第一食堂"]
+building = "海馨楼"
+room = "海馨第1食堂"
+
+[position.keywords."海馨第二食堂"]
+building = "海馨楼"
+room = "海馨第2食堂"
+
+[position.keywords."海馨第三食堂"]
+building = "海馨楼"
+room = "海馨第3食堂"
+
+[position.keywords."海馨第四食堂"]
+building = "海馨楼"
+room = "海馨第4食堂"
+
+[position.keywords."淋浴"]
+building = "公共浴室"
+room = "浴室"
+
+[position.keywords."热水"]
+building = "公共浴室"
+room = "浴室"
+
+[position.keywords."北区西点房"]
+building = "海馨楼"
+room = "西点房"
+
+[position.keywords."图书馆"]
+building = "图书馆"
+room = "图书馆"
+
+[position.keywords."校医院"]
+building = "校医院"
+room = "校医院"
+
+[position.keywords."教育超市"]
+building = "校园商业"
+room = "教育超市"
+
+# ==================== schedule ====================
+
+[[schedule]]
+[schedule.valid_date]
+start_date = "2019.9.1"
+end_date = "now"
+
+[schedule.timetable.breakfast]
+name = "早餐"
+start_time = "6:30"
+end_time = "8:30"
+
+[schedule.timetable.lunch]
+name = "午餐"
+start_time = "10:45"
+end_time = "12:30"
+
+[schedule.timetable.dinner]
+name = "晚餐"
+start_time = "16:30"
+end_time = "18:15"
+
+[schedule.timetable.midnight_snack]
+name = "夜宵"
+start_time = "18:15"
+end_time = "21:00"

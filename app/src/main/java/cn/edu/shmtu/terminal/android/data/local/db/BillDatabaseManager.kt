@@ -27,6 +27,14 @@ class BillDatabaseManager @Inject constructor(
     private val identityDatabases = ConcurrentHashMap<Long, BillDatabase>()  // key: identityId
 
     /**
+     * 对外暴露的 Application Context 访问器(只读),
+     * 供 [cn.edu.shmtu.terminal.android.data.repository.BillRepositoryImpl]
+     * 在懒加载 assets/bill/*.toml 时使用。
+     */
+    @Suppress("unused")
+    val appContext: Context get() = context.applicationContext
+
+    /**
      * 获取账号原始数据库
      * 文件名: account_{studentId}.sqlite
      */

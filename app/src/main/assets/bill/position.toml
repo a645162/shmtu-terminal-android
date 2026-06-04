@@ -1,0 +1,81 @@
+# 位置翻译表 — 对方账户 → (楼栋, 房间)
+# 字段说明: field 仅作为占位说明,Android/Tauri 端都按 target_user 字段匹配
+
+[position]
+field = "target_user"
+
+[position.keywords."A食堂1楼大餐厅"]
+building = "海馨楼"
+room = "海馨第1食堂"
+
+[position.keywords."A食堂1楼小餐厅"]
+building = "海馨楼"
+room = "海馨第3食堂"
+
+[position.keywords."A食堂1楼清真餐厅"]
+building = "海馨楼"
+room = "海馨第5食堂(清真)"
+
+[position.keywords."A食堂2楼大餐厅"]
+building = "海馨楼"
+room = "海馨第2食堂"
+
+[position.keywords."A食堂2楼小餐厅"]
+building = "海馨楼"
+room = "海馨第4食堂"
+
+[position.keywords."B食堂1楼"]
+building = "海琴楼"
+room = "海琴1楼"
+
+[position.keywords."B食堂2楼"]
+building = "海琴楼"
+room = "海琴2楼"
+
+[position.keywords."C1大餐厅"]
+building = "海联楼"
+room = "海联1楼"
+
+[position.keywords."C食堂2楼"]
+building = "海联楼"
+room = "海联2楼"
+
+[position.keywords."海馨第一食堂"]
+building = "海馨楼"
+room = "海馨第1食堂"
+
+[position.keywords."海馨第二食堂"]
+building = "海馨楼"
+room = "海馨第2食堂"
+
+[position.keywords."海馨第三食堂"]
+building = "海馨楼"
+room = "海馨第3食堂"
+
+[position.keywords."海馨第四食堂"]
+building = "海馨楼"
+room = "海馨第4食堂"
+
+[position.keywords."淋浴"]
+building = "公共浴室"
+room = "浴室"
+
+[position.keywords."热水"]
+building = "公共浴室"
+room = "浴室"
+
+[position.keywords."北区西点房"]
+building = "海馨楼"
+room = "西点房"
+
+[position.keywords."图书馆"]
+building = "图书馆"
+room = "图书馆"
+
+[position.keywords."校医院"]
+building = "校医院"
+room = "校医院"
+
+[position.keywords."教育超市"]
+building = "校园商业"
+room = "教育超市"

@@ -1,0 +1,65 @@
+# 消费类型识别规则 — 根据 item_type 或 target_user 中的关键词匹配分类
+# 字段说明:
+#   match_field = "item_type"   → 按 match_names 数组匹配 bill.item_type(子串包含)
+#   match_field = "target_user" → 按 match_targets 数组匹配 bill.target_user(子串包含)
+# 命中顺序: HashMap 迭代顺序,首次命中即返回(其它分类不再评估)
+
+[type.deposit]
+name = "充值"
+match_field = "item_type"
+match_names = ["中行云充值", "微信充值"]
+
+[type.electricity]
+name = "电费"
+match_field = "item_type"
+match_names = ["电费缴费"]
+
+[type.bath]
+name = "洗澡"
+match_field = "target_user"
+match_targets = ["淋浴", "热水"]
+
+[type.hot_water]
+name = "热水"
+match_field = "item_type"
+match_names = ["水控转账"]
+
+[type.cake]
+name = "西点"
+match_field = "target_user"
+match_targets = ["北区西点房"]
+
+[type.canteen]
+name = "食堂"
+match_field = "target_user"
+match_targets = ["食堂", "餐厅"]
+
+[type.library]
+name = "图书馆"
+match_field = "target_user"
+match_targets = ["图书馆"]
+
+[type.hospital]
+name = "校医院"
+match_field = "target_user"
+match_targets = ["校医院"]
+
+[type.shop]
+name = "超市"
+match_field = "target_user"
+match_targets = ["超市", "教育超市"]
+
+[type.laundry]
+name = "洗衣"
+match_field = "target_user"
+match_targets = ["洗衣"]
+
+[type.network]
+name = "网络"
+match_field = "item_type"
+match_names = ["网络缴费", "网费"]
+
+[type.transport]
+name = "交通"
+match_field = "target_user"
+match_targets = ["公交", "地铁", "交通"]

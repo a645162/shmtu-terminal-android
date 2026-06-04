@@ -3,17 +3,17 @@ package cn.edu.shmtu.terminal.android.ui.statistics
 import androidx.compose.ui.graphics.Color
 
 /**
- * 分类显示名 + 颜色 - 对齐 Tauri utils/translation.ts 的 CATEGORY_DISPLAY_NAMES / CATEGORY_COLORS
- *
+ * 分类显示名 + 颜色 + emoji - 对齐 Tauri utils/translation.ts 的 CATEGORY_DISPLAY_NAMES / CATEGORY_COLORS
  * 键名(deposit/electricity/bath/...)与 Rust 端完全一致,
- * 统计接口返回的分类名(BillItem.type 经 classifyBill 分类)就是这些 key。
+ * 统计接口返回的分类名(BillItem.category 经 BillClassifier.classifyKey 分类)就是这些 key。
  */
 object CategoryDisplay {
 
+    // 与 Rust `BillCategory::display_name` 严格对齐(bath = "洗澡" 而非旧版"淋浴")
     private val CATEGORY_DISPLAY_NAMES: Map<String, String> = mapOf(
         "deposit" to "充值",
         "electricity" to "电费",
-        "bath" to "淋浴",
+        "bath" to "洗澡",
         "hot_water" to "热水",
         "cake" to "西点",
         "canteen" to "食堂",
@@ -24,6 +24,23 @@ object CategoryDisplay {
         "network" to "网络",
         "transport" to "交通",
         "other" to "其他",
+    )
+
+    // 与 Rust `BillCategory::emoji` 严格对齐
+    private val CATEGORY_EMOJI: Map<String, String> = mapOf(
+        "deposit" to "💰",
+        "electricity" to "⚡",
+        "bath" to "🚿",
+        "hot_water" to "♨️",
+        "cake" to "🍰",
+        "canteen" to "🍚",
+        "library" to "📚",
+        "hospital" to "🏥",
+        "shop" to "🛒",
+        "laundry" to "👕",
+        "network" to "🌐",
+        "transport" to "🚌",
+        "other" to "💳",
     )
 
     private val CATEGORY_COLORS: Map<String, Color> = mapOf(
@@ -46,6 +63,9 @@ object CategoryDisplay {
 
     /** 显示名:key -> 中文名(找不到则返回原 key) */
     fun displayName(key: String): String = CATEGORY_DISPLAY_NAMES[key] ?: key
+
+    /** emoji:key -> emoji(找不到则空串) */
+    fun emoji(key: String): String = CATEGORY_EMOJI[key] ?: ""
 
     /** 颜色:key -> Color(找不到则灰色) */
     fun color(key: String): Color = CATEGORY_COLORS[key] ?: FALLBACK_COLOR

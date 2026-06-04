@@ -1,0 +1,28 @@
+# 食堂营业时间表 — 同一格式可定义多个时段规则(按日期范围生效)
+# valid_date.end_date == "now" 表示无上限
+# 时段匹配:start_time ≤ time < end_time(左闭右开)
+
+[[schedule]]
+[schedule.valid_date]
+start_date = "2019.9.1"
+end_date = "now"
+
+[schedule.timetable.breakfast]
+name = "早餐"
+start_time = "6:30"
+end_time = "8:30"
+
+[schedule.timetable.lunch]
+name = "午餐"
+start_time = "10:45"
+end_time = "12:30"
+
+[schedule.timetable.dinner]
+name = "晚餐"
+start_time = "16:30"
+end_time = "18:15"
+
+[schedule.timetable.midnight_snack]
+name = "夜宵"
+start_time = "18:15"
+end_time = "21:00"
