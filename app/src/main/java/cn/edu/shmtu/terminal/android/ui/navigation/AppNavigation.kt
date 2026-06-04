@@ -36,7 +36,8 @@ fun AppNavigation(
             HomeScreen(
                 onNavigateToBill = { navController.navigate(TopLevelDestination.BILL.route) },
                 onNavigateToMe = { navController.navigate(TopLevelDestination.ME.route) },
-                onNavigateToStatistics = { navController.navigate("bill_statistics") }
+                onNavigateToStatistics = { navController.navigate("bill_statistics") },
+                onBillClick = { billId -> navController.navigate("bill_detail/$billId") }
             )
         }
         composable(TopLevelDestination.BILL.route) {

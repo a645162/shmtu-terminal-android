@@ -63,6 +63,19 @@ interface BillDao {
     """)
     fun getSumByTypeInRange(startDate: String, endDate: String): Flow<List<TypeSum>>
 
+    /**
+     * 兼容 BillParser 格式 "yyyy.MM.dd HH:mm:ss" 的 sum 查询:
+     * 把库内 'dateTimeStrFormat' 的 '.' 替换成 '-' 后再与 startDate/endDate 比较
+     */
+    @Query("""
+        SELECT type, SUM(CAST(REPLACE(REPLACE(money, '¥', ''), ',', '') AS REAL)) as total
+        FROM bills
+        WHERE REPLACE(substr(dateTimeStrFormat, 1, 10), '.', '-') || substr(dateTimeStrFormat, 11) >= :startDate
+          AND REPLACE(substr(dateTimeStrFormat, 1, 10), '.', '-') || substr(dateTimeStrFormat, 11) <= :endDate
+        GROUP BY type
+    """)
+    fun getSumByTypeInRangeDotFormat(startDate: String, endDate: String): Flow<List<TypeSum>>
+
     @Query("""
         SELECT dateStr, SUM(CAST(REPLACE(REPLACE(money, '¥', ''), ',', '') AS REAL)) as total
         FROM bills
@@ -71,6 +84,16 @@ interface BillDao {
         ORDER BY dateStr
     """)
     fun getDailyTotalsInRange(startDate: String, endDate: String): Flow<List<DailyTotal>>
+
+    @Query("""
+        SELECT dateStr, SUM(CAST(REPLACE(REPLACE(money, '¥', ''), ',', '') AS REAL)) as total
+        FROM bills
+        WHERE REPLACE(substr(dateTimeStrFormat, 1, 10), '.', '-') || substr(dateTimeStrFormat, 11) >= :startDate
+          AND REPLACE(substr(dateTimeStrFormat, 1, 10), '.', '-') || substr(dateTimeStrFormat, 11) <= :endDate
+        GROUP BY dateStr
+        ORDER BY dateStr
+    """)
+    fun getDailyTotalsInRangeDotFormat(startDate: String, endDate: String): Flow<List<DailyTotal>>
 
     @Query("""
         SELECT targetUser, SUM(CAST(REPLACE(REPLACE(money, '¥', ''), ',', '') AS REAL)) as total
@@ -98,6 +121,14 @@ interface BillDao {
     """)
     fun getActiveDaysInRange(startDate: String, endDate: String): Flow<List<String>>
 
+    @Query("""
+        SELECT DISTINCT substr(dateTimeStrFormat, 1, 10) as dateStr
+        FROM bills
+        WHERE REPLACE(substr(dateTimeStrFormat, 1, 10), '.', '-') || substr(dateTimeStrFormat, 11) >= :startDate
+          AND REPLACE(substr(dateTimeStrFormat, 1, 10), '.', '-') || substr(dateTimeStrFormat, 11) <= :endDate
+    """)
+    fun getActiveDaysInRangeDotFormat(startDate: String, endDate: String): Flow<List<String>>
+
     // ==================== 新增查询 - 对齐 Rust 版统计 ====================
 
     /**
@@ -109,11 +140,26 @@ interface BillDao {
                SUM(CAST(REPLACE(REPLACE(money, '¥', ''), ',', '') AS REAL)) as total
         FROM bills
         WHERE dateTimeStrFormat >= :startDate AND dateTimeStrFormat <= :endDate
-          AND status = '交易成功'
+          AND status = 'SUCCESS'
         GROUP BY dateStr, type
         ORDER BY dateStr
     """)
     fun getDailyTrendByType(startDate: String, endDate: String): Flow<List<DailyTypeSum>>
+
+    /**
+     * 兼容 "yyyy.MM.dd HH:mm:ss" 格式的每日趋势
+     */
+    @Query("""
+        SELECT substr(dateTimeStrFormat, 1, 10) as dateStr, type,
+               SUM(CAST(REPLACE(REPLACE(money, '¥', ''), ',', '') AS REAL)) as total
+        FROM bills
+        WHERE REPLACE(substr(dateTimeStrFormat, 1, 10), '.', '-') || substr(dateTimeStrFormat, 11) >= :startDate
+          AND REPLACE(substr(dateTimeStrFormat, 1, 10), '.', '-') || substr(dateTimeStrFormat, 11) <= :endDate
+          AND status = 'SUCCESS'
+        GROUP BY dateStr, type
+        ORDER BY dateStr
+    """)
+    fun getDailyTrendByTypeDotFormat(startDate: String, endDate: String): Flow<List<DailyTypeSum>>
 
     /**
      * 用餐时段分布 - 对齐 Rust 版 get_meal_distribution

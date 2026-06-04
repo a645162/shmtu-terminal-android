@@ -1,6 +1,15 @@
 package cn.edu.shmtu.terminal.android.ui.home
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,53 +21,76 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.OpenInFull
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Badge
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.domain.model.BillItem
 import cn.edu.shmtu.terminal.android.domain.model.BillOverview
 import cn.edu.shmtu.terminal.android.domain.model.CategoryBreakdown
+import cn.edu.shmtu.terminal.android.domain.model.DailyTrend
+import cn.edu.shmtu.terminal.android.domain.model.Identity
 import cn.edu.shmtu.terminal.android.domain.model.MonthlySummary
 import cn.edu.shmtu.terminal.android.domain.model.SpendingTrend
+import cn.edu.shmtu.terminal.android.domain.model.StatisticsSummary
+import cn.edu.shmtu.terminal.android.ui.theme.BrandForeground1
 import cn.edu.shmtu.terminal.android.ui.theme.CategoryColors
+import cn.edu.shmtu.terminal.android.ui.theme.GreenForeground3
+import cn.edu.shmtu.terminal.android.ui.theme.RedForeground3
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 
 /**
- * 首页 - 对齐 Rust 版 HomePage
+ * 首页 - 对齐 Tauri 版 HomePage
  *
- * 布局:
- * 1. 4x 统计卡片 (本月充值, 卡片余额, 今日消费, 本月消费)
- * 2. 近7天消费趋势折线图
- * 3. 本月分类占比饼图
+ * 布局(对齐 Rust HomePage.tsx):
+ * 1. 标题区: "首页统计" + 副标题 + 右上角 [查看更多] [刷新统计] 两个 IconButton
+ * 2. 4x 统计卡片 (今日消费 / 本月消费 / 本月充值 / 卡片余额)
+ * 3. 趋势卡片 (近7天) + 分类饼图 (本月)
  * 4. 月度对比卡片
  * 5. 异常提醒 (忘拔卡)
- * 6. 最近 5 条交易
- * 7. 快捷操作按钮
+ * 6. 最近 5 条交易 (支持点击查看详情 + 复制菜单)
+ * 7. 底部快捷按钮 [查看账单] [切换身份]
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,23 +98,55 @@ fun HomeScreen(
     onNavigateToBill: () -> Unit,
     onNavigateToMe: () -> Unit,
     onNavigateToStatistics: () -> Unit,
+    onBillClick: (Long) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val identities by viewModel.identities.collectAsState()
     val currentIdentity by viewModel.currentIdentity.collectAsState()
     val billOverview by viewModel.billOverview.collectAsState()
-    val todayExpense by viewModel.todayExpense.collectAsState()
     val weeklyTrend by viewModel.weeklyTrend.collectAsState()
+    val dailyTrend by viewModel.dailyTrend.collectAsState()
     val categoryBreakdown by viewModel.categoryBreakdown.collectAsState()
     val monthlySummary by viewModel.monthlySummary.collectAsState()
     val forgotCardRisk by viewModel.forgotCardRisk.collectAsState()
     val recentBills by viewModel.recentBills.collectAsState()
+    val todaySummary by viewModel.todaySummary.collectAsState()
+    val monthSummary by viewModel.monthSummary.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val isLoadingStatistics by viewModel.isLoadingStatistics.collectAsState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
         topBar = {
             androidx.compose.material3.LargeTopAppBar(
-                title = { Text("海事终端") },
+                title = {
+                    Column {
+                        Text("首页统计")
+                        Text(
+                            "快速查看近期消费、分类趋势和异常提醒",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = onNavigateToStatistics,
+                        enabled = currentIdentity != null
+                    ) {
+                        Icon(Icons.Filled.OpenInFull, contentDescription = "查看更多")
+                    }
+                    IconButton(
+                        onClick = { viewModel.refreshStatistics() },
+                        enabled = currentIdentity != null && !isRefreshing
+                    ) {
+                        if (isRefreshing) {
+                            SpinningRefreshIcon()
+                        } else {
+                            Icon(Icons.Filled.Refresh, contentDescription = "刷新统计")
+                        }
+                    }
+                },
                 scrollBehavior = scrollBehavior
             )
         }
@@ -102,16 +166,29 @@ fun HomeScreen(
                 )
                 return@Column
             }
-            StatCardsSection(billOverview, todayExpense)
-            TrendChartCard(weeklyTrend)
-            CategoryPieCard(categoryBreakdown)
+            // 4 个统计卡: 今日/本月消费(支出) + 本月充值/卡片余额(收入/其他)
+            StatCardsSection(
+                todaySummary = todaySummary,
+                monthSummary = monthSummary,
+                billOverview = billOverview,
+                isLoading = isLoadingStatistics
+            )
+            TrendChartCard(
+                legacyData = weeklyTrend,
+                dailyTrend = dailyTrend,
+                isLoading = isLoadingStatistics
+            )
+            CategoryPieCard(categoryBreakdown, isLoading = isLoadingStatistics)
             MonthComparisonCard(monthlySummary)
             ForgotCardAlertCard(forgotCardRisk)
             IdentityOverviewCard(
                 currentIdentity = currentIdentity,
                 identityCount = identities.size
             )
-            RecentTransactionsCard(recentBills)
+            RecentTransactionsCard(
+                bills = recentBills,
+                onBillClick = onBillClick
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -122,40 +199,124 @@ fun HomeScreen(
                     modifier = Modifier.weight(1f)
                 ) { Text("查看账单") }
                 FilledTonalButton(
-                    onClick = onNavigateToStatistics,
+                    onClick = onNavigateToMe,
                     modifier = Modifier.weight(1f)
-                ) { Text("账单统计") }
+                ) { Text("切换身份") }
             }
-            OutlinedButton(
-                onClick = onNavigateToMe,
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("切换身份") }
         }
     }
+}
+
+// ==================== 顶栏 旋转图标 ====================
+
+@Composable
+private fun SpinningRefreshIcon() {
+    val transition = rememberInfiniteTransition(label = "refresh-spin")
+    val rotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "refresh-spin-deg"
+    )
+    Box(
+        modifier = Modifier.size(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.size(24.dp)) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            drawContext.transform.rotate(rotation, Offset(cx, cy))
+            drawArc(
+                color = BrandForeground1,
+                startAngle = 0f,
+                sweepAngle = 280f,
+                useCenter = false,
+                topLeft = Offset(size.width * 0.1f, size.height * 0.1f),
+                size = Size(size.width * 0.8f, size.height * 0.8f),
+                style = Stroke(width = 2.5f)
+            )
+        }
+    }
+}
+
+@Suppress("unused")
+private fun DrawScope.drawRotatedArc(degrees: Float, color: Color) {
+    val cx = size.width / 2f
+    val cy = size.height / 2f
+    drawContext.transform.rotate(degrees, Offset(cx, cy))
+    drawArc(
+        color = color,
+        startAngle = 0f,
+        sweepAngle = 280f,
+        useCenter = false,
+        topLeft = Offset(size.width * 0.1f, size.height * 0.1f),
+        size = Size(size.width * 0.8f, size.height * 0.8f),
+        style = Stroke(width = 2.5f)
+    )
 }
 
 // ==================== 统计卡片 ====================
 
 @Composable
-private fun StatCardsSection(overview: BillOverview?, todayExpense: Double) {
-    if (overview == null) return
+private fun StatCardsSection(
+    todaySummary: StatisticsSummary?,
+    monthSummary: StatisticsSummary?,
+    billOverview: BillOverview?,
+    isLoading: Boolean
+) {
+    val todayExpenseText = when {
+        todaySummary != null -> "¥%,.2f".format(abs(todaySummary.totalExpense))
+        billOverview != null -> "¥%,.2f".format(billOverview.totalSpending)
+        else -> "¥0.00"
+    }
+    val monthExpenseText = when {
+        monthSummary != null -> "¥%,.2f".format(abs(monthSummary.totalExpense))
+        billOverview != null -> "¥%,.2f".format(billOverview.totalSpending)
+        else -> "¥0.00"
+    }
+    val monthIncomeText = when {
+        monthSummary != null -> "¥%,.2f".format(monthSummary.totalIncome)
+        billOverview != null -> "¥%,.2f".format(billOverview.totalIncome)
+        else -> "¥0.00"
+    }
+    val isFirstLoad = isLoading && todaySummary == null && monthSummary == null && billOverview == null
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        StatCard("本月充值", "¥%,.2f".format(overview.totalIncome), MaterialTheme.colorScheme.primary, Modifier.weight(1f))
-        StatCard("卡片余额", "暂不可用", MaterialTheme.colorScheme.tertiary, Modifier.weight(1f))
+        StatCard(
+            title = "今日消费",
+            value = if (isFirstLoad) "加载中..." else todayExpenseText,
+            valueColor = RedForeground3,
+            modifier = Modifier.weight(1f)
+        )
+        StatCard(
+            title = "本月消费",
+            value = if (isFirstLoad) "加载中..." else monthExpenseText,
+            valueColor = RedForeground3,
+            modifier = Modifier.weight(1f)
+        )
     }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        StatCard("今日消费", "¥%,.2f".format(todayExpense), MaterialTheme.colorScheme.error, Modifier.weight(1f))
-        val subtitle = if (overview.lastMonthSpending > 0) {
-            val pct = ((overview.totalSpending - overview.lastMonthSpending) / overview.lastMonthSpending * 100).toInt()
-            "${if (pct >= 0) "+" else ""}${pct}% 环比"
-        } else null
-        StatCard("本月消费", "¥%,.2f".format(overview.totalSpending), MaterialTheme.colorScheme.error, Modifier.weight(1f), subtitle)
+        StatCard(
+            title = "本月充值",
+            value = if (isFirstLoad) "加载中..." else monthIncomeText,
+            valueColor = GreenForeground3,
+            modifier = Modifier.weight(1f)
+        )
+        StatCard(
+            title = "卡片余额",
+            value = "暂不可用",
+            valueColor = BrandForeground1,
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
@@ -176,49 +337,114 @@ private fun StatCard(
 // ==================== 消费趋势折线图 ====================
 
 @Composable
-private fun TrendChartCard(data: List<SpendingTrend>) {
+private fun TrendChartCard(
+    legacyData: List<SpendingTrend>,
+    dailyTrend: List<DailyTrend>,
+    isLoading: Boolean
+) {
+    // 优先使用新 DailyTrend (双线), 否则使用老 SpendingTrend
+    val useDaily = dailyTrend.isNotEmpty()
     ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("近7天消费趋势", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
-            if (data.isEmpty()) {
+            if (isLoading && !useDaily && legacyData.isEmpty()) {
+                SkeletonChartBlock(height = 140.dp)
+            } else if (!useDaily && legacyData.isEmpty()) {
                 EmptyChartPlaceholder()
             } else {
-                val textMeasurer = rememberTextMeasurer()
-                val maxVal = data.maxOfOrNull { it.amount }?.coerceAtLeast(1.0) ?: 1.0
-                Canvas(modifier = Modifier.fillMaxWidth().height(140.dp)) {
-                    val w = size.width
-                    val h = size.height
-                    val padLeft = 44f
-                    val padBottom = 20f
-                    val chartW = w - padLeft
-                    val chartH = h - padBottom
-
-                    for (i in 0..4) {
-                        val y = padBottom / 2 + chartH * (1f - i / 4f)
-                        drawLine(Color.LightGray.copy(alpha = 0.5f), Offset(padLeft, y), Offset(w, y), 1f)
-                        drawText(textMeasurer, "¥%,.0f".format(maxVal * i / 4), topLeft = Offset(0f, y - 6f),
-                            style = androidx.compose.ui.text.TextStyle(fontSize = 9.sp, color = Color.Gray))
-                    }
-
-                    val path = Path()
-                    data.forEachIndexed { index, item ->
-                        val x = padLeft + (chartW / (data.size - 1).coerceAtLeast(1)) * index
-                        val y = padBottom / 2 + chartH * (1f - (item.amount / maxVal).toFloat())
-                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                        drawCircle(Color(0xFFE86452), 3f, Offset(x, y))
-                    }
-                    drawPath(path, Color(0xFFE86452), style = Stroke(width = 2f))
-
-                    val step = if (data.size <= 4) 1 else data.size / 4
-                    data.forEachIndexed { index, item ->
-                        if (index % step == 0 || index == data.lastIndex) {
-                            val x = padLeft + (chartW / (data.size - 1).coerceAtLeast(1)) * index
-                            drawText(textMeasurer, item.date.substring(5), topLeft = Offset(x - 16f, h - 14f),
-                                style = androidx.compose.ui.text.TextStyle(fontSize = 8.sp, color = Color.Gray))
-                        }
-                    }
+                if (useDaily) {
+                    DualLineTrendCanvas(dailyTrend)
+                } else {
+                    SingleLineTrendCanvas(legacyData)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SingleLineTrendCanvas(data: List<SpendingTrend>) {
+    val textMeasurer = rememberTextMeasurer()
+    val maxVal = data.maxOfOrNull { it.amount }?.coerceAtLeast(1.0) ?: 1.0
+    Canvas(modifier = Modifier.fillMaxWidth().height(140.dp)) {
+        val w = size.width
+        val h = size.height
+        val padLeft = 44f
+        val padBottom = 20f
+        val chartW = w - padLeft
+        val chartH = h - padBottom
+
+        for (i in 0..4) {
+            val y = padBottom / 2 + chartH * (1f - i / 4f)
+            drawLine(Color.LightGray.copy(alpha = 0.5f), Offset(padLeft, y), Offset(w, y), 1f)
+            drawText(textMeasurer, "¥%,.0f".format(maxVal * i / 4), topLeft = Offset(0f, y - 6f),
+                style = TextStyle(fontSize = 9.sp, color = Color.Gray))
+        }
+
+        val path = Path()
+        data.forEachIndexed { index, item ->
+            val x = padLeft + (chartW / (data.size - 1).coerceAtLeast(1)) * index
+            val y = padBottom / 2 + chartH * (1f - (item.amount / maxVal).toFloat())
+            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            drawCircle(Color(0xFFE86452), 3f, Offset(x, y))
+        }
+        drawPath(path, Color(0xFFE86452), style = Stroke(width = 2f))
+
+        val step = if (data.size <= 4) 1 else data.size / 4
+        data.forEachIndexed { index, item ->
+            if (index % step == 0 || index == data.lastIndex) {
+                val x = padLeft + (chartW / (data.size - 1).coerceAtLeast(1)) * index
+                drawText(textMeasurer, item.date.substring(5), topLeft = Offset(x - 16f, h - 14f),
+                    style = TextStyle(fontSize = 8.sp, color = Color.Gray))
+            }
+        }
+    }
+}
+
+/** 双线趋势 - 对齐 Rust ExpenseTrendChart (expense 红 + income 绿) */
+@Composable
+private fun DualLineTrendCanvas(data: List<DailyTrend>) {
+    val textMeasurer = rememberTextMeasurer()
+    val maxVal = max(
+        data.maxOfOrNull { it.expense } ?: 0.0,
+        data.maxOfOrNull { it.income } ?: 0.0
+    ).coerceAtLeast(1.0)
+    Canvas(modifier = Modifier.fillMaxWidth().height(160.dp)) {
+        val w = size.width
+        val h = size.height
+        val padLeft = 44f
+        val padBottom = 22f
+        val chartW = w - padLeft
+        val chartH = h - padBottom
+
+        for (i in 0..4) {
+            val y = padBottom / 2 + chartH * (1f - i / 4f)
+            drawLine(Color.LightGray.copy(alpha = 0.5f), Offset(padLeft, y), Offset(w, y), 1f)
+            drawText(textMeasurer, "¥%,.0f".format(maxVal * i / 4), topLeft = Offset(0f, y - 6f),
+                style = TextStyle(fontSize = 9.sp, color = Color.Gray))
+        }
+
+        fun plotLine(values: List<Double>, color: Color) {
+            val path = Path()
+            values.forEachIndexed { index, value ->
+                val x = padLeft + (chartW / (values.size - 1).coerceAtLeast(1)) * index
+                val y = padBottom / 2 + chartH * (1f - (value / maxVal).toFloat())
+                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                drawCircle(color, 3f, Offset(x, y))
+            }
+            drawPath(path, color, style = Stroke(width = 2f))
+        }
+
+        plotLine(data.map { it.expense }, RedForeground3)
+        plotLine(data.map { it.income }, GreenForeground3)
+
+        val step = if (data.size <= 4) 1 else data.size / 4
+        data.forEachIndexed { index, item ->
+            if (index % step == 0 || index == data.lastIndex) {
+                val x = padLeft + (chartW / (data.size - 1).coerceAtLeast(1)) * index
+                drawText(textMeasurer, item.date.substring(5), topLeft = Offset(x - 16f, h - 14f),
+                    style = TextStyle(fontSize = 8.sp, color = Color.Gray))
             }
         }
     }
@@ -227,12 +453,14 @@ private fun TrendChartCard(data: List<SpendingTrend>) {
 // ==================== 分类占比饼图 ====================
 
 @Composable
-private fun CategoryPieCard(data: List<CategoryBreakdown>) {
+private fun CategoryPieCard(data: List<CategoryBreakdown>, isLoading: Boolean) {
     ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("本月消费分类", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
-            if (data.isEmpty()) {
+            if (isLoading && data.isEmpty()) {
+                SkeletonChartBlock(height = 140.dp)
+            } else if (data.isEmpty()) {
                 EmptyChartPlaceholder()
             } else {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -322,7 +550,7 @@ private fun ForgotCardAlertCard(risk: ForgotCardRisk) {
 // ==================== 身份总览 ====================
 
 @Composable
-private fun IdentityOverviewCard(currentIdentity: cn.edu.shmtu.terminal.android.domain.model.Identity?, identityCount: Int) {
+private fun IdentityOverviewCard(currentIdentity: Identity?, identityCount: Int) {
     ElevatedCard(colors = CardDefaults.elevatedCardColors()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("当前身份", style = MaterialTheme.typography.titleMedium)
@@ -364,25 +592,99 @@ private fun EmptyIdentityCard(identityCount: Int, onNavigateToMe: () -> Unit) {
 // ==================== 最近交易 ====================
 
 @Composable
-private fun RecentTransactionsCard(bills: List<BillItem>) {
+private fun RecentTransactionsCard(
+    bills: List<BillItem>,
+    onBillClick: (Long) -> Unit
+) {
+    val clipboard = LocalClipboardManager.current
     ElevatedCard(colors = CardDefaults.elevatedCardColors()) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("最近交易", style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("最近交易", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "长按复制 · 点击查看详情",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
             Spacer(modifier = Modifier.height(8.dp))
             if (bills.isEmpty()) {
                 Text("暂无交易记录", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 bills.forEach { bill ->
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(bill.type, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                            Text(bill.dateTimeStrFormat, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                        }
-                        val isIncome = bill.type.contains("充值") || bill.type.contains("冲正") || bill.type.contains("退款") || bill.type.contains("返还")
-                        Text("¥${bill.money}", style = MaterialTheme.typography.titleSmall, color = if (isIncome) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-                    }
+                    BillRow(
+                        bill = bill,
+                        onClick = { onBillClick(bill.id) },
+                        onCopyTarget = { clipboard.setText(AnnotatedString(bill.targetUser)) },
+                        onCopyMoney = { clipboard.setText(AnnotatedString("¥${bill.money}")) }
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun BillRow(
+    bill: BillItem,
+    onClick: () -> Unit,
+    onCopyTarget: () -> Unit,
+    onCopyMoney: () -> Unit
+) {
+    val isIncome = bill.type.contains("充值") || bill.type.contains("冲正") ||
+        bill.type.contains("退款") || bill.type.contains("返还")
+    var menuVisible by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = { menuVisible = true }
+            )
+            .padding(vertical = 6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(bill.type, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                Text(
+                    bill.dateTimeStrFormat,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+            Text(
+                "¥${bill.money}",
+                style = MaterialTheme.typography.titleSmall,
+                color = if (isIncome) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+            )
+        }
+        DropdownMenu(
+            expanded = menuVisible,
+            onDismissRequest = { menuVisible = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("复制对方账户") },
+                onClick = {
+                    onCopyTarget()
+                    menuVisible = false
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("复制金额") },
+                onClick = {
+                    onCopyMoney()
+                    menuVisible = false
+                }
+            )
         }
     }
 }
@@ -394,4 +696,27 @@ private fun EmptyChartPlaceholder() {
     Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
         Text("暂无数据", color = MaterialTheme.colorScheme.outline)
     }
+}
+
+@Composable
+private fun SkeletonChartBlock(height: Dp) {
+    val transition = rememberInfiniteTransition(label = "skeleton")
+    val alpha by transition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "skeleton-alpha"
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(height)
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha),
+                shape = RoundedCornerShape(8.dp)
+            )
+    )
 }

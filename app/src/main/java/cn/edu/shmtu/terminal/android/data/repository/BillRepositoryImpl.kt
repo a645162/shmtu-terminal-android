@@ -1,5 +1,6 @@
 package cn.edu.shmtu.terminal.android.data.repository
 
+import android.util.Log
 import cn.edu.shmtu.terminal.android.data.local.db.BillDatabase
 import cn.edu.shmtu.terminal.android.data.local.db.BillDatabaseManager
 import cn.edu.shmtu.terminal.android.data.mapper.EntityMappers
@@ -129,14 +130,16 @@ class BillRepositoryImpl @Inject constructor(
         val lastMonthEnd = lastMonth.atEndOfMonth().format(DATE_FMT_END)
         return mergedBills(identityId).map { allBills ->
             val successfulBills = allBills.filterSuccessful()
+            Log.d("BillRepo", "getBillOverview totalBills=${allBills.size} successful=${successfulBills.size}")
             val thisMonthBills = successfulBills.filterByRange(thisMonthStart, thisMonthEnd)
             val lastMonthBills = successfulBills.filterByRange(lastMonthStart, lastMonthEnd)
-            val thisSpending = thisMonthBills.filterNot(::isIncome).sumOf { it.moneyValue() }
-            val thisIncome = thisMonthBills.filter(::isIncome).sumOf { it.moneyValue() }
-            val lastSpending = lastMonthBills.filterNot(::isIncome).sumOf { it.moneyValue() }
-            val lastIncome = lastMonthBills.filter(::isIncome).sumOf { it.moneyValue() }
+            val thisSpending = thisMonthBills.filterNot(::isIncome).sumOf { kotlin.math.abs(it.moneyValue()) }
+            val thisIncome = thisMonthBills.filter(::isIncome).sumOf { kotlin.math.abs(it.moneyValue()) }
+            val lastSpending = lastMonthBills.filterNot(::isIncome).sumOf { kotlin.math.abs(it.moneyValue()) }
+            val lastIncome = lastMonthBills.filter(::isIncome).sumOf { kotlin.math.abs(it.moneyValue()) }
             val activeDays = thisMonthBills.map { it.dateStr }.distinct().size
             val dailyAverage = if (activeDays > 0) thisSpending / activeDays else 0.0
+            Log.d("BillRepo", "getBillOverview thisSpending=$thisSpending thisIncome=$thisIncome lastSpending=$lastSpending activeDays=$activeDays")
             BillOverview(
                 totalSpending = thisSpending,
                 totalIncome = thisIncome,
@@ -168,11 +171,11 @@ class BillRepositoryImpl @Inject constructor(
                 .filterByRange(startDate, endDate)
                 .filterNot(::isIncome)
                 .groupBy { it.type }
-                .mapValues { (_, items) -> items.sumOf { it.moneyValue() } }
+                .mapValues { (_, items) -> items.sumOf { kotlin.math.abs(it.moneyValue()) } }
             val total = merged.values.sum()
             merged.entries.map { (type, amount) ->
                 CategoryBreakdown(type, amount, if (total > 0) (amount / total).toFloat() else 0f)
-            }.sortedByDescending { it.amount }
+            }.sortedByDescending { it.amount}
         }
     }
 
@@ -213,32 +216,44 @@ class BillRepositoryImpl @Inject constructor(
     override fun getStatisticsSummary(identityId: Long?, dateStart: String?, dateEnd: String?): Flow<StatisticsSummary> {
         val start = dateStart ?: YearMonth.now().atDay(1).format(DATE_FMT)
         val end = dateEnd ?: YearMonth.now().atEndOfMonth().format(DATE_FMT_END)
+        Log.d("BillRepo", "getStatisticsSummary identityId=$identityId range=$start..$end")
 
         return getDatabases(identityId).flatMapLatest { dbs ->
+            Log.d("BillRepo", "getStatisticsSummary dbs.size=${dbs.size}")
             combine(
                 combine(dbs.map { db ->
-                    db.billDao().getSumByTypeInRange(start, end)
+                    db.billDao().getSumByTypeInRangeDotFormat(start, end)
                 }) { results ->
                     val sums = results.flatMap { it.toList() }
-                    val expenseSum = sums.filter { it.type.contains("消费") }.sumOf { it.total }
-                    val incomeSum = sums.filter { it.type.contains("充值") }.sumOf { it.total }
+                    Log.d("BillRepo", "getSumByTypeInRange rows=${sums.size} samples=${sums.take(8)}")
+                    val expenseKeywords = listOf("消费", "支出", "扣款")
+                    val incomeKeywords = listOf("充值", "存入", "转入", "退款", "返还", "冲正")
+                    val expenseSum = sums.filter { row ->
+                        expenseKeywords.any { row.type.contains(it) }
+                    }.sumOf { kotlin.math.abs(it.total) }
+                    val incomeSum = sums.filter { row ->
+                        incomeKeywords.any { row.type.contains(it) }
+                    }.sumOf { kotlin.math.abs(it.total) }
+                    Log.d("BillRepo", "getStatisticsSummary expenseSum=$expenseSum incomeSum=$incomeSum")
                     expenseSum to incomeSum
                 },
                 combine(dbs.map { db ->
-                    db.billDao().getAllBills()
+                    db.billDao().getSumByTypeInRangeDotFormat(start, end)
                 }) { results ->
-                    val allBills = results.flatMap { it.toList() }
-                    val expenseCount = allBills.count {
-                        it.status == "交易成功" && it.type.contains("消费")
-                    }
-                    val incomeCount = allBills.count {
-                        it.status == "交易成功" && it.type.contains("充值")
-                    }
+                    val sums = results.flatMap { it.toList() }
+                    val expenseKeywords = listOf("消费", "支出", "扣款")
+                    val incomeKeywords = listOf("充值", "存入", "转入", "退款", "返还", "冲正")
+                    val expenseCount = sums.filter { row ->
+                        expenseKeywords.any { row.type.contains(it) }
+                    }.sumOf { 1 }
+                    val incomeCount = sums.filter { row ->
+                        incomeKeywords.any { row.type.contains(it) }
+                    }.sumOf { 1 }
                     expenseCount to incomeCount
                 }
             ) { (expenseSum, incomeSum), (expenseCount, incomeCount) ->
-                val activeDays = 30 // simplified
-                StatisticsSummary(
+                val activeDays = 30
+                val summary = StatisticsSummary(
                     totalExpense = expenseSum,
                     totalIncome = incomeSum,
                     netExpense = expenseSum - incomeSum,
@@ -246,6 +261,8 @@ class BillRepositoryImpl @Inject constructor(
                     expenseCount = expenseCount,
                     incomeCount = incomeCount
                 )
+                Log.d("BillRepo", "getStatisticsSummary -> $summary")
+                summary
             }
         }
     }
@@ -260,20 +277,22 @@ class BillRepositoryImpl @Inject constructor(
 
         return getDatabases(identityId).flatMapLatest { dbs ->
             combine(dbs.map { db ->
-                db.billDao().getDailyTrendByType(start, end)
+                db.billDao().getDailyTrendByTypeDotFormat(start, end)
             }) { results ->
                 val merged = mutableMapOf<String, MutableMap<String, Double>>()
                 for (list in results) {
                     for (item in list) {
                         val typeMap = merged.getOrPut(item.dateStr) { mutableMapOf() }
-                        typeMap[item.type] = (typeMap[item.type] ?: 0.0) + item.total
+                        typeMap[item.type] = (typeMap[item.type] ?: 0.0) + kotlin.math.abs(item.total)
                     }
                 }
+                val expenseKeywords = listOf("消费", "支出", "扣款")
+                val incomeKeywords = listOf("充值", "存入", "转入", "退款", "返还", "冲正")
                 merged.entries.sortedBy { it.key }.map { (date, typeMap) ->
                     DailyTrend(
                         date = date,
-                        expense = typeMap.filter { it.key.contains("消费") }.values.sum(),
-                        income = typeMap.filter { it.key.contains("充值") }.values.sum()
+                        expense = typeMap.filter { (k, _) -> expenseKeywords.any { k.contains(it) } }.values.sum(),
+                        income = typeMap.filter { (k, _) -> incomeKeywords.any { k.contains(it) } }.values.sum()
                     )
                 }
             }
@@ -385,9 +404,32 @@ class BillRepositoryImpl @Inject constructor(
 
 private fun cn.edu.shmtu.terminal.android.data.local.db.entity.BillEntity.toDomain() = EntityMappers.run { this@toDomain.toDomain() }
 private fun BillEntity.moneyValue(): Double = money.replace("¥", "").replace(",", "").toDoubleOrNull()?.let { kotlin.math.abs(it) } ?: 0.0
-private fun isIncome(bill: BillEntity): Boolean = INCOME_KEYWORDS.any { keyword ->
-    bill.type.contains(keyword) || bill.targetUser.contains(keyword)
+private fun isIncome(bill: BillEntity): Boolean {
+    val keywords = listOf("充值", "冲正", "退款", "返还", "补偿", "存入", "转入")
+    val res = keywords.any { keyword ->
+        bill.type.contains(keyword) || bill.targetUser.contains(keyword)
+    }
+    return res
 }
-private fun List<BillEntity>.filterSuccessful(): List<BillEntity> = filter { it.status == "交易成功" }
-private fun List<BillEntity>.filterByRange(startDate: String, endDate: String): List<BillEntity> =
-    filter { it.dateTimeStrFormat >= startDate && it.dateTimeStrFormat <= endDate }
+private fun List<BillEntity>.filterSuccessful(): List<BillEntity> {
+    val filtered = filter { it.status == "SUCCESS" }
+    if (isNotEmpty() && filtered.isEmpty()) {
+        val first = first()
+        val distinctStatuses = map { it.status }.distinct()
+        Log.d("BillRepo", "filterSuccessful dropped all: size=${size} first.status='${first.status}' distinctStatuses=$distinctStatuses")
+    }
+    return filtered
+}
+private fun List<BillEntity>.filterByRange(startDate: String, endDate: String): List<BillEntity> {
+    // 兼容库内 dateTimeStrFormat 格式 "yyyy.MM.dd HH:mm:ss" 与入参 "yyyy-MM-dd" / "yyyy-MM-dd 23:59:59"
+    // 做法:把库内 '.' 替换为 '-' 后再做字符串比较
+    val filtered = filter {
+        val normalized = it.dateTimeStrFormat.replace(".", "-")
+        normalized >= startDate && normalized <= endDate
+    }
+    if (isNotEmpty() && filtered.isEmpty()) {
+        val first = first()
+        Log.d("BillRepo", "filterByRange dropped all: range=$startDate..$endDate first.dateTime='${first.dateTimeStrFormat}'")
+    }
+    return filtered
+}
