@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.terminal.android.domain.model.BillOverview
 import cn.edu.shmtu.terminal.android.domain.model.CategoryBreakdown
 import cn.edu.shmtu.terminal.android.domain.model.DailyTrend
+import cn.edu.shmtu.terminal.android.domain.model.ForgotCardStats
 import cn.edu.shmtu.terminal.android.domain.model.Identity
 import cn.edu.shmtu.terminal.android.domain.model.MonthlySummary
 import cn.edu.shmtu.terminal.android.domain.model.SpendingTrend
@@ -164,6 +165,16 @@ class BillStatisticsViewModel @Inject constructor(
     ) { identityId, range, _ ->
         billRepository.getStatisticsSummary(identityId, range.first, range.second)
     }.flatMapLatest { it }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val forgotCardStats: StateFlow<ForgotCardStats> = combine(
+        _selectedIdentityId, dateRangeFlow, _refreshTick
+    ) { identityId, range, _ ->
+        billRepository.getForgotCardStats(identityId, range.first, range.second)
+    }.flatMapLatest { it }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        ForgotCardStats(0, 0.0, emptyList())
+    )
 
     // ==================== 选择器操作 ====================
 

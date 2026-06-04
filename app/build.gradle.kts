@@ -77,7 +77,7 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
 
-    implementation(libs.vico.compose.m3)
+    implementation(libs.koalaplot.core)
 
     implementation(libs.lifecycle.viewmodel.compose)
 

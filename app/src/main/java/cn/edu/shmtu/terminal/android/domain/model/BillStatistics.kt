@@ -95,6 +95,20 @@ data class MonthlySummary(
     val income: Double
 )
 
+data class ForgotCardItem(
+    val id: Long,
+    val date: String,
+    val time: String,
+    val amount: Double,
+    val targetUser: String
+)
+
+data class ForgotCardStats(
+    val count: Int,
+    val totalAmount: Double,
+    val items: List<ForgotCardItem>
+)
+
 // ==================== 导入导出模型 - 对齐 Rust 版 ====================
 
 /** 导出格式 */

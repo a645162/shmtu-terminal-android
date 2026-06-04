@@ -9,6 +9,8 @@ import cn.edu.shmtu.terminal.android.domain.model.BillOverview
 import cn.edu.shmtu.terminal.android.domain.model.CategoryBreakdown
 import cn.edu.shmtu.terminal.android.domain.model.ConsumptionBucket
 import cn.edu.shmtu.terminal.android.domain.model.DailyTrend
+import cn.edu.shmtu.terminal.android.domain.model.ForgotCardItem
+import cn.edu.shmtu.terminal.android.domain.model.ForgotCardStats
 import cn.edu.shmtu.terminal.android.domain.model.MealDistribution
 import cn.edu.shmtu.terminal.android.domain.model.MonthlySummary
 import cn.edu.shmtu.terminal.android.domain.model.SpendingTrend
@@ -299,6 +301,37 @@ class BillRepositoryImpl @Inject constructor(
         }
     }
 
+    override fun getForgotCardStats(identityId: Long?, dateStart: String?, dateEnd: String?): Flow<ForgotCardStats> {
+        val start = dateStart ?: YearMonth.now().atDay(1).format(DATE_FMT)
+        val end = dateEnd ?: YearMonth.now().atEndOfMonth().format(DATE_FMT_END)
+
+        return mergedBills(identityId).map { bills ->
+            val items = bills.filterSuccessful()
+                .filterByRange(start, end)
+                .asSequence()
+                .filterNot(::isIncome)
+                .filter { kotlin.math.abs(it.moneyValue() - 5.0) <= 0.01 }
+                .filter(::isBathBill)
+                .map { bill ->
+                    ForgotCardItem(
+                        id = bill.id,
+                        date = bill.dateStr.ifBlank { bill.dateTimeStrFormat.replace(".", "-").substringBefore(" ") },
+                        time = bill.timeStr.ifBlank { bill.dateTimeStrFormat.substringAfter(" ", "") },
+                        amount = bill.moneyValue(),
+                        targetUser = bill.targetUser
+                    )
+                }
+                .sortedWith(compareByDescending<ForgotCardItem> { it.date }.thenByDescending { it.time })
+                .toList()
+
+            ForgotCardStats(
+                count = items.size,
+                totalAmount = items.sumOf { it.amount },
+                items = items
+            )
+        }
+    }
+
     /**
      * 用餐时段分布 - 对齐 Rust 版 get_meal_distribution
      * 早餐(6-9), 午餐(11-13), 晚餐(17-19), 夜宵(21-23), 其他
@@ -411,6 +444,18 @@ private fun isIncome(bill: BillEntity): Boolean {
     }
     return res
 }
+
+private fun isBathBill(bill: BillEntity): Boolean {
+    val type = bill.type.lowercase()
+    val target = bill.targetUser.lowercase()
+    return type == "bath" ||
+        type.contains("洗澡") ||
+        type.contains("淋浴") ||
+        type.contains("热水") ||
+        target.contains("淋浴") ||
+        target.contains("热水")
+}
+
 private fun List<BillEntity>.filterSuccessful(): List<BillEntity> {
     val filtered = filter { it.status == "SUCCESS" }
     if (isNotEmpty() && filtered.isEmpty()) {

@@ -50,19 +50,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.domain.model.BillItem
 import cn.edu.shmtu.terminal.android.domain.model.BillOverview
@@ -72,13 +67,15 @@ import cn.edu.shmtu.terminal.android.domain.model.Identity
 import cn.edu.shmtu.terminal.android.domain.model.MonthlySummary
 import cn.edu.shmtu.terminal.android.domain.model.SpendingTrend
 import cn.edu.shmtu.terminal.android.domain.model.StatisticsSummary
+import cn.edu.shmtu.terminal.android.ui.component.AppDonutChart
+import cn.edu.shmtu.terminal.android.ui.component.AppDonutSlice
+import cn.edu.shmtu.terminal.android.ui.component.AppLineChart
+import cn.edu.shmtu.terminal.android.ui.component.AppLineSeries
 import cn.edu.shmtu.terminal.android.ui.theme.BrandForeground1
 import cn.edu.shmtu.terminal.android.ui.theme.CategoryColors
 import cn.edu.shmtu.terminal.android.ui.theme.GreenForeground3
 import cn.edu.shmtu.terminal.android.ui.theme.RedForeground3
 import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
 
 /**
  * 首页 - 对齐 Tauri 版 HomePage
@@ -354,97 +351,31 @@ private fun TrendChartCard(
                 EmptyChartPlaceholder()
             } else {
                 if (useDaily) {
-                    DualLineTrendCanvas(dailyTrend)
+                    AppLineChart(
+                        labels = dailyTrend.map { it.date.substring(5) },
+                        series = listOf(
+                            AppLineSeries(
+                                color = RedForeground3,
+                                values = dailyTrend.map { it.expense.toFloat() },
+                            ),
+                            AppLineSeries(
+                                color = GreenForeground3,
+                                values = dailyTrend.map { it.income.toFloat() },
+                            ),
+                        ),
+                    )
                 } else {
-                    SingleLineTrendCanvas(legacyData)
+                    AppLineChart(
+                        labels = legacyData.map { it.date.substring(5) },
+                        series = listOf(
+                            AppLineSeries(
+                                color = RedForeground3,
+                                values = legacyData.map { it.amount.toFloat() },
+                            ),
+                        ),
+                        height = 140.dp,
+                    )
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SingleLineTrendCanvas(data: List<SpendingTrend>) {
-    val textMeasurer = rememberTextMeasurer()
-    val maxVal = data.maxOfOrNull { it.amount }?.coerceAtLeast(1.0) ?: 1.0
-    Canvas(modifier = Modifier.fillMaxWidth().height(140.dp)) {
-        val w = size.width
-        val h = size.height
-        val padLeft = 44f
-        val padBottom = 20f
-        val chartW = w - padLeft
-        val chartH = h - padBottom
-
-        for (i in 0..4) {
-            val y = padBottom / 2 + chartH * (1f - i / 4f)
-            drawLine(Color.LightGray.copy(alpha = 0.5f), Offset(padLeft, y), Offset(w, y), 1f)
-            drawText(textMeasurer, "¥%,.0f".format(maxVal * i / 4), topLeft = Offset(0f, y - 6f),
-                style = TextStyle(fontSize = 9.sp, color = Color.Gray))
-        }
-
-        val path = Path()
-        data.forEachIndexed { index, item ->
-            val x = padLeft + (chartW / (data.size - 1).coerceAtLeast(1)) * index
-            val y = padBottom / 2 + chartH * (1f - (item.amount / maxVal).toFloat())
-            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-            drawCircle(Color(0xFFE86452), 3f, Offset(x, y))
-        }
-        drawPath(path, Color(0xFFE86452), style = Stroke(width = 2f))
-
-        val step = if (data.size <= 4) 1 else data.size / 4
-        data.forEachIndexed { index, item ->
-            if (index % step == 0 || index == data.lastIndex) {
-                val x = padLeft + (chartW / (data.size - 1).coerceAtLeast(1)) * index
-                drawText(textMeasurer, item.date.substring(5), topLeft = Offset(x - 16f, h - 14f),
-                    style = TextStyle(fontSize = 8.sp, color = Color.Gray))
-            }
-        }
-    }
-}
-
-/** 双线趋势 - 对齐 Rust ExpenseTrendChart (expense 红 + income 绿) */
-@Composable
-private fun DualLineTrendCanvas(data: List<DailyTrend>) {
-    val textMeasurer = rememberTextMeasurer()
-    val maxVal = max(
-        data.maxOfOrNull { it.expense } ?: 0.0,
-        data.maxOfOrNull { it.income } ?: 0.0
-    ).coerceAtLeast(1.0)
-    Canvas(modifier = Modifier.fillMaxWidth().height(160.dp)) {
-        val w = size.width
-        val h = size.height
-        val padLeft = 44f
-        val padBottom = 22f
-        val chartW = w - padLeft
-        val chartH = h - padBottom
-
-        for (i in 0..4) {
-            val y = padBottom / 2 + chartH * (1f - i / 4f)
-            drawLine(Color.LightGray.copy(alpha = 0.5f), Offset(padLeft, y), Offset(w, y), 1f)
-            drawText(textMeasurer, "¥%,.0f".format(maxVal * i / 4), topLeft = Offset(0f, y - 6f),
-                style = TextStyle(fontSize = 9.sp, color = Color.Gray))
-        }
-
-        fun plotLine(values: List<Double>, color: Color) {
-            val path = Path()
-            values.forEachIndexed { index, value ->
-                val x = padLeft + (chartW / (values.size - 1).coerceAtLeast(1)) * index
-                val y = padBottom / 2 + chartH * (1f - (value / maxVal).toFloat())
-                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                drawCircle(color, 3f, Offset(x, y))
-            }
-            drawPath(path, color, style = Stroke(width = 2f))
-        }
-
-        plotLine(data.map { it.expense }, RedForeground3)
-        plotLine(data.map { it.income }, GreenForeground3)
-
-        val step = if (data.size <= 4) 1 else data.size / 4
-        data.forEachIndexed { index, item ->
-            if (index % step == 0 || index == data.lastIndex) {
-                val x = padLeft + (chartW / (data.size - 1).coerceAtLeast(1)) * index
-                drawText(textMeasurer, item.date.substring(5), topLeft = Offset(x - 16f, h - 14f),
-                    style = TextStyle(fontSize = 8.sp, color = Color.Gray))
             }
         }
     }
@@ -464,18 +395,16 @@ private fun CategoryPieCard(data: List<CategoryBreakdown>, isLoading: Boolean) {
                 EmptyChartPlaceholder()
             } else {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Canvas(modifier = Modifier.size(120.dp)) {
-                        val radius = min(size.width, size.height) / 2f - 12f
-                        val innerRadius = radius * 0.6f
-                        var startAngle = -90f
-                        data.forEachIndexed { index, item ->
-                            val sweepAngle = item.percentage * 360f
-                            drawArc(CategoryColors[index % CategoryColors.size], startAngle, sweepAngle, false,
-                                Offset(size.width / 2 - radius, size.height / 2 - radius), Size(radius * 2, radius * 2),
-                                style = Stroke(width = radius - innerRadius))
-                            startAngle += sweepAngle
-                        }
-                    }
+                    AppDonutChart(
+                        slices = data.mapIndexed { index, item ->
+                            AppDonutSlice(
+                                label = item.type,
+                                value = item.amount.toFloat(),
+                                color = CategoryColors[index % CategoryColors.size],
+                            )
+                        },
+                        modifier = Modifier.size(120.dp),
+                    )
                     Column(modifier = Modifier.weight(1f)) {
                         data.take(6).forEachIndexed { index, item ->
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 1.dp)) {

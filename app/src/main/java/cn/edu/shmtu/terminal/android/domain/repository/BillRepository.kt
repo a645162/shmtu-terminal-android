@@ -5,6 +5,7 @@ import cn.edu.shmtu.terminal.android.domain.model.BillOverview
 import cn.edu.shmtu.terminal.android.domain.model.CategoryBreakdown
 import cn.edu.shmtu.terminal.android.domain.model.ConsumptionBucket
 import cn.edu.shmtu.terminal.android.domain.model.DailyTrend
+import cn.edu.shmtu.terminal.android.domain.model.ForgotCardStats
 import cn.edu.shmtu.terminal.android.domain.model.MealDistribution
 import cn.edu.shmtu.terminal.android.domain.model.MonthlySummary
 import cn.edu.shmtu.terminal.android.domain.model.SpendingTrend
@@ -46,6 +47,7 @@ interface BillRepository {
     /** 统计功能 - 对齐 Rust 版 statistics commands */
     fun getStatisticsSummary(identityId: Long?, dateStart: String?, dateEnd: String?): Flow<StatisticsSummary>
     fun getDailyTrend(identityId: Long?, dateStart: String?, dateEnd: String?): Flow<List<DailyTrend>>
+    fun getForgotCardStats(identityId: Long?, dateStart: String?, dateEnd: String?): Flow<ForgotCardStats>
     fun getMealDistribution(identityId: Long?, dateStart: String?, dateEnd: String?): Flow<List<MealDistribution>>
     fun getConsumptionDistribution(identityId: Long?, dateStart: String?, dateEnd: String?): Flow<List<ConsumptionBucket>>
 }

@@ -173,27 +173,20 @@ class HomeViewModel @Inject constructor(
             else billRepository.getMonthlySummary(identityId)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** 忘拔卡异常提醒 - 对齐 Rust forgot_card_stats (本实现基于热水/洗浴关键词统计) */
+    /** 忘拔卡异常提醒 - 对齐 Rust forgot_card_stats (洗澡消费恰好 5 元) */
     val forgotCardRisk: StateFlow<ForgotCardRisk> = combine(
         identityRepository.getCurrentIdentityId(),
         _refreshTrigger
     ) { identityId, _ -> identityId }
         .flatMapLatest { identityId ->
             if (identityId == null) flowOf(ForgotCardRisk())
-            else billRepository.getBillsForIdentity(identityId)
-                .map { bills ->
-                    val suspicious = bills.filter { bill ->
-                        bill.type.contains("洗浴") || bill.type.contains("热水")
-                    }.groupBy { bill ->
-                        bill.dateTimeStrFormat.substringBefore(" ")
-                    }.count { (_, billsForDay) ->
-                        billsForDay.size > 2 && billsForDay.sumOf { it.money.toDouble() } > 10.0
-                    }
-                    val totalAmount = bills.filter {
-                        it.type.contains("洗浴") || it.type.contains("热水")
-                    }.sumOf { it.money.toDouble() }
-                    ForgotCardRisk(count = suspicious, totalAmount = totalAmount)
-                }
+            else billRepository.getForgotCardStats(
+                identityId,
+                YearMonth.now().atDay(1).format(DATE_FMT),
+                YearMonth.now().atEndOfMonth().format(DATE_FMT_END)
+            ).map { stats ->
+                ForgotCardRisk(count = stats.count, totalAmount = stats.totalAmount)
+            }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ForgotCardRisk())
 
     /** 最近 5 条交易 */

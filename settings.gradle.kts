@@ -1,11 +1,5 @@
 pluginManagement {
     repositories {
-        maven { url = uri("https://maven.aliyun.com/repository/central") }
-        maven { url = uri("https://maven.aliyun.com/repository/jcenter") }
-        maven { url = uri("https://maven.aliyun.com/repository/google") }
-        maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
-        maven { url = uri("https://maven.aliyun.com/repository/public") }
-        maven { url = uri("https://jitpack.io") }
         google {
             content {
                 includeGroupByRegex("com\\.android.*")
@@ -13,6 +7,12 @@ pluginManagement {
                 includeGroupByRegex("androidx.*")
             }
         }
+        maven { url = uri("https://maven.aliyun.com/repository/central") }
+        maven { url = uri("https://maven.aliyun.com/repository/jcenter") }
+        maven { url = uri("https://maven.aliyun.com/repository/google") }
+        maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
+        maven { url = uri("https://maven.aliyun.com/repository/public") }
+        maven { url = uri("https://jitpack.io") }
         mavenCentral()
         gradlePluginPortal()
     }
@@ -25,14 +25,21 @@ plugins {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
     repositories {
+        google()
         maven { url = uri("https://maven.aliyun.com/repository/central") }
         maven { url = uri("https://maven.aliyun.com/repository/jcenter") }
         maven { url = uri("https://maven.aliyun.com/repository/google") }
         maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
         maven { url = uri("https://maven.aliyun.com/repository/public") }
         maven { url = uri("https://jitpack.io") }
-        google()
-        mavenCentral()
+        exclusiveContent {
+            forRepository {
+                mavenCentral()
+            }
+            filter {
+                includeGroup("io.github.koalaplot")
+            }
+        }
     }
 }
 

@@ -49,22 +49,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.domain.model.BillOverview
 import cn.edu.shmtu.terminal.android.domain.model.CategoryBreakdown
+import cn.edu.shmtu.terminal.android.domain.model.ForgotCardStats
 import cn.edu.shmtu.terminal.android.domain.model.Identity
 import cn.edu.shmtu.terminal.android.domain.model.MonthlySummary
 import cn.edu.shmtu.terminal.android.domain.model.SpendingTrend
 import cn.edu.shmtu.terminal.android.domain.model.StatisticsSummary
 import cn.edu.shmtu.terminal.android.domain.model.TargetUserRanking
+import cn.edu.shmtu.terminal.android.ui.component.AppDonutChart
+import cn.edu.shmtu.terminal.android.ui.component.AppDonutSlice
+import cn.edu.shmtu.terminal.android.ui.component.AppLineChart
+import cn.edu.shmtu.terminal.android.ui.component.AppLineSeries
 import cn.edu.shmtu.terminal.android.ui.theme.BrandForeground1
 import cn.edu.shmtu.terminal.android.ui.theme.GreenForeground3
 import cn.edu.shmtu.terminal.android.ui.theme.RedForeground3
@@ -73,7 +72,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
-import kotlin.math.min
 
 /**
  * 账单统计页 - 对齐 Tauri StatisticsDialog
@@ -96,6 +94,7 @@ fun BillStatisticsScreen(
     val ranking by viewModel.targetUserRanking.collectAsState()
     val monthly by viewModel.monthlySummary.collectAsState()
     val statisticsSummary by viewModel.statisticsSummary.collectAsState()
+    val forgotCardStats by viewModel.forgotCardStats.collectAsState()
     val selectedIdentityId by viewModel.selectedIdentityId.collectAsState()
     val selectedPeriod by viewModel.selectedPeriod.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
@@ -208,7 +207,7 @@ fun BillStatisticsScreen(
                         item { OverviewCards(overview) }
                     }
                     StatisticsTab.FORGOT -> {
-                        item { ForgotCardHint() }
+                        item { ForgotCardCard(forgotCardStats) }
                     }
                 }
                 item { Spacer(modifier = Modifier.height(16.dp)) }
@@ -583,48 +582,14 @@ private fun TrendCard(data: List<SpendingTrend>) {
                     Text("暂无数据", color = MaterialTheme.colorScheme.outline)
                 }
             } else {
-                TrendCanvas(data)
-            }
-        }
-    }
-}
-
-@Composable
-private fun TrendCanvas(data: List<SpendingTrend>) {
-    val textMeasurer = rememberTextMeasurer()
-    val maxVal = (data.maxOfOrNull { it.amount } ?: 1.0).coerceAtLeast(1.0)
-    Canvas(modifier = Modifier.fillMaxWidth().height(160.dp)) {
-        val w = size.width
-        val h = size.height
-        val padLeft = 44f
-        val padBottom = 22f
-        val chartW = w - padLeft
-        val chartH = h - padBottom
-        for (i in 0..4) {
-            val y = padBottom / 2 + chartH * (1f - i / 4f)
-            drawLine(Color.LightGray.copy(alpha = 0.5f), Offset(padLeft, y), Offset(w, y), 1f)
-            drawText(
-                textMeasurer, "¥%,.0f".format(maxVal * i / 4),
-                topLeft = Offset(0f, y - 6f),
-                style = TextStyle(fontSize = 9.sp, color = Color.Gray)
-            )
-        }
-        val path = Path()
-        data.forEachIndexed { index, item ->
-            val x = padLeft + (chartW / (data.size - 1).coerceAtLeast(1)) * index
-            val y = padBottom / 2 + chartH * (1f - (item.amount / maxVal).toFloat())
-            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-            drawCircle(RedForeground3, 3f, Offset(x, y))
-        }
-        drawPath(path, RedForeground3, style = Stroke(width = 2f))
-        val step = if (data.size <= 4) 1 else data.size / 4
-        data.forEachIndexed { index, item ->
-            if (index % step == 0 || index == data.lastIndex) {
-                val x = padLeft + (chartW / (data.size - 1).coerceAtLeast(1)) * index
-                drawText(
-                    textMeasurer, item.date.substring(5),
-                    topLeft = Offset(x - 16f, h - 14f),
-                    style = TextStyle(fontSize = 8.sp, color = Color.Gray)
+                AppLineChart(
+                    labels = data.map { it.date.substring(5) },
+                    series = listOf(
+                        AppLineSeries(
+                            color = RedForeground3,
+                            values = data.map { it.amount.toFloat() },
+                        ),
+                    ),
                 )
             }
         }
@@ -646,25 +611,16 @@ private fun CategoryDonutChart(
                 }
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Canvas(modifier = Modifier.size(140.dp)) {
-                        val radius = min(size.width, size.height) / 2f - 16f
-                        val innerRadius = radius * 0.55f
-                        var startAngle = -90f
-                        categories.forEach { item ->
-                            val sweepAngle = item.percentage * 360f
-                            val color = CategoryDisplay.color(item.type)
-                            drawArc(
-                                color = color,
-                                startAngle = startAngle,
-                                sweepAngle = sweepAngle,
-                                useCenter = false,
-                                topLeft = Offset(size.width / 2 - radius, size.height / 2 - radius),
-                                size = Size(radius * 2, radius * 2),
-                                style = Stroke(width = radius - innerRadius)
+                    AppDonutChart(
+                        slices = categories.map { item ->
+                            AppDonutSlice(
+                                label = item.type,
+                                value = item.amount.toFloat(),
+                                color = CategoryDisplay.color(item.type),
                             )
-                            startAngle += sweepAngle
-                        }
-                    }
+                        },
+                        modifier = Modifier.size(140.dp),
+                    )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         categories.take(6).forEach { item ->
@@ -897,7 +853,7 @@ private fun MonthlySummaryTable(monthly: List<MonthlySummary>) {
 // ==================== 忘记拔卡 Tab ====================
 
 @Composable
-private fun ForgotCardHint() {
+private fun ForgotCardCard(stats: ForgotCardStats) {
     ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text("忘记拔卡提醒", style = MaterialTheme.typography.titleSmall)
@@ -908,11 +864,46 @@ private fun ForgotCardHint() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                "请到首页异常提醒卡片查看具体统计,或在账单按类型过滤热水/洗浴记录。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (stats.count == 0) {
+                Text(
+                    "当前时间范围内没有发现忘记拔卡的记录。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Text(
+                    "共 ${stats.count} 次，累计 ¥${"%.2f".format(stats.totalAmount)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                stats.items.forEach { item ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "${item.date} ${item.time}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                item.targetUser.ifBlank { "淋浴/热水" },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            "¥${"%.2f".format(item.amount)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
         }
     }
 }
