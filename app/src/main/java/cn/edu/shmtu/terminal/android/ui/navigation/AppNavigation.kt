@@ -16,6 +16,7 @@ import cn.edu.shmtu.terminal.android.ui.hotwater.HotWaterScreen
 import cn.edu.shmtu.terminal.android.ui.bill.BillListScreen
 import cn.edu.shmtu.terminal.android.ui.features.FeatureHubScreen
 import cn.edu.shmtu.terminal.android.ui.home.HomeScreen
+import cn.edu.shmtu.terminal.android.ui.me.MeScreen
 import cn.edu.shmtu.terminal.android.ui.statistics.BillStatisticsScreen
 import cn.edu.shmtu.terminal.android.ui.settings.AboutScreen
 import cn.edu.shmtu.terminal.android.ui.settings.OcrSettingsScreen
@@ -34,7 +35,7 @@ fun AppNavigation(
         composable(TopLevelDestination.HOME.route) {
             HomeScreen(
                 onNavigateToBill = { navController.navigate(TopLevelDestination.BILL.route) },
-                onNavigateToAccount = { navController.navigate(TopLevelDestination.ACCOUNT.route) },
+                onNavigateToMe = { navController.navigate(TopLevelDestination.ME.route) },
                 onNavigateToStatistics = { navController.navigate("bill_statistics") }
             )
         }
@@ -51,9 +52,10 @@ fun AppNavigation(
                 onNavigateToDataTransfer = { navController.navigate("data_transfer") }
             )
         }
-        composable(TopLevelDestination.ACCOUNT.route) {
-            IdentityListScreen(
-                onIdentityClick = { identityId ->
+        composable(TopLevelDestination.ME.route) {
+            MeScreen(
+                onManageIdentities = { navController.navigate("identity_manager") },
+                onIdentityDetail = { identityId ->
                     navController.navigate("identity_detail/$identityId")
                 }
             )
@@ -95,6 +97,14 @@ fun AppNavigation(
         }
         composable("data_transfer") {
             DataTransferScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable("identity_manager") {
+            IdentityListScreen(
+                onIdentityClick = { identityId ->
+                    navController.navigate("identity_detail/$identityId")
+                },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -147,7 +157,7 @@ fun AppNavigation(
                 accountId = accountId,
                 onBack = { navController.popBackStack() },
                 onLoginSuccess = {
-                    navController.popBackStack(TopLevelDestination.ACCOUNT.route, inclusive = false)
+                    navController.popBackStack(TopLevelDestination.ME.route, inclusive = false)
                 }
             )
         }

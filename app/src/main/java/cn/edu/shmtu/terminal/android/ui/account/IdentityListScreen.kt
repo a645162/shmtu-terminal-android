@@ -59,6 +59,7 @@ import cn.edu.shmtu.terminal.android.domain.model.Identity
 @Composable
 fun IdentityListScreen(
     onIdentityClick: (Long) -> Unit,
+    onBack: (() -> Unit)? = null,
     viewModel: IdentityListViewModel = hiltViewModel()
 ) {
     val identities by viewModel.identities.collectAsState()

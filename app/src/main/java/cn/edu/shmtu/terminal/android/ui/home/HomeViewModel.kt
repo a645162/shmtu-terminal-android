@@ -8,18 +8,15 @@ import cn.edu.shmtu.terminal.android.domain.model.CategoryBreakdown
 import cn.edu.shmtu.terminal.android.domain.model.Identity
 import cn.edu.shmtu.terminal.android.domain.model.MonthlySummary
 import cn.edu.shmtu.terminal.android.domain.model.SpendingTrend
-import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -40,53 +37,73 @@ import javax.inject.Inject
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val identityRepository: IdentityRepository,
-    private val accountRepository: AccountRepository,
     private val billRepository: BillRepository
 ) : ViewModel() {
 
     val identities: StateFlow<List<Identity>> = identityRepository.getAllIdentities()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _accountCount = MutableStateFlow(0)
-    val accountCount: StateFlow<Int> = _accountCount
+    val currentIdentity: StateFlow<Identity?> = identityRepository.getCurrentIdentity()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /** 账单概览 (本月) */
-    val billOverview: StateFlow<BillOverview?> = billRepository.getBillOverview(null)
+    val billOverview: StateFlow<BillOverview?> = identityRepository.getCurrentIdentityId()
+        .flatMapLatest { identityId ->
+            if (identityId == null) flowOf(null)
+            else billRepository.getBillOverview(identityId)
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /** 今日消费 */
-    val todayExpense: StateFlow<Double> = billRepository.getSpendingTrend(
-        null,
-        LocalDate.now().format(DATE_FMT),
-        LocalDate.now().format(DATE_FMT_END)
-    ).combine(flowOf(Unit)) { trends, _ ->
-        trends.sumOf { it.amount }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    val todayExpense: StateFlow<Double> = identityRepository.getCurrentIdentityId()
+        .flatMapLatest { identityId ->
+            if (identityId == null) flowOf(0.0)
+            else billRepository.getSpendingTrend(
+                identityId,
+                LocalDate.now().format(DATE_FMT),
+                LocalDate.now().format(DATE_FMT_END)
+            ).map { trends -> trends.sumOf { it.amount } }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
     /** 近7天消费趋势 - 对齐 Rust 版 ExpenseTrendChart */
-    val weeklyTrend: StateFlow<List<SpendingTrend>> = billRepository.getSpendingTrend(
-        null,
-        LocalDate.now().minusDays(6).format(DATE_FMT),
-        LocalDate.now().format(DATE_FMT_END)
-    ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val weeklyTrend: StateFlow<List<SpendingTrend>> = identityRepository.getCurrentIdentityId()
+        .flatMapLatest { identityId ->
+            if (identityId == null) flowOf(emptyList())
+            else billRepository.getSpendingTrend(
+                identityId,
+                LocalDate.now().minusDays(6).format(DATE_FMT),
+                LocalDate.now().format(DATE_FMT_END)
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 本月分类占比 - 对齐 Rust 版 CategoryPieChart */
-    val categoryBreakdown: StateFlow<List<CategoryBreakdown>> = billRepository.getCategoryBreakdown(
-        null,
-        YearMonth.now().atDay(1).format(DATE_FMT),
-        YearMonth.now().atEndOfMonth().format(DATE_FMT_END)
-    ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val categoryBreakdown: StateFlow<List<CategoryBreakdown>> = identityRepository.getCurrentIdentityId()
+        .flatMapLatest { identityId ->
+            if (identityId == null) flowOf(emptyList())
+            else billRepository.getCategoryBreakdown(
+                identityId,
+                YearMonth.now().atDay(1).format(DATE_FMT),
+                YearMonth.now().atEndOfMonth().format(DATE_FMT_END)
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 月度对比 - 对齐 Rust 版 MonthComparisonCard */
-    val monthlySummary: StateFlow<List<MonthlySummary>> = billRepository.getMonthlySummary(null)
+    val monthlySummary: StateFlow<List<MonthlySummary>> = identityRepository.getCurrentIdentityId()
+        .flatMapLatest { identityId ->
+            if (identityId == null) flowOf(emptyList())
+            else billRepository.getMonthlySummary(identityId)
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 忘拔卡异常提醒 - 对齐 Rust 版 forgot_card_stats */
-    val forgotCardRisk: StateFlow<ForgotCardRisk> = identityRepository.getAllIdentities()
-        .flatMapLatest { identities ->
-            if (identities.isEmpty()) flowOf(ForgotCardRisk())
-            else billRepository.getBillsForIdentity(identities.first().id)
-                .combine(flowOf(Unit)) { bills, _ ->
+    val forgotCardRisk: StateFlow<ForgotCardRisk> = identityRepository.getCurrentIdentityId()
+        .flatMapLatest { identityId ->
+            if (identityId == null) flowOf(ForgotCardRisk())
+            else billRepository.getBillsForIdentity(identityId)
+                .map { bills ->
                     val suspicious = bills.filter { bill ->
                         bill.type.contains("洗浴") || bill.type.contains("热水")
                     }.groupBy { bill ->
@@ -102,18 +119,12 @@ class HomeViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ForgotCardRisk())
 
     /** 最近 5 条交易 */
-    val recentBills: StateFlow<List<BillItem>> = identityRepository.getAllIdentities()
-        .flatMapLatest { identities ->
-            if (identities.isEmpty()) flowOf(emptyList())
-            else billRepository.getBillsForIdentity(identities.first().id)
-        }.combine(flowOf(Unit)) { bills, _ -> bills.take(5) }
+    val recentBills: StateFlow<List<BillItem>> = identityRepository.getCurrentIdentityId()
+        .flatMapLatest { identityId ->
+            if (identityId == null) flowOf(emptyList())
+            else billRepository.getBillsForIdentity(identityId)
+        }.map { bills -> bills.take(5) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    init {
-        viewModelScope.launch {
-            _accountCount.value = accountRepository.getAllAccounts().size
-        }
-    }
 
     companion object {
         private val DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd")

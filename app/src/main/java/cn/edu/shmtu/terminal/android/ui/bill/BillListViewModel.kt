@@ -63,13 +63,14 @@ class BillListViewModel @Inject constructor(
 ) : ViewModel() {
     private val tag = "BillListViewModel"
 
-    val identities: StateFlow<List<Identity>> = identityRepository.getAllIdentities()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val currentIdentity: StateFlow<Identity?> = identityRepository.getCurrentIdentity()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    private val _selectedIdentityId = MutableStateFlow<Long?>(null)
+    val currentIdentityId: StateFlow<Long?> = identityRepository.getCurrentIdentityId()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /** 当前身份下的账号列表 */
-    val accounts: StateFlow<List<Account>> = _selectedIdentityId.flatMapLatest { identityId ->
+    val accounts: StateFlow<List<Account>> = currentIdentityId.flatMapLatest { identityId ->
         if (identityId == null) flowOf(emptyList())
         else accountRepository.getAccountsByIdentity(identityId)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -90,7 +91,7 @@ class BillListViewModel @Inject constructor(
 
     // ==================== 筛选后的账单 ====================
 
-    private val allBills: StateFlow<List<BillItem>> = _selectedIdentityId.flatMapLatest { identityId ->
+    private val allBills: StateFlow<List<BillItem>> = currentIdentityId.flatMapLatest { identityId ->
         if (identityId == null) flowOf(emptyList())
         else billRepository.getBillsForIdentity(identityId)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -154,11 +155,6 @@ class BillListViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     // ==================== 操作 ====================
-
-    fun selectIdentity(identityId: Long?) {
-        _selectedIdentityId.value = identityId
-        _page.value = 1
-    }
 
     fun setTypeFilter(filter: BillTypeFilter) { _typeFilter.value = filter; _page.value = 1 }
     fun setDateRange(range: DateRangeFilter) { _dateRange.value = range; _page.value = 1 }

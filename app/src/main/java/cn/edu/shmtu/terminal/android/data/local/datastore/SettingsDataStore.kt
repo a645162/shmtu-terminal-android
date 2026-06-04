@@ -20,11 +20,13 @@ class SettingsDataStore @Inject constructor(
     private val _useLocalOcrFlow = MutableStateFlow(getUseLocalOcr())
     private val _ocrServerUrlFlow = MutableStateFlow(getOcrServerUrl())
     private val _sessionCheckIntervalFlow = MutableStateFlow(getSessionCheckInterval())
+    private val _currentIdentityIdFlow = MutableStateFlow(getCurrentIdentityId())
 
     val captchaMode: Flow<CaptchaMode> = _captchaModeFlow.asStateFlow()
     val useLocalOcr: Flow<Boolean> = _useLocalOcrFlow.asStateFlow()
     val ocrServerUrl: Flow<String> = _ocrServerUrlFlow.asStateFlow()
     val sessionCheckInterval: Flow<Int> = _sessionCheckIntervalFlow.asStateFlow()
+    val currentIdentityId: Flow<Long?> = _currentIdentityIdFlow.asStateFlow()
 
     fun setCaptchaMode(mode: CaptchaMode) {
         prefs.edit().putString(KEY_CAPTCHA_MODE, when (mode) {
@@ -49,6 +51,17 @@ class SettingsDataStore @Inject constructor(
         _sessionCheckIntervalFlow.value = minutes
     }
 
+    fun setCurrentIdentityId(identityId: Long?) {
+        prefs.edit().apply {
+            if (identityId == null) {
+                remove(KEY_CURRENT_IDENTITY_ID)
+            } else {
+                putLong(KEY_CURRENT_IDENTITY_ID, identityId)
+            }
+        }.apply()
+        _currentIdentityIdFlow.value = identityId
+    }
+
     private fun getSessionCheckInterval(): Int =
         prefs.getInt(KEY_SESSION_CHECK_INTERVAL, 10)
 
@@ -65,11 +78,19 @@ class SettingsDataStore @Inject constructor(
     private fun getOcrServerUrl(): String =
         prefs.getString(KEY_OCR_SERVER_URL, "127.0.0.1:21601") ?: "127.0.0.1:21601"
 
+    private fun getCurrentIdentityId(): Long? =
+        if (prefs.contains(KEY_CURRENT_IDENTITY_ID)) {
+            prefs.getLong(KEY_CURRENT_IDENTITY_ID, 0L)
+        } else {
+            null
+        }
+
     companion object {
         private const val KEY_CAPTCHA_MODE = "captcha_mode"
         private const val KEY_USE_LOCAL_OCR = "use_local_ocr"
         private const val KEY_OCR_SERVER_URL = "ocr_server_url"
         private const val KEY_SESSION_CHECK_INTERVAL = "session_check_interval"
+        private const val KEY_CURRENT_IDENTITY_ID = "current_identity_id"
     }
 }
 

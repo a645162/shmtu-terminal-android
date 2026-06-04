@@ -64,13 +64,13 @@ import kotlin.math.min
 @Composable
 fun HomeScreen(
     onNavigateToBill: () -> Unit,
-    onNavigateToAccount: () -> Unit,
+    onNavigateToMe: () -> Unit,
     onNavigateToStatistics: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val identities by viewModel.identities.collectAsState()
+    val currentIdentity by viewModel.currentIdentity.collectAsState()
     val billOverview by viewModel.billOverview.collectAsState()
-    val accountCount by viewModel.accountCount.collectAsState()
     val todayExpense by viewModel.todayExpense.collectAsState()
     val weeklyTrend by viewModel.weeklyTrend.collectAsState()
     val categoryBreakdown by viewModel.categoryBreakdown.collectAsState()
@@ -95,12 +95,22 @@ fun HomeScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (currentIdentity == null) {
+                EmptyIdentityCard(
+                    identityCount = identities.size,
+                    onNavigateToMe = onNavigateToMe
+                )
+                return@Column
+            }
             StatCardsSection(billOverview, todayExpense)
             TrendChartCard(weeklyTrend)
             CategoryPieCard(categoryBreakdown)
             MonthComparisonCard(monthlySummary)
             ForgotCardAlertCard(forgotCardRisk)
-            IdentityOverviewCard(identities.size, accountCount)
+            IdentityOverviewCard(
+                currentIdentity = currentIdentity,
+                identityCount = identities.size
+            )
             RecentTransactionsCard(recentBills)
 
             Row(
@@ -117,9 +127,9 @@ fun HomeScreen(
                 ) { Text("账单统计") }
             }
             OutlinedButton(
-                onClick = onNavigateToAccount,
+                onClick = onNavigateToMe,
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("管理账号") }
+            ) { Text("切换身份") }
         }
     }
 }
@@ -312,12 +322,41 @@ private fun ForgotCardAlertCard(risk: ForgotCardRisk) {
 // ==================== 身份总览 ====================
 
 @Composable
-private fun IdentityOverviewCard(identityCount: Int, accountCount: Int) {
+private fun IdentityOverviewCard(currentIdentity: cn.edu.shmtu.terminal.android.domain.model.Identity?, identityCount: Int) {
     ElevatedCard(colors = CardDefaults.elevatedCardColors()) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("身份总览", style = MaterialTheme.typography.titleMedium)
+            Text("当前身份", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(4.dp))
-            Text("$identityCount 个身份 · $accountCount 个账号", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                currentIdentity?.remark?.ifBlank { currentIdentity.username } ?: "未选择身份",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                "${currentIdentity?.accountCount ?: 0} 个账号 · 共 $identityCount 个身份",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptyIdentityCard(identityCount: Int, onNavigateToMe: () -> Unit) {
+    ElevatedCard(colors = CardDefaults.elevatedCardColors()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("还没有当前身份", style = MaterialTheme.typography.titleMedium)
+            Text(
+                if (identityCount == 0) "先创建一个身份，再查看首页统计和账单。"
+                else "请先在“我”里切换到一个身份。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            FilledTonalButton(onClick = onNavigateToMe) {
+                Text(if (identityCount == 0) "去创建身份" else "去切换身份")
+            }
         }
     }
 }

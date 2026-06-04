@@ -19,7 +19,6 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
@@ -61,7 +60,8 @@ fun BillListScreen(
     onBillClick: (Long) -> Unit,
     viewModel: BillListViewModel = hiltViewModel()
 ) {
-    val identities by viewModel.identities.collectAsState()
+    val currentIdentity by viewModel.currentIdentity.collectAsState()
+    val currentIdentityId by viewModel.currentIdentityId.collectAsState()
     val accounts by viewModel.accounts.collectAsState()
     val bills by viewModel.bills.collectAsState()
     val totalFiltered by viewModel.totalFiltered.collectAsState()
@@ -74,7 +74,6 @@ fun BillListScreen(
     val pendingCaptcha by viewModel.pendingCaptcha.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var selectedIdentityId by remember { mutableStateOf<Long?>(null) }
     var showSyncMenu by remember { mutableStateOf(false) }
     var showAccountPanel by remember { mutableStateOf(false) }
     var searchInput by remember { mutableStateOf("") }
@@ -88,15 +87,15 @@ fun BillListScreen(
                 title = { Text("账单") },
                 scrollBehavior = scrollBehavior,
                 actions = {
-                    if (selectedIdentityId != null) {
+                    if (currentIdentityId != null) {
                         Box {
                             TextButton(onClick = { showSyncMenu = true }) { Text("同步") }
                             androidx.compose.material3.DropdownMenu(showSyncMenu, { showSyncMenu = false }) {
                                 DropdownMenuItem({ Text("增量更新（全部账号）") }, {
-                                    showSyncMenu = false; selectedIdentityId?.let { pendingSyncAction = PendingSyncAction.IdentityIncremental(it) }
+                                    showSyncMenu = false; currentIdentityId?.let { pendingSyncAction = PendingSyncAction.IdentityIncremental(it) }
                                 }, enabled = !isSyncing)
                                 DropdownMenuItem({ Text("全量更新（全部账号）") }, {
-                                    showSyncMenu = false; selectedIdentityId?.let { pendingSyncAction = PendingSyncAction.IdentityFull(it) }
+                                    showSyncMenu = false; currentIdentityId?.let { pendingSyncAction = PendingSyncAction.IdentityFull(it) }
                                 }, enabled = !isSyncing)
                             }
                         }
@@ -112,18 +111,15 @@ fun BillListScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         Column(modifier = Modifier.padding(innerPadding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
-            // 身份选择器
-            if (identities.isNotEmpty()) {
-                Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = selectedIdentityId == null, onClick = { selectedIdentityId = null; viewModel.selectIdentity(null) }, label = { Text("全部") })
-                    identities.forEach { identity ->
-                        FilterChip(selected = selectedIdentityId == identity.id, onClick = { selectedIdentityId = identity.id; viewModel.selectIdentity(identity.id) }, label = { Text(identity.remark) })
-                    }
-                }
+            if (currentIdentity != null) {
+                IdentityScopeCard(
+                    title = currentIdentity!!.remark.ifBlank { currentIdentity!!.username },
+                    subtitle = "当前身份 · ${currentIdentity!!.accountCount} 个账号"
+                )
             }
 
             // 筛选栏
-            if (selectedIdentityId != null) {
+            if (currentIdentityId != null) {
                 FilterBar(typeFilter, dateRange, searchInput, { viewModel.setTypeFilter(it) }, { viewModel.setDateRange(it) }, { searchInput = it }, { viewModel.search(searchInput) })
             }
 
@@ -175,11 +171,11 @@ fun BillListScreen(
             }
 
             // 账单列表
-            if (bills.isEmpty() && selectedIdentityId == null) {
+            if (currentIdentityId == null) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("暂无账单", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("选择身份后同步账单", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("请先在“我”里切换身份", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             } else {
@@ -268,6 +264,24 @@ private fun TerminalSyncStatusCard(
             )
             Spacer(modifier = Modifier.width(12.dp))
             TextButton(onClick = onClose) { Text("关闭") }
+        }
+    }
+}
+
+@Composable
+private fun IdentityScopeCard(title: String, subtitle: String) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

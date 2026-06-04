@@ -37,10 +37,11 @@ class BillStatisticsViewModel @Inject constructor(
     private val billRepository: BillRepository
 ) : ViewModel() {
 
-    val identities: StateFlow<List<Identity>> = identityRepository.getAllIdentities()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val currentIdentity: StateFlow<Identity?> = identityRepository.getCurrentIdentity()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    private val _selectedIdentityId = MutableStateFlow<Long?>(null)
+    private val _selectedIdentityId = identityRepository.getCurrentIdentityId()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     private val _selectedPeriod = MutableStateFlow(TimePeriod.THIS_MONTH)
     private val _customStartDate = MutableStateFlow<LocalDate?>(null)
     private val _customEndDate = MutableStateFlow<LocalDate?>(null)
@@ -80,24 +81,30 @@ class BillStatisticsViewModel @Inject constructor(
 
     val spendingTrend: StateFlow<List<SpendingTrend>> = combine(
         _selectedIdentityId,
-        _selectedPeriod
-    ) { identityId, _ ->
+        _selectedPeriod,
+        _customStartDate,
+        _customEndDate
+    ) { identityId, _, _, _ ->
         val (start, end) = dateRange
         billRepository.getSpendingTrend(identityId, start, end)
     }.flatMapLatest { it }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val categoryBreakdown: StateFlow<List<CategoryBreakdown>> = combine(
         _selectedIdentityId,
-        _selectedPeriod
-    ) { identityId, _ ->
+        _selectedPeriod,
+        _customStartDate,
+        _customEndDate
+    ) { identityId, _, _, _ ->
         val (start, end) = dateRange
         billRepository.getCategoryBreakdown(identityId, start, end)
     }.flatMapLatest { it }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val targetUserRanking: StateFlow<List<TargetUserRanking>> = combine(
         _selectedIdentityId,
-        _selectedPeriod
-    ) { identityId, _ ->
+        _selectedPeriod,
+        _customStartDate,
+        _customEndDate
+    ) { identityId, _, _, _ ->
         val (start, end) = dateRange
         billRepository.getTargetUserRanking(identityId, start, end, 10)
     }.flatMapLatest { it }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -105,10 +112,6 @@ class BillStatisticsViewModel @Inject constructor(
     val monthlySummary: StateFlow<List<MonthlySummary>> = _selectedIdentityId.flatMapLatest { identityId ->
         billRepository.getMonthlySummary(identityId)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    fun selectIdentity(identityId: Long?) {
-        _selectedIdentityId.value = identityId
-    }
 
     fun selectPeriod(period: TimePeriod) {
         _selectedPeriod.value = period

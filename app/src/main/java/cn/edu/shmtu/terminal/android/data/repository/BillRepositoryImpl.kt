@@ -23,6 +23,7 @@ import cn.edu.shmtu.terminal.android.domain.usecase.bill.FullSyncAccountBillsUse
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.FullSyncIdentityBillsUseCase
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.SyncAccountBillsUseCase
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.SyncIdentityBillsUseCase
+import cn.edu.shmtu.terminal.android.data.local.db.entity.BillEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -126,52 +127,22 @@ class BillRepositoryImpl @Inject constructor(
         val lastMonth = now.minusMonths(1)
         val lastMonthStart = lastMonth.atDay(1).format(DATE_FMT)
         val lastMonthEnd = lastMonth.atEndOfMonth().format(DATE_FMT_END)
-
-        val databases = getDatabases(identityId)
-
-        return combine(
-            databases.flatMapLatest { dbs ->
-                combine(dbs.map { db ->
-                    db.billDao().getSumByTypeInRange(thisMonthStart, thisMonthEnd)
-                }) { results ->
-                    val sums = results.flatMap { it.toList() }
-                    val spending = sums.filter { it.type.contains("消费") }.sumOf { it.total }
-                    val income = sums.filter { it.type.contains("充值") }.sumOf { it.total }
-                    spending to income
-                }
-            },
-            databases.flatMapLatest { dbs ->
-                combine(dbs.map { db ->
-                    db.billDao().getSumByTypeInRange(lastMonthStart, lastMonthEnd)
-                }) { results ->
-                    val sums = results.flatMap { it.toList() }
-                    val spending = sums.filter { it.type.contains("消费") }.sumOf { it.total }
-                    val income = sums.filter { it.type.contains("充值") }.sumOf { it.total }
-                    spending to income
-                }
-            },
-            databases.flatMapLatest { dbs ->
-                combine(dbs.map { db ->
-                    db.billDao().getAllBills()
-                }) { results ->
-                    results.sumOf { it.size }
-                }
-            },
-            databases.flatMapLatest { dbs ->
-                combine(dbs.map { db ->
-                    db.billDao().getActiveDaysInRange(thisMonthStart, thisMonthEnd)
-                }) { results ->
-                    results.flatMap { it.toList() }.toSet().size
-                }
-            }
-        ) { (thisSpending, thisIncome), (lastSpending, lastIncome), count, activeDays ->
+        return mergedBills(identityId).map { allBills ->
+            val successfulBills = allBills.filterSuccessful()
+            val thisMonthBills = successfulBills.filterByRange(thisMonthStart, thisMonthEnd)
+            val lastMonthBills = successfulBills.filterByRange(lastMonthStart, lastMonthEnd)
+            val thisSpending = thisMonthBills.filterNot(::isIncome).sumOf { it.moneyValue() }
+            val thisIncome = thisMonthBills.filter(::isIncome).sumOf { it.moneyValue() }
+            val lastSpending = lastMonthBills.filterNot(::isIncome).sumOf { it.moneyValue() }
+            val lastIncome = lastMonthBills.filter(::isIncome).sumOf { it.moneyValue() }
+            val activeDays = thisMonthBills.map { it.dateStr }.distinct().size
             val dailyAverage = if (activeDays > 0) thisSpending / activeDays else 0.0
             BillOverview(
                 totalSpending = thisSpending,
                 totalIncome = thisIncome,
                 netChange = thisIncome - thisSpending,
                 dailyAverage = dailyAverage,
-                transactionCount = count,
+                transactionCount = thisMonthBills.size,
                 activeDays = activeDays,
                 lastMonthSpending = lastSpending,
                 lastMonthIncome = lastIncome
@@ -180,78 +151,57 @@ class BillRepositoryImpl @Inject constructor(
     }
 
     override fun getSpendingTrend(identityId: Long?, startDate: String, endDate: String): Flow<List<SpendingTrend>> {
-        return getDatabases(identityId).flatMapLatest { dbs ->
-            combine(dbs.map { db ->
-                db.billDao().getDailyTotalsInRange(startDate, endDate)
-            }) { results ->
-                val merged = mutableMapOf<String, Double>()
-                for (list in results) {
-                    for (item in list) {
-                        merged[item.dateStr] = (merged[item.dateStr] ?: 0.0) + item.total
-                    }
+        return mergedBills(identityId).map { bills ->
+            bills.filterSuccessful()
+                .filterByRange(startDate, endDate)
+                .groupBy { it.dateStr }
+                .toSortedMap()
+                .map { (date, items) ->
+                    SpendingTrend(date, items.sumOf { it.moneyValue() })
                 }
-                merged.entries.sortedBy { it.key }.map { SpendingTrend(it.key, it.value) }
-            }
         }
     }
 
     override fun getCategoryBreakdown(identityId: Long?, startDate: String, endDate: String): Flow<List<CategoryBreakdown>> {
-        return getDatabases(identityId).flatMapLatest { dbs ->
-            combine(dbs.map { db ->
-                db.billDao().getSumByTypeInRange(startDate, endDate)
-            }) { results ->
-                val merged = mutableMapOf<String, Double>()
-                for (list in results) {
-                    for (item in list) {
-                        merged[item.type] = (merged[item.type] ?: 0.0) + item.total
-                    }
-                }
-                val total = merged.values.sum()
-                merged.entries.map { (type, amount) ->
-                    CategoryBreakdown(type, amount, if (total > 0) (amount / total).toFloat() else 0f)
-                }.sortedByDescending { it.amount }
-            }
+        return mergedBills(identityId).map { bills ->
+            val merged = bills.filterSuccessful()
+                .filterByRange(startDate, endDate)
+                .filterNot(::isIncome)
+                .groupBy { it.type }
+                .mapValues { (_, items) -> items.sumOf { it.moneyValue() } }
+            val total = merged.values.sum()
+            merged.entries.map { (type, amount) ->
+                CategoryBreakdown(type, amount, if (total > 0) (amount / total).toFloat() else 0f)
+            }.sortedByDescending { it.amount }
         }
     }
 
     override fun getTargetUserRanking(identityId: Long?, startDate: String, endDate: String, limit: Int): Flow<List<TargetUserRanking>> {
-        return getDatabases(identityId).flatMapLatest { dbs ->
-            combine(dbs.map { db ->
-                db.billDao().getTopTargetUsers(startDate, endDate, limit)
-            }) { results ->
-                val merged = mutableMapOf<String, Double>()
-                for (list in results) {
-                    for (item in list) {
-                        merged[item.targetUser] = (merged[item.targetUser] ?: 0.0) + item.total
-                    }
-                }
-                merged.entries.sortedByDescending { it.value }.take(limit).map {
-                    TargetUserRanking(it.key, it.value)
-                }
-            }
+        return mergedBills(identityId).map { bills ->
+            bills.filterSuccessful()
+                .filterByRange(startDate, endDate)
+                .filterNot(::isIncome)
+                .groupBy { it.targetUser }
+                .mapValues { (_, items) -> items.sumOf { it.moneyValue() } }
+                .entries
+                .sortedByDescending { it.value }
+                .take(limit)
+                .map { TargetUserRanking(it.key, it.value) }
         }
     }
 
     override fun getMonthlySummary(identityId: Long?): Flow<List<MonthlySummary>> {
-        return getDatabases(identityId).flatMapLatest { dbs ->
-            combine(dbs.map { db ->
-                db.billDao().getMonthlySummary()
-            }) { results ->
-                val merged = mutableMapOf<String, MutableMap<String, Double>>()
-                for (list in results) {
-                    for (item in list) {
-                        val typeMap = merged.getOrPut(item.month) { mutableMapOf() }
-                        typeMap[item.type] = (typeMap[item.type] ?: 0.0) + item.total
-                    }
-                }
-                merged.entries.map { (month, typeMap) ->
+        return mergedBills(identityId).map { bills ->
+            bills.filterSuccessful()
+                .groupBy { it.dateTimeStrFormat.take(7) }
+                .map { (month, items) ->
                     MonthlySummary(
                         month = month,
-                        spending = typeMap.filter { it.key.contains("消费") }.values.sum(),
-                        income = typeMap.filter { it.key.contains("充值") }.values.sum()
+                        spending = items.filterNot(::isIncome).sumOf { it.moneyValue() },
+                        income = items.filter(::isIncome).sumOf { it.moneyValue() }
                     )
-                }.sortedByDescending { it.month }
-            }
+                }
+                .sortedByDescending { it.month }
         }
     }
 
@@ -415,6 +365,18 @@ class BillRepositoryImpl @Inject constructor(
         }
     }
 
+    private fun mergedBills(identityId: Long?): Flow<List<BillEntity>> {
+        return getDatabases(identityId).flatMapLatest { dbs ->
+            if (dbs.isEmpty()) {
+                flow { emit(emptyList()) }
+            } else {
+                combine(dbs.map { db -> db.billDao().getAllBills() }) { results ->
+                    results.flatMap { it.toList() }
+                }
+            }
+        }
+    }
+
     companion object {
         private val DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd")
         private val DATE_FMT_END = DateTimeFormatter.ofPattern("yyyy-MM-dd 23:59:59")
@@ -422,3 +384,10 @@ class BillRepositoryImpl @Inject constructor(
 }
 
 private fun cn.edu.shmtu.terminal.android.data.local.db.entity.BillEntity.toDomain() = EntityMappers.run { this@toDomain.toDomain() }
+private fun BillEntity.moneyValue(): Double = money.replace("¥", "").replace(",", "").toDoubleOrNull()?.let { kotlin.math.abs(it) } ?: 0.0
+private fun isIncome(bill: BillEntity): Boolean = INCOME_KEYWORDS.any { keyword ->
+    bill.type.contains(keyword) || bill.targetUser.contains(keyword)
+}
+private fun List<BillEntity>.filterSuccessful(): List<BillEntity> = filter { it.status == "交易成功" }
+private fun List<BillEntity>.filterByRange(startDate: String, endDate: String): List<BillEntity> =
+    filter { it.dateTimeStrFormat >= startDate && it.dateTimeStrFormat <= endDate }

@@ -18,7 +18,6 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
@@ -69,7 +68,7 @@ fun BillStatisticsScreen(
     onBack: () -> Unit,
     viewModel: BillStatisticsViewModel = hiltViewModel()
 ) {
-    val identities by viewModel.identities.collectAsState()
+    val currentIdentity by viewModel.currentIdentity.collectAsState()
     val overview by viewModel.overview.collectAsState()
     val trend by viewModel.spendingTrend.collectAsState()
     val categories by viewModel.categoryBreakdown.collectAsState()
@@ -77,7 +76,6 @@ fun BillStatisticsScreen(
     val monthly by viewModel.monthlySummary.collectAsState()
     val customStart by viewModel.customStartDate.collectAsState()
     val customEnd by viewModel.customEndDate.collectAsState()
-    var selectedIdentityId by remember { mutableStateOf<Long?>(null) }
     var selectedPeriod by remember { mutableStateOf(TimePeriod.THIS_MONTH) }
 
     Scaffold(
@@ -94,14 +92,20 @@ fun BillStatisticsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                IdentityFilterChips(
-                    identities = identities,
-                    selectedIdentityId = selectedIdentityId,
-                    onSelected = {
-                        selectedIdentityId = it
-                        viewModel.selectIdentity(it)
+                ElevatedCard(colors = CardDefaults.elevatedCardColors()) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("当前身份", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            currentIdentity?.remark?.ifBlank { currentIdentity?.username.orEmpty() }.orEmpty().ifBlank { "未选择身份" },
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            "统计口径与首页、账单保持一致",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                )
+                }
             }
 
             item {
@@ -140,30 +144,6 @@ fun BillStatisticsScreen(
             item { MonthlySummaryTable(monthly) }
 
             item { Spacer(modifier = Modifier.height(16.dp)) }
-        }
-    }
-}
-
-@Composable
-private fun IdentityFilterChips(
-    identities: List<cn.edu.shmtu.terminal.android.domain.model.Identity>,
-    selectedIdentityId: Long?,
-    onSelected: (Long?) -> Unit
-) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        FilterChip(
-            selected = selectedIdentityId == null,
-            onClick = { onSelected(null) },
-            label = { Text("全部") }
-        )
-        identities.forEach { identity ->
-            FilterChip(
-                selected = selectedIdentityId == identity.id,
-                onClick = { onSelected(identity.id) },
-                label = { Text(identity.remark) }
-            )
         }
     }
 }
