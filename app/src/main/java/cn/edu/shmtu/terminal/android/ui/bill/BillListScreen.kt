@@ -40,6 +40,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +53,7 @@ import cn.edu.shmtu.terminal.android.domain.model.SyncProgress
 import cn.edu.shmtu.terminal.android.domain.model.SyncStatus
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.CaptchaRequiredException
 import cn.edu.shmtu.terminal.android.ui.component.CaptchaDialog
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,6 +80,7 @@ fun BillListScreen(
     var searchInput by remember { mutableStateOf("") }
     var pendingSyncAction by remember { mutableStateOf<PendingSyncAction?>(null) }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val coroutineScope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -130,13 +133,22 @@ fun BillListScreen(
             }
             AnimatedVisibility(visible = syncProgress?.status is SyncStatus.Completed && !isSyncing) {
                 syncProgress?.let { progress ->
-                    ElevatedCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(viewModel.getProgressMessage(progress), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                            TextButton(onClick = { viewModel.clearSyncProgress() }) { Text("关闭") }
-                        }
-                    }
+                    TerminalSyncStatusCard(
+                        message = viewModel.getProgressMessage(progress),
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        onClose = { viewModel.clearSyncProgress() }
+                    )
+                }
+            }
+            AnimatedVisibility(visible = syncProgress?.status is SyncStatus.Failed && !isSyncing) {
+                syncProgress?.let { progress ->
+                    TerminalSyncStatusCard(
+                        message = viewModel.getProgressMessage(progress),
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        onClose = { viewModel.clearSyncProgress() }
+                    )
                 }
             }
 
@@ -201,11 +213,14 @@ fun BillListScreen(
             onDismiss = { pendingSyncAction = null },
             onConfirm = { range ->
                 pendingSyncAction = null
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("已开始${range.label}范围同步")
+                }
                 when (action) {
-                    is PendingSyncAction.IdentityIncremental -> viewModel.syncBills(action.identityId)
-                    is PendingSyncAction.IdentityFull -> viewModel.fullSyncBills(action.identityId)
-                    is PendingSyncAction.AccountIncremental -> viewModel.syncAccountBills(action.accountId)
-                    is PendingSyncAction.AccountFull -> viewModel.fullSyncAccountBills(action.accountId)
+                    is PendingSyncAction.IdentityIncremental -> viewModel.syncBills(action.identityId, range)
+                    is PendingSyncAction.IdentityFull -> viewModel.fullSyncBills(action.identityId, range)
+                    is PendingSyncAction.AccountIncremental -> viewModel.syncAccountBills(action.accountId, range)
+                    is PendingSyncAction.AccountFull -> viewModel.fullSyncAccountBills(action.accountId, range)
                 }
             }
         )
@@ -222,6 +237,38 @@ fun BillListScreen(
             onConfirm = { viewModel.submitCaptcha(it) },
             onDismiss = { viewModel.dismissCaptcha() }
         )
+    }
+}
+
+@Composable
+private fun TerminalSyncStatusCard(
+    message: String,
+    containerColor: androidx.compose.ui.graphics.Color,
+    contentColor: androidx.compose.ui.graphics.Color,
+    onClose: () -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = containerColor)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = contentColor,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            TextButton(onClick = onClose) { Text("关闭") }
+        }
     }
 }
 

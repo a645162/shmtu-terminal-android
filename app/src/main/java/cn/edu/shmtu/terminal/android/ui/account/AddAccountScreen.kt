@@ -21,6 +21,10 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -37,6 +41,7 @@ import cn.edu.shmtu.terminal.android.ui.component.PasswordTextField
 @Composable
 fun AddAccountScreen(
     identityId: Long,
+    onAddSuccess: (String) -> Unit,
     onBack: () -> Unit,
     viewModel: AddAccountViewModel = hiltViewModel()
 ) {
@@ -53,9 +58,8 @@ fun AddAccountScreen(
 
     LaunchedEffect(uiState.success) {
         if (uiState.success) {
-            snackbarHostState.showSnackbar("账号添加成功")
-            onBack()
             viewModel.resetSuccess()
+            onAddSuccess("账号添加成功")
         }
     }
 
@@ -69,7 +73,15 @@ fun AddAccountScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("添加账号") }
+                title = { Text("添加账号") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = "返回"
+                        )
+                    }
+                }
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }

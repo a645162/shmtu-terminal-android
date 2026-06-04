@@ -55,9 +55,6 @@ fun AppNavigation(
             IdentityListScreen(
                 onIdentityClick = { identityId ->
                     navController.navigate("identity_detail/$identityId")
-                },
-                onAddAccount = { identityId ->
-                    navController.navigate("add_account/$identityId")
                 }
             )
         }
@@ -122,6 +119,12 @@ fun AppNavigation(
             val identityId = backStackEntry.arguments?.getString("identityId")?.toLongOrNull() ?: return@composable
             AddAccountScreen(
                 identityId = identityId,
+                onAddSuccess = { message ->
+                    navController.previousBackStackEntry
+                        ?.savedStateHandle
+                        ?.set("account_add_message", message)
+                    navController.popBackStack()
+                },
                 onBack = { navController.popBackStack() }
             )
         }

@@ -1,14 +1,18 @@
 package cn.edu.shmtu.terminal.android.domain.usecase.bill
 
 import cn.edu.shmtu.cas.sync.AccountContext
+import cn.edu.shmtu.cas.sync.SyncOptions
 import cn.edu.shmtu.cas.sync.SyncProgress as LibSyncProgress
+import cn.edu.shmtu.cas.sync.SyncRangePreset
 import cn.edu.shmtu.cas.sync.syncAccountsParallel
 import cn.edu.shmtu.terminal.android.data.remote.EpayAdapter
 import cn.edu.shmtu.terminal.android.data.sync.RoomBillStore
 import cn.edu.shmtu.terminal.android.domain.model.SyncProgress
 import cn.edu.shmtu.terminal.android.domain.model.SyncResult
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -24,12 +28,21 @@ class SyncIdentityBillsUseCase @Inject constructor(
     private val epayAdapter: EpayAdapter,
     private val accountRepository: AccountRepository,
 ) {
-    suspend operator fun invoke(identityId: Long): SyncResult = invoke(identityId) {}
+    suspend operator fun invoke(identityId: Long): SyncResult = invoke(identityId, SyncRangePreset.Month) {}
 
-    suspend operator fun invoke(identityId: Long, onProgress: (SyncProgress) -> Unit): SyncResult {
+    suspend operator fun invoke(
+        identityId: Long,
+        onProgress: (SyncProgress) -> Unit,
+    ): SyncResult = invoke(identityId, SyncRangePreset.Month, onProgress)
+
+    suspend operator fun invoke(
+        identityId: Long,
+        syncRange: SyncRangePreset,
+        onProgress: (SyncProgress) -> Unit = {},
+    ): SyncResult = withContext(Dispatchers.IO) {
         val accountList = accountRepository.getAccountsByIdentity(identityId).first()
         if (accountList.isEmpty()) {
-            return SyncResult(0, true)
+            return@withContext SyncResult(0, true)
         }
 
         val translated: (LibSyncProgress) -> Unit = { p -> onProgress(p.toDomain()) }
@@ -48,7 +61,8 @@ class SyncIdentityBillsUseCase @Inject constructor(
                     identityId = account.identityId,
                 ),
                 resolver = null,        // 多账号并行场景用手动验证码（如需要可在更外层串行）
-                range = null,           // 增量
+                options = SyncOptions.incremental(syncRange),
+                fullSync = false,
             )
         }
 
@@ -73,7 +87,14 @@ class SyncIdentityBillsUseCase @Inject constructor(
             }
             val accId = libCaptcha.context.accountId.toLongOrNull() ?: 0L
             val accLabel = libCaptcha.context.accountLabel
-            throw cn.edu.shmtu.terminal.android.domain.usecase.bill.CaptchaRequiredException(imgB64, e.execution, accId, accLabel)
+            throw cn.edu.shmtu.terminal.android.domain.usecase.bill.CaptchaRequiredException(
+                captchaImageBase64 = imgB64,
+                execution = e.execution,
+                accountId = accId,
+                accountLabel = accLabel,
+                syncRange = syncRange,
+                isFullSync = false,
+            )
         }
 
         // 后续：更新 lastSyncTime + loginStatus
@@ -85,7 +106,7 @@ class SyncIdentityBillsUseCase @Inject constructor(
             }
         }
 
-        return SyncResult(
+        return@withContext SyncResult(
             newCount = summary.totalNewCount,
             success = summary.allSuccess,
             errorMessage = summary.results.firstOrNull { it.result.isFailure }?.result?.exceptionOrNull()?.message,

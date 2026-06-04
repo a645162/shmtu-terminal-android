@@ -90,6 +90,10 @@ fun IdentityDetailScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
 
+    LaunchedEffect(Unit) {
+        viewModel.consumePendingSnackbarMessage()
+    }
+
     LaunchedEffect(uiState.syncMessage) {
         uiState.syncMessage?.let { message ->
             snackbarHostState.showSnackbar(message)

@@ -33,8 +33,6 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -61,24 +59,14 @@ import cn.edu.shmtu.terminal.android.domain.model.Identity
 @Composable
 fun IdentityListScreen(
     onIdentityClick: (Long) -> Unit,
-    onAddAccount: (Long) -> Unit,
     viewModel: IdentityListViewModel = hiltViewModel()
 ) {
     val identities by viewModel.identities.collectAsState()
-    val uiState by viewModel.uiState.collectAsState()
     val editingIdentity by viewModel.editingIdentity.collectAsState()
     val editingDetailsIdentity by viewModel.editingDetailsIdentity.collectAsState()
     val deletingIdentity by viewModel.deletingIdentity.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var expandedMenuIdentity by remember { mutableLongStateOf(-1L) }
-    val snackbarHostState = remember { SnackbarHostState() }
-
-    LaunchedEffect(uiState.syncMessage) {
-        uiState.syncMessage?.let { message ->
-            snackbarHostState.showSnackbar(message)
-            viewModel.clearSyncMessage()
-        }
-    }
 
     Scaffold(
         topBar = {
@@ -86,7 +74,6 @@ fun IdentityListScreen(
                 title = { Text("账号管理") }
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { showAddDialog = true },
@@ -129,10 +116,7 @@ fun IdentityListScreen(
                 items(identities, key = { it.id }) { identity ->
                     SwipeableIdentityCard(
                         identity = identity,
-                        isSyncing = uiState.syncingIdentityId == identity.id,
-                        onClick = { viewModel.syncIdentityBills(identity.id) },
-                        onViewDetail = { onIdentityClick(identity.id) },
-                        onSync = { viewModel.syncIdentityBills(identity.id) },
+                        onClick = { onIdentityClick(identity.id) },
                         onEdit = { viewModel.startEditIdentity(identity) },
                         onEditDetails = { viewModel.startEditDetails(identity) },
                         onDelete = { viewModel.startDeleteIdentity(identity) },
@@ -192,10 +176,7 @@ fun IdentityListScreen(
 @Composable
 fun SwipeableIdentityCard(
     identity: Identity,
-    isSyncing: Boolean,
     onClick: () -> Unit,
-    onViewDetail: () -> Unit,
-    onSync: () -> Unit,
     onEdit: () -> Unit,
     onEditDetails: () -> Unit,
     onDelete: () -> Unit,
@@ -291,7 +272,7 @@ fun SwipeableIdentityCard(
         ) {
             Box {
                 ListItem(
-                    headlineContent = { Text(identity.remark) },
+                    headlineContent = { Text(identity.displayName()) },
                     supportingContent = {
                         val details = listOfNotNull(
                             identity.birthday.takeIf { it.isNotBlank() }?.let { "生日: $it" },
@@ -303,19 +284,7 @@ fun SwipeableIdentityCard(
                         }
                     },
                     overlineContent = {
-                        if (isSyncing) {
-                            Text("同步中...", color = MaterialTheme.colorScheme.primary)
-                        } else {
-                            Text("${identity.accountCount} 个账号")
-                        }
-                    },
-                    trailingContent = {
-                        if (isSyncing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
-                            )
-                        }
+                        Text("${identity.accountCount} 个账号")
                     }
                 )
 
@@ -324,17 +293,10 @@ fun SwipeableIdentityCard(
                     onDismissRequest = onDismissMenu
                 ) {
                     DropdownMenuItem(
-                        text = { Text("查看详情") },
+                        text = { Text("进入账号管理") },
                         onClick = {
                             onDismissMenu()
-                            onViewDetail()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("同步账单") },
-                        onClick = {
-                            onDismissMenu()
-                            onSync()
+                            onClick()
                         }
                     )
                     DropdownMenuItem(
@@ -388,7 +350,7 @@ fun AddIdentityDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(name) },
+                onClick = { onConfirm(name.trim()) },
                 enabled = name.isNotBlank()
             ) {
                 Text("确定")
@@ -426,7 +388,7 @@ fun EditIdentityDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { if (name.isNotBlank()) onConfirm(name) },
+                onClick = { if (name.isNotBlank()) onConfirm(name.trim()) },
                 enabled = name.isNotBlank()
             ) {
                 Text("保存")
@@ -488,7 +450,16 @@ fun EditIdentityDetailsDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { if (name.isNotBlank()) onConfirm(name, birthday, enrollmentDate, graduationDate) },
+                onClick = {
+                    if (name.isNotBlank()) {
+                        onConfirm(
+                            name.trim(),
+                            birthday.trim(),
+                            enrollmentDate.trim(),
+                            graduationDate.trim()
+                        )
+                    }
+                },
                 enabled = name.isNotBlank()
             ) {
                 Text("保存")
@@ -501,6 +472,8 @@ fun EditIdentityDetailsDialog(
         }
     )
 }
+
+private fun Identity.displayName(): String = remark.ifBlank { username }
 
 @Composable
 fun DeleteConfirmDialog(

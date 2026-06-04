@@ -2,6 +2,7 @@ package cn.edu.shmtu.terminal.android.ui.bill
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import cn.edu.shmtu.cas.sync.SyncRangePreset as CasSyncRangePreset
 import cn.edu.shmtu.terminal.android.domain.model.Account
 import cn.edu.shmtu.terminal.android.domain.model.BillItem
 import cn.edu.shmtu.terminal.android.domain.model.Identity
@@ -12,6 +13,8 @@ import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.CaptchaRequiredException
+import cn.edu.shmtu.terminal.android.domain.usecase.bill.FullSyncAccountBillsUseCase
+import cn.edu.shmtu.terminal.android.domain.usecase.bill.FullSyncIdentityBillsUseCase
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.SyncAccountBillsUseCase
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.SyncIdentityBillsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -53,7 +56,9 @@ class BillListViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
     private val billRepository: BillRepository,
     private val syncIdentityBillsUseCase: SyncIdentityBillsUseCase,
-    private val syncAccountBillsUseCase: SyncAccountBillsUseCase
+    private val syncAccountBillsUseCase: SyncAccountBillsUseCase,
+    private val fullSyncIdentityBillsUseCase: FullSyncIdentityBillsUseCase,
+    private val fullSyncAccountBillsUseCase: FullSyncAccountBillsUseCase,
 ) : ViewModel() {
 
     val identities: StateFlow<List<Identity>> = identityRepository.getAllIdentities()
@@ -158,12 +163,13 @@ class BillListViewModel @Inject constructor(
     fun search(query: String) { _searchQuery.value = query; _page.value = 1 }
     fun setPage(page: Int) { _page.value = page.coerceIn(1, totalPages.value) }
 
-    fun syncBills(identityId: Long, onResult: (SyncResult) -> Unit = {}) {
+    fun syncBills(identityId: Long, range: SyncRangePreset, onResult: (SyncResult) -> Unit = {}) {
         viewModelScope.launch {
-            _isSyncingFlag.value = true
+            beginSync("增量更新当前身份", range)
             var capturedCaptcha: CaptchaRequiredException? = null
             try {
-                val result = syncIdentityBillsUseCase(identityId) { _syncProgress.value = it }
+                val result = syncIdentityBillsUseCase(identityId, range.toCasRange()) { _syncProgress.value = it }
+                completeSync(result, fallbackLabel = "当前身份")
                 onResult(result)
             } catch (e: CaptchaRequiredException) {
                 capturedCaptcha = e
@@ -177,12 +183,21 @@ class BillListViewModel @Inject constructor(
         }
     }
 
-    fun syncAccountBills(accountId: Long) {
+    fun syncAccountBills(accountId: Long, range: SyncRangePreset) {
         viewModelScope.launch {
-            _isSyncingFlag.value = true
+            val account = accountRepository.getAccountById(accountId)
+            if (account == null) {
+                _syncProgress.value = SyncProgress(
+                    status = SyncStatus.Failed("账号不存在"),
+                    accountLabel = "账号"
+                )
+                return@launch
+            }
+            beginSync("增量更新账号 ${account.label}", range)
             var capturedCaptcha: CaptchaRequiredException? = null
             try {
-                syncAccountBillsUseCase(accountId) { _syncProgress.value = it }
+                val result = syncAccountBillsUseCase(account, range.toCasRange()) { _syncProgress.value = it }
+                completeSync(result, fallbackLabel = account.label)
             } catch (e: CaptchaRequiredException) {
                 capturedCaptcha = e
             } finally {
@@ -195,19 +210,49 @@ class BillListViewModel @Inject constructor(
         }
     }
 
-    fun fullSyncBills(identityId: Long) {
+    fun fullSyncBills(identityId: Long, range: SyncRangePreset) {
         viewModelScope.launch {
-            _isSyncingFlag.value = true
-            billRepository.fullSyncIdentityWithProgress(identityId)
-            _isSyncingFlag.value = false
+            beginSync("全量更新当前身份", range)
+            var capturedCaptcha: CaptchaRequiredException? = null
+            try {
+                val result = fullSyncIdentityBillsUseCase(identityId, range.toCasRange()) { _syncProgress.value = it }
+                completeSync(result, fallbackLabel = "当前身份")
+            } catch (e: CaptchaRequiredException) {
+                capturedCaptcha = e
+            } finally {
+                _isSyncingFlag.value = false
+            }
+            capturedCaptcha?.let { e ->
+                _syncProgress.value = SyncProgress(status = SyncStatus.GettingCaptcha, accountLabel = e.accountLabel)
+                _pendingCaptcha.value = e
+            }
         }
     }
 
-    fun fullSyncAccountBills(accountId: Long) {
+    fun fullSyncAccountBills(accountId: Long, range: SyncRangePreset) {
         viewModelScope.launch {
-            _isSyncingFlag.value = true
-            billRepository.fullSyncAccountWithProgress(accountId)
-            _isSyncingFlag.value = false
+            val account = accountRepository.getAccountById(accountId)
+            if (account == null) {
+                _syncProgress.value = SyncProgress(
+                    status = SyncStatus.Failed("账号不存在"),
+                    accountLabel = "账号"
+                )
+                return@launch
+            }
+            beginSync("全量更新账号 ${account.label}", range)
+            var capturedCaptcha: CaptchaRequiredException? = null
+            try {
+                val result = fullSyncAccountBillsUseCase(account, range.toCasRange()) { _syncProgress.value = it }
+                completeSync(result, fallbackLabel = account.label)
+            } catch (e: CaptchaRequiredException) {
+                capturedCaptcha = e
+            } finally {
+                _isSyncingFlag.value = false
+            }
+            capturedCaptcha?.let { e ->
+                _syncProgress.value = SyncProgress(status = SyncStatus.GettingCaptcha, accountLabel = e.accountLabel)
+                _pendingCaptcha.value = e
+            }
         }
     }
 
@@ -219,13 +264,21 @@ class BillListViewModel @Inject constructor(
                 _pendingCaptcha.value = null; _isSyncingFlag.value = false; return@launch
             }
             try {
-                syncAccountBillsUseCase.syncWithCaptcha(account, captchaCode, captcha.execution) { _syncProgress.value = it }
+                _pendingCaptcha.value = null
+                _isSyncingFlag.value = true
+                val result = syncAccountBillsUseCase.syncWithCaptcha(
+                    account = account,
+                    captchaCode = captchaCode,
+                    execution = captcha.execution,
+                    syncRange = captcha.syncRange,
+                    fullSync = captcha.isFullSync,
+                ) { _syncProgress.value = it }
+                completeSync(result, fallbackLabel = account.label)
             } catch (e: CaptchaRequiredException) {
                 _syncProgress.value = SyncProgress(status = SyncStatus.GettingCaptcha, accountLabel = e.accountLabel)
                 _pendingCaptcha.value = e
                 return@launch
             }
-            _pendingCaptcha.value = null
             _isSyncingFlag.value = false
         }
     }
@@ -236,7 +289,14 @@ class BillListViewModel @Inject constructor(
         viewModelScope.launch {
             val newCaptcha = syncAccountBillsUseCase.refreshCaptcha(captcha.accountId)
             if (newCaptcha != null) {
-                _pendingCaptcha.value = newCaptcha
+                _pendingCaptcha.value = CaptchaRequiredException(
+                    captchaImageBase64 = newCaptcha.captchaImageBase64,
+                    execution = newCaptcha.execution,
+                    accountId = captcha.accountId,
+                    accountLabel = captcha.accountLabel,
+                    syncRange = captcha.syncRange,
+                    isFullSync = captcha.isFullSync,
+                )
             }
         }
     }
@@ -251,8 +311,14 @@ class BillListViewModel @Inject constructor(
     fun clearSyncProgress() { _syncProgress.value = null }
 
     fun getProgressMessage(progress: SyncProgress): String = when (val status = progress.status) {
-        is SyncStatus.ProbingLogin -> "正在探测登录状态..."
-        is SyncStatus.GettingCaptcha -> "正在获取验证码..."
+        is SyncStatus.ProbingLogin -> {
+            if (progress.accountTotal <= 0 && progress.accountLabel.isNotBlank()) {
+                "正在启动 ${progress.accountLabel}..."
+            } else {
+                "正在探测登录状态..."
+            }
+        }
+        is SyncStatus.GettingCaptcha -> if (progress.accountLabel.isNotBlank()) "账号 ${progress.accountLabel} 需要验证码" else "正在获取验证码..."
         is SyncStatus.LoggingIn -> "正在登录 ${progress.accountLabel}..."
         is SyncStatus.Syncing -> {
             val info = if (progress.accountTotal > 1) "账号 ${progress.accountIndex + 1}/${progress.accountTotal} · " else ""
@@ -261,5 +327,40 @@ class BillListViewModel @Inject constructor(
         is SyncStatus.Persisting -> "正在保存 ${status.totalNew} 条记录..."
         is SyncStatus.Completed -> "同步完成，新增 ${status.totalNew} 条"
         is SyncStatus.Failed -> "同步失败: ${status.error}"
+    }
+
+    private fun beginSync(actionLabel: String, range: SyncRangePreset) {
+        _pendingCaptcha.value = null
+        _isSyncingFlag.value = true
+        _syncProgress.value = SyncProgress(
+            status = SyncStatus.ProbingLogin,
+            accountTotal = 0,
+            accountLabel = "$actionLabel（范围：${range.label}）",
+        )
+    }
+
+    private fun completeSync(result: SyncResult, fallbackLabel: String) {
+        val currentStatus = _syncProgress.value?.status
+        _syncProgress.value = when {
+            !result.success -> SyncProgress(
+                status = SyncStatus.Failed(result.errorMessage ?: "同步失败"),
+                accountLabel = fallbackLabel,
+            )
+            currentStatus is SyncStatus.Completed -> _syncProgress.value
+                ?: SyncProgress(status = SyncStatus.Completed(result.newCount), accountLabel = fallbackLabel)
+            else -> SyncProgress(
+                status = SyncStatus.Completed(result.newCount),
+                accountLabel = fallbackLabel,
+            )
+        }
+    }
+
+    private fun SyncRangePreset.toCasRange(): CasSyncRangePreset = when (this) {
+        SyncRangePreset.WEEK -> CasSyncRangePreset.Week
+        SyncRangePreset.HALF_MONTH -> CasSyncRangePreset.HalfMonth
+        SyncRangePreset.MONTH -> CasSyncRangePreset.Month
+        SyncRangePreset.HALF_YEAR -> CasSyncRangePreset.HalfYear
+        SyncRangePreset.YEAR -> CasSyncRangePreset.Year
+        SyncRangePreset.ALL -> CasSyncRangePreset.All
     }
 }

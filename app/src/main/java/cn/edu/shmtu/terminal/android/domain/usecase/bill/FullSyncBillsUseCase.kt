@@ -1,11 +1,7 @@
 package cn.edu.shmtu.terminal.android.domain.usecase.bill
 
-import cn.edu.shmtu.cas.sync.SyncOptions
 import cn.edu.shmtu.cas.sync.SyncProgress as LibSyncProgress
 import cn.edu.shmtu.cas.sync.SyncRangePreset
-import cn.edu.shmtu.cas.sync.fullSync
-import cn.edu.shmtu.terminal.android.data.remote.EpayAdapter
-import cn.edu.shmtu.terminal.android.data.sync.RoomBillStore
 import cn.edu.shmtu.terminal.android.domain.model.Account
 import cn.edu.shmtu.terminal.android.domain.model.SyncProgress
 import cn.edu.shmtu.terminal.android.domain.model.SyncResult
@@ -18,45 +14,20 @@ import javax.inject.Inject
  * 包装 lib [fullSync]：`SyncOptions.clearBeforeMerge=true` 触发 [RoomBillStore.clear]
  */
 class FullSyncAccountBillsUseCase @Inject constructor(
-    private val epayAdapter: EpayAdapter,
-    private val accountRepository: AccountRepository,
+    private val syncAccountBillsUseCase: SyncAccountBillsUseCase,
 ) {
     suspend operator fun invoke(account: Account): SyncResult = invoke(account) {}
 
-    suspend operator fun invoke(account: Account, onProgress: (SyncProgress) -> Unit): SyncResult {
-        val auth = epayAdapter.getEpayAuth(account.id)
-        val store = RoomBillStore(
-            billDbManager = epayAdapter.billDbManager,
-            accountId = account.id,
-            studentId = account.userId,
-            identityId = account.identityId,
-        )
+    suspend operator fun invoke(
+        account: Account,
+        onProgress: (SyncProgress) -> Unit,
+    ): SyncResult = invoke(account, SyncRangePreset.All, onProgress)
 
-        // 全量更新：先清 session 强制重登
-        epayAdapter.invalidateSession(account.id)
-
-        return try {
-            val libResult = fullSync(
-                auth = auth,
-                store = store,
-                options = SyncOptions.full(SyncRangePreset.All),
-                onProgress = { p -> onProgress(p.toDomain()) },
-            )
-            accountRepository.updateLastSyncTime(account.id)
-            accountRepository.updateLoginStatus(account.id, "LOGGED_IN")
-            SyncResult(
-                newCount = libResult.getOrNull()?.newCount ?: 0,
-                success = libResult.isSuccess,
-                errorMessage = libResult.exceptionOrNull()?.message,
-            )
-        } catch (e: Exception) {
-            onProgress(SyncProgress(
-                status = cn.edu.shmtu.terminal.android.domain.model.SyncStatus.Failed(e.message ?: e.javaClass.simpleName),
-                accountLabel = account.label,
-            ))
-            SyncResult(0, false, e.message)
-        }
-    }
+    suspend operator fun invoke(
+        account: Account,
+        syncRange: SyncRangePreset = SyncRangePreset.All,
+        onProgress: (SyncProgress) -> Unit = {},
+    ): SyncResult = syncAccountBillsUseCase.fullSync(account, syncRange, onProgress)
 }
 
 /**
@@ -69,7 +40,16 @@ class FullSyncIdentityBillsUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(identityId: Long): SyncResult = invoke(identityId) {}
 
-    suspend operator fun invoke(identityId: Long, onProgress: (SyncProgress) -> Unit): SyncResult {
+    suspend operator fun invoke(
+        identityId: Long,
+        onProgress: (SyncProgress) -> Unit,
+    ): SyncResult = invoke(identityId, SyncRangePreset.All, onProgress)
+
+    suspend operator fun invoke(
+        identityId: Long,
+        syncRange: SyncRangePreset = SyncRangePreset.All,
+        onProgress: (SyncProgress) -> Unit = {},
+    ): SyncResult {
         val accountList = accountRepository.getAccountsByIdentity(identityId).first()
         val total = accountList.size
         var totalNew = 0
@@ -77,7 +57,7 @@ class FullSyncIdentityBillsUseCase @Inject constructor(
         var errorMsg: String? = null
 
         accountList.forEachIndexed { index, account ->
-            val result = fullSyncAccountBillsUseCase(account) { progress ->
+            val result = fullSyncAccountBillsUseCase(account, syncRange) { progress ->
                 onProgress(progress.copy(
                     accountIndex = index,
                     accountTotal = total,

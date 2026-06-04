@@ -13,6 +13,7 @@ import cn.edu.shmtu.cas.sync.SyncOptions
 import cn.edu.shmtu.cas.sync.SyncProgress as LibSyncProgress
 import cn.edu.shmtu.cas.sync.SyncRangePreset
 import cn.edu.shmtu.cas.sync.SyncStatus as LibSyncStatus
+import cn.edu.shmtu.cas.sync.fullSync as libFullSync
 import cn.edu.shmtu.cas.sync.incrementalSync
 import cn.edu.shmtu.cas.sync.syncAccount
 import cn.edu.shmtu.terminal.android.data.local.datastore.CaptchaMode
@@ -24,8 +25,9 @@ import cn.edu.shmtu.terminal.android.domain.model.SyncProgress
 import cn.edu.shmtu.terminal.android.domain.model.SyncResult
 import cn.edu.shmtu.terminal.android.domain.model.SyncStatus
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -43,80 +45,72 @@ class SyncAccountBillsUseCase @Inject constructor(
     private val accountRepository: AccountRepository,
     private val settingsDataStore: SettingsDataStore,
 ) {
-    suspend operator fun invoke(account: Account): SyncResult = invoke(account) {}
+    suspend operator fun invoke(account: Account): SyncResult = invoke(account, SyncRangePreset.Month) {}
 
-    suspend operator fun invoke(account: Account, onProgress: (SyncProgress) -> Unit): SyncResult {
-        val auth = epayAdapter.getEpayAuth(account.id)
-        val store = RoomBillStore(
-            billDbManager = epayAdapter.billDbManager,
-            accountId = account.id,
-            studentId = account.userId,
-            identityId = account.identityId,
-        )
+    suspend operator fun invoke(
+        account: Account,
+        onProgress: (SyncProgress) -> Unit,
+    ): SyncResult = invoke(account, SyncRangePreset.Month, onProgress)
 
-        val captchaMode = runBlocking { settingsDataStore.captchaMode.first() }
-        val resolver: CaptchaResolver? = when (captchaMode) {
-            CaptchaMode.MANUAL -> null
-            CaptchaMode.AUTO_OCR -> autoOcrResolver()
-        }
+    suspend operator fun invoke(
+        account: Account,
+        syncRange: SyncRangePreset,
+        onProgress: (SyncProgress) -> Unit = {},
+    ): SyncResult = runAccountSync(
+        account = account,
+        syncRange = syncRange,
+        fullSync = false,
+        onProgress = onProgress,
+    )
 
-        val translatedOnProgress: (LibSyncProgress) -> Unit = { p ->
-            onProgress(p.toDomain())
-        }
+    suspend fun fullSync(
+        account: Account,
+        syncRange: SyncRangePreset,
+        onProgress: (SyncProgress) -> Unit = {},
+    ): SyncResult = runAccountSync(
+        account = account,
+        syncRange = syncRange,
+        fullSync = true,
+        onProgress = onProgress,
+    )
 
-        return try {
-            syncAccount(
-                auth = auth,
-                store = RoomBillStore(
-                    billDbManager = epayAdapter.billDbManager,
-                    accountId = account.id,
-                    studentId = account.userId,
-                    identityId = account.identityId,
-                ),
-                context = AccountContext(
-                    accountId = account.id.toString(),
-                    accountLabel = account.label,
-                ),
-                resolver = resolver,
-                range = null,  // 增量
-                onProgress = translatedOnProgress,
-            )
-            accountRepository.updateLastSyncTime(account.id)
-            accountRepository.updateLoginStatus(account.id, "LOGGED_IN")
-            SyncResult(newCount = 0, success = true)
-        } catch (e: ManualCaptchaRequiredException) {
-            val imgB64 = e.captchaImageBase64.ifBlank {
-                Base64.encodeToString(e.captchaImageBytes, Base64.NO_WRAP)
-            }
-            onProgress(SyncProgress(status = SyncStatus.GettingCaptcha, accountLabel = account.label))
-            throw CaptchaRequiredException(imgB64, e.execution, account.id, account.label)
-        } catch (e: Exception) {
-            onProgress(SyncProgress(status = SyncStatus.Failed(e.message ?: e.javaClass.simpleName), accountLabel = account.label))
-            SyncResult(0, false, e.message)
-        }
-    }
+    suspend fun fullSync(
+        account: Account,
+        onProgress: (SyncProgress) -> Unit,
+    ): SyncResult = fullSync(account, SyncRangePreset.All, onProgress)
 
     /** 使用验证码完成登录后继续同步 - 对齐 Rust 版 sync_with_captcha */
-    suspend fun syncWithCaptcha(account: Account, captchaCode: String, execution: String, onProgress: (SyncProgress) -> Unit): SyncResult {
+    suspend fun syncWithCaptcha(
+        account: Account,
+        captchaCode: String,
+        execution: String,
+        syncRange: SyncRangePreset,
+        fullSync: Boolean,
+        onProgress: (SyncProgress) -> Unit,
+    ): SyncResult = withContext(Dispatchers.IO) {
         val auth = epayAdapter.getEpayAuth(account.id)
-        return try {
+        try {
             onProgress(SyncProgress(status = SyncStatus.LoggingIn, accountLabel = account.label))
             val submitResult = auth.submitLogin("", "", captchaCode, execution)
             when (val r = submitResult.getOrNull()) {
                 is LoginSubmitResult.Success -> {
                     epayAdapter.saveSessionCookies(account.id, auth)
-                    val store = RoomBillStore(
-                        billDbManager = epayAdapter.billDbManager,
-                        accountId = account.id,
-                        studentId = account.userId,
-                        identityId = account.identityId,
-                    )
-                    val libResult = incrementalSync(
-                        auth = auth,
-                        store = store,
-                        options = SyncOptions.incremental(SyncRangePreset.Month),
-                        onProgress = { p -> onProgress(p.toDomain()) },
-                    )
+                    val store = createStore(account)
+                    val libResult = if (fullSync) {
+                        libFullSync(
+                            auth = auth,
+                            store = store,
+                            options = SyncOptions.full(syncRange),
+                            onProgress = { p -> onProgress(p.toDomain()) },
+                        )
+                    } else {
+                        incrementalSync(
+                            auth = auth,
+                            store = store,
+                            options = SyncOptions.incremental(syncRange),
+                            onProgress = { p -> onProgress(p.toDomain()) },
+                        )
+                    }
                     accountRepository.updateLastSyncTime(account.id)
                     accountRepository.updateLoginStatus(account.id, "LOGGED_IN")
                     SyncResult(
@@ -129,7 +123,14 @@ class SyncAccountBillsUseCase @Inject constructor(
                     val challenge = auth.prepareChallenge().getOrNull()
                     if (challenge != null) {
                         val b64 = Base64.encodeToString(challenge.captchaImage, Base64.NO_WRAP)
-                        throw CaptchaRequiredException(b64, challenge.execution, account.id, account.label)
+                        throw CaptchaRequiredException(
+                            captchaImageBase64 = b64,
+                            execution = challenge.execution,
+                            accountId = account.id,
+                            accountLabel = account.label,
+                            syncRange = syncRange,
+                            isFullSync = fullSync,
+                        )
                     }
                     SyncResult(0, false, "验证码错误")
                 }
@@ -137,8 +138,12 @@ class SyncAccountBillsUseCase @Inject constructor(
                 is LoginSubmitResult.Failure -> SyncResult(0, false, r.message)
                 else -> SyncResult(0, false, "登录失败")
             }
-        } catch (e: CaptchaRequiredException) { throw e }
-        catch (e: Exception) { SyncResult(0, false, e.message) }
+        } catch (e: CaptchaRequiredException) {
+            throw e
+        } catch (e: Exception) {
+            onProgress(SyncProgress(status = SyncStatus.Failed(e.message ?: e.javaClass.simpleName), accountLabel = account.label))
+            SyncResult(0, false, e.message)
+        }
     }
 
     /** 刷新验证码 - 对齐 Rust 版 refresh_captcha */
@@ -147,8 +152,78 @@ class SyncAccountBillsUseCase @Inject constructor(
         val challenge = auth.prepareChallenge().getOrNull() ?: return null
         val account = accountRepository.getAccountById(accountId) ?: return null
         val imgB64 = Base64.encodeToString(challenge.captchaImage, Base64.NO_WRAP)
-        return CaptchaRequiredException(imgB64, challenge.execution, accountId, account.label)
+        return CaptchaRequiredException(
+            captchaImageBase64 = imgB64,
+            execution = challenge.execution,
+            accountId = accountId,
+            accountLabel = account.label,
+            syncRange = SyncRangePreset.Month,
+            isFullSync = false,
+        )
     }
+
+    private suspend fun runAccountSync(
+        account: Account,
+        syncRange: SyncRangePreset,
+        fullSync: Boolean,
+        onProgress: (SyncProgress) -> Unit,
+    ): SyncResult = withContext(Dispatchers.IO) {
+        val captchaMode = settingsDataStore.captchaMode.first()
+        val resolver: CaptchaResolver? = when (captchaMode) {
+            CaptchaMode.MANUAL -> null
+            CaptchaMode.AUTO_OCR -> autoOcrResolver()
+        }
+
+        if (fullSync) {
+            epayAdapter.invalidateSession(account.id)
+        }
+        val auth = epayAdapter.getEpayAuth(account.id)
+
+        try {
+            val libResult = syncAccount(
+                auth = auth,
+                store = createStore(account),
+                context = AccountContext(
+                    accountId = account.id.toString(),
+                    accountLabel = account.label,
+                ),
+                resolver = resolver,
+                options = if (fullSync) SyncOptions.full(syncRange) else SyncOptions.incremental(syncRange),
+                fullSync = fullSync,
+                onProgress = { p -> onProgress(p.toDomain()) },
+            )
+            accountRepository.updateLastSyncTime(account.id)
+            accountRepository.updateLoginStatus(account.id, "LOGGED_IN")
+            SyncResult(
+                newCount = libResult.getOrNull()?.newCount ?: 0,
+                success = libResult.isSuccess,
+                errorMessage = libResult.exceptionOrNull()?.message,
+            )
+        } catch (e: ManualCaptchaRequiredException) {
+            val imgB64 = e.captchaImageBase64.ifBlank {
+                Base64.encodeToString(e.captchaImageBytes, Base64.NO_WRAP)
+            }
+            onProgress(SyncProgress(status = SyncStatus.GettingCaptcha, accountLabel = account.label))
+            throw CaptchaRequiredException(
+                captchaImageBase64 = imgB64,
+                execution = e.execution,
+                accountId = account.id,
+                accountLabel = account.label,
+                syncRange = syncRange,
+                isFullSync = fullSync,
+            )
+        } catch (e: Exception) {
+            onProgress(SyncProgress(status = SyncStatus.Failed(e.message ?: e.javaClass.simpleName), accountLabel = account.label))
+            SyncResult(0, false, e.message)
+        }
+    }
+
+    private fun createStore(account: Account) = RoomBillStore(
+        billDbManager = epayAdapter.billDbManager,
+        accountId = account.id,
+        studentId = account.userId,
+        identityId = account.identityId,
+    )
 
     /**
      * 构造自动 OCR 验证码解析器，复用 [Captcha.ocrByRemoteTcpServerAutoRetry]。
@@ -156,7 +231,7 @@ class SyncAccountBillsUseCase @Inject constructor(
     private fun autoOcrResolver(): CaptchaResolver {
         return object : CaptchaResolver {
             override suspend fun resolve(imageData: ByteArray): Result<cn.edu.shmtu.cas.captcha.CaptchaAnswer> {
-                val serverUrl = runBlocking { settingsDataStore.ocrServerUrl.first() }
+                val serverUrl = settingsDataStore.ocrServerUrl.first()
                 val parts = serverUrl.split(":")
                 return if (parts.size == 2) {
                     val port = parts[1].toIntOrNull()

@@ -42,6 +42,7 @@ class IdentityDetailViewModel @Inject constructor(
     private val epayAdapter: EpayAdapter,
     private val secureStorage: SecureStorage
 ) : ViewModel() {
+    private val stateHandle = savedStateHandle
 
     private val identityId: Long = savedStateHandle.get<String>("identityId")?.toLongOrNull() ?: 0L
 
@@ -220,6 +221,12 @@ class IdentityDetailViewModel @Inject constructor(
 
     fun clearSyncMessage() {
         _uiState.value = _uiState.value.copy(syncMessage = null)
+    }
+
+    fun consumePendingSnackbarMessage() {
+        val message = stateHandle.get<String>("account_add_message") ?: return
+        stateHandle.remove<String>("account_add_message")
+        _uiState.value = _uiState.value.copy(syncMessage = message)
     }
 
     fun deleteAccount(accountId: Long) {
