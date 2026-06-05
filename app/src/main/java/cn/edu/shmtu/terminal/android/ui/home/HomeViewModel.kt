@@ -1,5 +1,7 @@
 package cn.edu.shmtu.terminal.android.ui.home
 
+import android.app.Application
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.terminal.android.domain.model.BillItem
@@ -45,8 +47,21 @@ import javax.inject.Inject
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val identityRepository: IdentityRepository,
-    private val billRepository: BillRepository
+    private val billRepository: BillRepository,
+    application: Application
 ) : ViewModel() {
+
+    // 绕开 KSP 跨包解析 bug: 直接用 Application 读 SharedPreferences, 不注入 FeatureSettingsStore
+    private val sp = application.getSharedPreferences("feature_settings", Context.MODE_PRIVATE)
+
+    /** 首页趋势图默认时间范围 - 同步自 FeatureSettingsStore.homeTrendRange, 每次手动触发刷新 */
+    private val _homeChartRange = MutableStateFlow(sp.getString("home_trend", "week") ?: "week")
+    val homeChartRange: StateFlow<String> = _homeChartRange.asStateFlow()
+
+    /** 触发从 SP 重读 */
+    fun reloadHomeChartRange() {
+        _homeChartRange.value = sp.getString("home_trend", "week") ?: "week"
+    }
 
     val identities: StateFlow<List<Identity>> = identityRepository.getAllIdentities()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

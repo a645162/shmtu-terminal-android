@@ -2,13 +2,20 @@ package cn.edu.shmtu.terminal.android
 
 import android.app.Application
 import android.util.Log
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import cn.edu.shmtu.terminal.android.data.remote.SessionExpirationWorker
 import cn.edu.shmtu.terminal.android.data.sync.BillRulesManager
+import cn.edu.shmtu.terminal.android.data.sync.PeriodicBillSyncWorker
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 @HiltAndroidApp
@@ -19,7 +26,6 @@ class SHMTUTerminalApp : Application() {
 
     /**
      * 全局后台协程作用域: 供应用级异步任务(如 GitHub 规则拉取)使用。
-     * 不需要 lifecycle-process 依赖, SupervisorJob 让单任务失败不影响其他任务。
      */
     private val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -29,15 +35,41 @@ class SHMTUTerminalApp : Application() {
         SessionExpirationWorker.schedule(this, intervalMinutes = 10)
         Log.i("SHMTUTerminalApp", "Session 过期检查已启动")
 
-        // 启动时异步从 GitHub 拉取账单规则文件 (rules/type/position/schedule.toml),
-        // 缺失时补齐, 写盘到 filesDir/bill/。与 Tauri `DatabaseFileManager.ensure_local_files` 行为一致。
-        // 不阻塞主线程, 失败时由后续 EpayAdapter / BillRepositoryImpl 懒加载走 assets 回退。
+        // 启动时异步从 GitHub 拉取账单规则文件
         appScope.launch {
             try {
                 val result = billRulesManager.ensureLocalFiles()
                 Log.i("SHMTUTerminalApp", "账单规则本地补齐: $result")
             } catch (e: Exception) {
                 Log.w("SHMTUTerminalApp", "ensureLocalFiles failed: ${e.message}")
+            }
+        }
+
+        // 调度 WorkManager 定时账单同步 (对齐 Tauri AutoSyncService)
+        // 注意: 直接 inject FeatureSettingsStore 会触发 KSP 跨包解析 bug,
+        // 所以这里用 SharedPreferences 同步读 enabled + interval, 然后通过 InputData 传给 Worker。
+        appScope.launch {
+            try {
+                val sp = getSharedPreferences("feature_settings", MODE_PRIVATE)
+                val enabled = sp.getBoolean("auto_sync_enabled", false)
+                if (!enabled) return@launch
+                val intervalMin = sp.getInt("auto_sync_interval", 60).coerceAtLeast(15)
+                val inputData = androidx.work.Data.Builder()
+                    .putBoolean(PeriodicBillSyncWorker.KEY_ENABLED, true)
+                    .putInt(PeriodicBillSyncWorker.KEY_INTERVAL, intervalMin)
+                    .build()
+                val req = PeriodicWorkRequestBuilder<PeriodicBillSyncWorker>(intervalMin.toLong(), TimeUnit.MINUTES)
+                    .setInputData(inputData)
+                    .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                    .build()
+                WorkManager.getInstance(this@SHMTUTerminalApp).enqueueUniquePeriodicWork(
+                    PeriodicBillSyncWorker.NAME,
+                    ExistingPeriodicWorkPolicy.UPDATE,
+                    req
+                )
+                Log.i("SHMTUTerminalApp", "定时账单同步已调度: 间隔 ${intervalMin} 分钟")
+            } catch (e: Exception) {
+                Log.w("SHMTUTerminalApp", "schedule periodic sync failed: ${e.message}")
             }
         }
     }

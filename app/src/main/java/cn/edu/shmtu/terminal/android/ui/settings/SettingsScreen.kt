@@ -47,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
+import cn.edu.shmtu.terminal.android.data.dedupe.BillDedupeRepository
 import cn.edu.shmtu.terminal.android.data.sync.BillRulesManager
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,11 +55,10 @@ import cn.edu.shmtu.terminal.android.data.sync.BillRulesManager
 fun SettingsScreen(
     featureStore: FeatureSettingsStore,
     rulesManager: BillRulesManager,
+    dedupeRepository: BillDedupeRepository,
     onBack: () -> Unit,
     onNavigateToAbout: () -> Unit,
-    onNavigateToOcrSettings: () -> Unit,
-    onDedupeIdentity: suspend () -> Pair<Int, Int>,
-    onDedupeAccount: suspend (Long) -> Pair<Int, Int>
+    onNavigateToOcrSettings: () -> Unit
 ) {
     CompositionLocalProvider(LocalFeatureStore provides featureStore) {
         val configuration = LocalConfiguration.current
@@ -100,7 +100,7 @@ fun SettingsScreen(
                         }
                     }
                     Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                        DetailFor(key = selectedKey, onBack = onBack, rulesManager = rulesManager, onNavigateToAbout = onNavigateToAbout, onNavigateToOcrSettings = onNavigateToOcrSettings, onDedupeIdentity = onDedupeIdentity, onDedupeAccount = onDedupeAccount)
+                        DetailFor(key = selectedKey, onBack = onBack, rulesManager = rulesManager, dedupeRepository = dedupeRepository, onNavigateToAbout = onNavigateToAbout, onNavigateToOcrSettings = onNavigateToOcrSettings)
                     }
                 } else {
                     LazyColumn(
@@ -127,10 +127,9 @@ fun SettingsScreen(
                         key = selectedKey,
                         onBack = { showPhoneModal = false; selectedKey = null },
                         rulesManager = rulesManager,
+                        dedupeRepository = dedupeRepository,
                         onNavigateToAbout = { showPhoneModal = false; selectedKey = null; onNavigateToAbout() },
-                        onNavigateToOcrSettings = { showPhoneModal = false; selectedKey = null; onNavigateToOcrSettings() },
-                        onDedupeIdentity = onDedupeIdentity,
-                        onDedupeAccount = onDedupeAccount
+                        onNavigateToOcrSettings = { showPhoneModal = false; selectedKey = null; onNavigateToOcrSettings() }
                     )
                 }
             }
@@ -165,17 +164,16 @@ private fun DetailFor(
     key: String?,
     onBack: () -> Unit,
     rulesManager: BillRulesManager,
+    dedupeRepository: BillDedupeRepository,
     onNavigateToAbout: () -> Unit,
-    onNavigateToOcrSettings: () -> Unit,
-    onDedupeIdentity: suspend () -> Pair<Int, Int>,
-    onDedupeAccount: suspend (Long) -> Pair<Int, Int>
+    onNavigateToOcrSettings: () -> Unit
 ) {
     when (key) {
         "appearance" -> AppearanceSettingsScreen(onBack = onBack)
         "home_chart" -> HomeChartSettingsScreen(onBack = onBack)
         "sync" -> SyncSettingsScreen(onBack = onBack)
         "security" -> SecuritySettingsScreen(onBack = onBack)
-        "data" -> DataSettingsScreen(onBack = onBack, onDedupeIdentity = onDedupeIdentity, onDedupeAccount = onDedupeAccount)
+        "data" -> DataSettingsScreen(onBack = onBack, dedupeRepository = dedupeRepository)
         "classification" -> ClassificationSettingsScreen(onBack = onBack, rulesManager = rulesManager)
         "update" -> UpdateSettingsScreen(onBack = onBack)
         "debug" -> DebugSettingsScreen(onBack = onBack)

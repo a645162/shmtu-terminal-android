@@ -242,4 +242,16 @@ interface BillDao {
         LIMIT :limit
     """)
     fun getMerchantRanking(startDate: String, endDate: String, limit: Int): Flow<List<TargetUserTotal>>
+
+    /**
+     * 身份级去重 - 删除除最早 (MIN(id)) 之外的同 (accountId, transactionNo) 记录。
+     * 返回删除的行数。
+     */
+    @Query("""
+        DELETE FROM bills
+        WHERE id NOT IN (
+            SELECT MIN(id) FROM bills GROUP BY accountId, transactionNo
+        )
+    """)
+    suspend fun dedupeByTransactionNo(): Int
 }

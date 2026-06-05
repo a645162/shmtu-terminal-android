@@ -31,8 +31,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun DataSettingsScreen(
     onBack: () -> Unit,
-    onDedupeIdentity: suspend () -> Pair<Int, Int>,
-    onDedupeAccount: suspend (Long) -> Pair<Int, Int>
+    dedupeRepository: cn.edu.shmtu.terminal.android.data.dedupe.BillDedupeRepository
 ) {
     val isWide = LocalConfiguration.current.screenWidthDp >= 600
     val scope = rememberCoroutineScope()
@@ -60,7 +59,7 @@ fun DataSettingsScreen(
                         scope.launch {
                             running = true
                             try {
-                                val (kept, removed) = onDedupeIdentity()
+                                val (kept, removed) = dedupeRepository.dedupeIdentity()
                                 identityStatus = "OK 身份级去重完成: 保留 $kept, 删除 $removed 条重复"
                             } catch (e: Exception) {
                                 identityStatus = "X 失败: ${e.message}"
@@ -78,7 +77,7 @@ fun DataSettingsScreen(
                         scope.launch {
                             running = true
                             try {
-                                val (kept, removed) = onDedupeAccount(0L)
+                                val (kept, removed) = dedupeRepository.dedupeAccount(0L)
                                 accountStatus = "OK 账号级去重完成: 保留 $kept, 删除 $removed 条重复"
                             } catch (e: Exception) {
                                 accountStatus = "X 失败: ${e.message}"

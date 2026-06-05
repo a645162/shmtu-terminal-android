@@ -76,11 +76,10 @@ fun AppNavigation(
             SettingsScreen(
                 featureStore = wrapper.featureStore,
                 rulesManager = wrapper.rulesManager,
+                dedupeRepository = wrapper.dedupeRepository,
                 onBack = { navController.popBackStack() },
                 onNavigateToAbout = { navController.navigate("about") },
-                onNavigateToOcrSettings = { navController.navigate("ocr_settings") },
-                onDedupeIdentity = { Pair(0, 0) },
-                onDedupeAccount = { Pair(0, 0) }
+                onNavigateToOcrSettings = { navController.navigate("ocr_settings") }
             )
         }
         // ==================== 新增 8 个 settings sub-route ====================
