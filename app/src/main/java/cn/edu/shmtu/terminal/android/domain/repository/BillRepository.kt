@@ -89,6 +89,15 @@ data class ReclassifyMissSample(
     val targetUser: String,
     val sampleType: String,
     val count: Int,
+    val suggestedToml: String,
+    val candidates: List<ReclassifyMissCandidate> = emptyList(),
+)
+
+data class ReclassifyMissCandidate(
+    val keyword: String,
+    val building: String,
+    val room: String,
+    val score: Int,
 )
 
 data class ReclassifyProgress(

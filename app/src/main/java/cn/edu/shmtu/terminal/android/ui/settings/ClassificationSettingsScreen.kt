@@ -1,5 +1,6 @@
 package cn.edu.shmtu.terminal.android.ui.settings
 
+import android.content.ClipData
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.toClipEntry
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -39,6 +42,7 @@ import cn.edu.shmtu.cas.classifier.MealClassifier
 import cn.edu.shmtu.cas.classifier.PositionTranslator
 import cn.edu.shmtu.cas.classifier.RuleSummary
 import cn.edu.shmtu.terminal.android.data.sync.BillRulesManager
+import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyMissCandidate
 import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyMissSample
 import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyProgress
 import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyResult
@@ -143,6 +147,7 @@ fun ClassificationSettingsScreen(
     viewModel: ClassificationSettingsViewModel = hiltViewModel()
 ) {
     val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboard.current
     val store = LocalFeatureStore.current
     val currentUrl by store.rulesUpdateUrl.collectAsState()
     var urlDraft by remember(currentUrl) { mutableStateOf(currentUrl) }
@@ -321,7 +326,39 @@ fun ClassificationSettingsScreen(
                         Spacer(Modifier.height(8.dp))
                         MissedSamplesCard(
                             samples = r.missedSamples,
-                            totalMissed = r.missed
+                            totalMissed = r.missed,
+                            onCopyAll = {
+                                scope.launch {
+                                    clipboard.setClipEntry(
+                                        ClipData.newPlainText(
+                                            "reclassify-missed-samples",
+                                            r.missedSamples.joinToString("\n\n") { sample ->
+                                                formatMissSample(sample)
+                                            }
+                                        ).toClipEntry()
+                                    )
+                                }
+                            },
+                            onCopySample = { sample ->
+                                scope.launch {
+                                    clipboard.setClipEntry(
+                                        ClipData.newPlainText(
+                                            "reclassify-missed-sample",
+                                            formatMissSample(sample)
+                                        ).toClipEntry()
+                                    )
+                                }
+                            },
+                            onCopyToml = { sample ->
+                                scope.launch {
+                                    clipboard.setClipEntry(
+                                        ClipData.newPlainText(
+                                            "reclassify-missed-toml",
+                                            sample.suggestedToml
+                                        ).toClipEntry()
+                                    )
+                                }
+                            }
                         )
                     }
                 }
@@ -338,7 +375,13 @@ fun ClassificationSettingsScreen(
 }
 
 @Composable
-private fun MissedSamplesCard(samples: List<ReclassifyMissSample>, totalMissed: Int) {
+private fun MissedSamplesCard(
+    samples: List<ReclassifyMissSample>,
+    totalMissed: Int,
+    onCopyAll: () -> Unit,
+    onCopySample: (ReclassifyMissSample) -> Unit,
+    onCopyToml: (ReclassifyMissSample) -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
 
     Surface(
@@ -354,11 +397,14 @@ private fun MissedSamplesCard(samples: List<ReclassifyMissSample>, totalMissed: 
                 Column(modifier = Modifier.weight(1f)) {
                     Text("未命中 targetUser", style = MaterialTheme.typography.bodyMedium)
                     Text(
-                        "显示 ${samples.size} 个聚合项，总未命中 $totalMissed 条",
+                        "显示 ${samples.size} 个聚合项，总未命中 $totalMissed 条。每项含建议 TOML 与候选规则。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onCopyAll) { Text("复制全部建议") }
                 TextButton(onClick = { expanded = !expanded }) {
                     Text(if (expanded) "收起" else "展开")
                 }
@@ -366,7 +412,11 @@ private fun MissedSamplesCard(samples: List<ReclassifyMissSample>, totalMissed: 
             AnimatedVisibility(visible = expanded) {
                 Column {
                     samples.forEach { sample ->
-                        MissedSampleRow(sample)
+                        MissedSampleRow(
+                            sample = sample,
+                            onCopySample = { onCopySample(sample) },
+                            onCopyToml = { onCopyToml(sample) }
+                        )
                     }
                 }
             }
@@ -526,7 +576,11 @@ private fun RulesOverviewCard(snapshot: ActiveRulesSnapshot) {
 }
 
 @Composable
-private fun MissedSampleRow(sample: ReclassifyMissSample) {
+private fun MissedSampleRow(
+    sample: ReclassifyMissSample,
+    onCopySample: () -> Unit,
+    onCopyToml: () -> Unit,
+) {
     Surface(
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -541,7 +595,59 @@ private fun MissedSampleRow(sample: ReclassifyMissSample) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Text(
+                "建议追加到 position.toml:",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                sample.suggestedToml,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (sample.candidates.isNotEmpty()) {
+                Text(
+                    "相近候选规则:",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                sample.candidates.forEach { candidate ->
+                    CandidateRow(candidate)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onCopyToml) { Text("复制 TOML") }
+                TextButton(onClick = onCopySample) { Text("复制诊断") }
+            }
         }
+    }
+}
+
+@Composable
+private fun CandidateRow(candidate: ReclassifyMissCandidate) {
+    Text(
+        "`${candidate.keyword}` -> ${candidate.building} / ${candidate.room} (score=${candidate.score})",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+private fun formatMissSample(sample: ReclassifyMissSample): String {
+    val candidates = if (sample.candidates.isEmpty()) {
+        "相近候选规则: 无"
+    } else {
+        sample.candidates.joinToString(
+            prefix = "相近候选规则:\n",
+            separator = "\n"
+        ) { candidate ->
+            "- ${candidate.keyword} -> ${candidate.building} / ${candidate.room} (score=${candidate.score})"
+        }
+    }
+    return buildString {
+        appendLine("targetUser: ${sample.targetUser}")
+        appendLine("出现次数: ${sample.count}")
+        appendLine("示例 type: ${sample.sampleType}")
+        appendLine("建议 TOML:")
+        appendLine(sample.suggestedToml)
+        append(candidates)
     }
 }
 

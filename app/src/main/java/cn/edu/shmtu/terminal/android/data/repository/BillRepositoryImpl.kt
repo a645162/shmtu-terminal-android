@@ -22,6 +22,7 @@ import cn.edu.shmtu.terminal.android.domain.model.SyncStatus
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
+import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyMissCandidate
 import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyMissSample
 import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyProgress
 import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyResult
@@ -635,7 +636,12 @@ class BillRepositoryImpl @Inject constructor(
                     ReclassifyMissSample(
                         targetUser = targetUser,
                         sampleType = sample.sampleType,
-                        count = sample.count
+                        count = sample.count,
+                        suggestedToml = buildSuggestedToml(targetUser),
+                        candidates = buildMissCandidates(
+                            targetUser = targetUser,
+                            translator = positionTranslator
+                        )
                     )
                 }
                 .sortedWith(
@@ -652,6 +658,49 @@ class BillRepositoryImpl @Inject constructor(
         private val DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd")
         private val DATE_FMT_END = DateTimeFormatter.ofPattern("yyyy-MM-dd 23:59:59")
     }
+}
+
+private fun buildSuggestedToml(targetUser: String): String {
+    val escaped = targetUser.replace("\\", "\\\\").replace("\"", "\\\"")
+    return """
+[position.keywords."$escaped"]
+building = "待补充"
+room = "待补充"
+""".trimIndent()
+}
+
+private fun buildMissCandidates(
+    targetUser: String,
+    translator: cn.edu.shmtu.cas.classifier.PositionTranslator?,
+): List<ReclassifyMissCandidate> {
+    val keywords = translator?.getAllKeywords().orEmpty()
+    if (targetUser.isBlank() || keywords.isEmpty()) return emptyList()
+    return keywords.entries
+        .mapNotNull { (keyword, info) ->
+            val score = overlapScore(targetUser, keyword)
+            if (score <= 0) return@mapNotNull null
+            ReclassifyMissCandidate(
+                keyword = keyword,
+                building = info.position,
+                room = info.room,
+                score = score
+            )
+        }
+        .sortedWith(
+            compareByDescending<ReclassifyMissCandidate> { it.score }
+                .thenByDescending { it.keyword.length }
+                .thenBy { it.keyword }
+        )
+        .take(3)
+}
+
+private fun overlapScore(targetUser: String, keyword: String): Int {
+    if (targetUser.contains(keyword) || keyword.contains(targetUser)) {
+        return maxOf(targetUser.length, keyword.length) + 1000
+    }
+    val targetChars = targetUser.filterNot(Char::isWhitespace).toSet()
+    val keywordChars = keyword.filterNot(Char::isWhitespace).toSet()
+    return targetChars.intersect(keywordChars).size
 }
 
 private fun cn.edu.shmtu.terminal.android.data.local.db.entity.BillEntity.toDomain() = EntityMappers.run { this@toDomain.toDomain() }
