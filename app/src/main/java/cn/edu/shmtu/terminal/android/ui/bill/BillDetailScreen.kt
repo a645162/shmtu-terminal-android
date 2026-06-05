@@ -1,5 +1,6 @@
 package cn.edu.shmtu.terminal.android.ui.bill
 
+import android.content.ClipData
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,15 +38,17 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.toClipEntry
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlinx.coroutines.launch
 
 /**
  * 账单详情页 - 对齐 Tauri BillDetailDialog
@@ -55,8 +58,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
  * - 交易名称 type
  * - 交易号 transactionNo
  * - 对方账户 targetUser
- * - 位置 position(暂未持久化,显示 "—")
- * - 房间/窗口 room(暂未持久化)
+ * - 位置 position/building
+ * - 房间/窗口 room
  * - 金额 money
  * - 支付方式 method
  * - 状态 status
@@ -76,7 +79,8 @@ fun BillDetailScreen(
     val notes by viewModel.notes.collectAsState()
     val editing by viewModel.editingNotes.collectAsState()
     val sourceAccountLabel by viewModel.sourceAccountLabel.collectAsState()
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
     val configuration = LocalConfiguration.current
     val ultraWide = configuration.screenWidthDp >= 1200
     val wideLayout = configuration.screenWidthDp >= 900
@@ -111,6 +115,12 @@ fun BillDetailScreen(
         val isIncome = item.type.contains("充值") || item.type.contains("冲正") ||
             item.type.contains("退款") || item.type.contains("返还") || item.type.contains("存入") ||
             item.type.contains("转入")
+        val resolvedBuilding = item.building?.takeIf { it.isNotBlank() }
+            ?: item.position?.takeIf { it.isNotBlank() }
+        val resolvedRoom = item.room?.takeIf { it.isNotBlank() }
+        val resolvedPlace = listOfNotNull(resolvedBuilding, resolvedRoom).joinToString("/")
+            .ifBlank { null }
+        val summaryTitle = resolvedPlace ?: item.type.ifBlank { "未分类交易" }
 
         // Tauri BillDetailDialog 字段顺序(去掉 Tauri 的 13 个字段中 Android 端暂无的 synced_at / source_account_id,补 12 个)
         val fields = listOf(
@@ -118,8 +128,8 @@ fun BillDetailScreen(
             "交易名称" to item.type.ifBlank { "—" },
             "交易号" to item.transactionNo.ifBlank { "—" },
             "对方账户" to item.targetUser.ifBlank { "—" },
-            "位置" to "—",
-            "房间/窗口" to "—",
+            "位置" to (resolvedBuilding ?: "—"),
+            "房间/窗口" to (resolvedRoom ?: "—"),
             "金额" to "¥${item.money}",
             "支付方式" to item.method.ifBlank { "—" },
             "状态" to item.status.ifBlank { "—" },
@@ -142,14 +152,21 @@ fun BillDetailScreen(
             ) {
                 BillDetailSummaryPanel(
                     modifier = Modifier.width(if (ultraWide) 360.dp else 320.dp),
-                    title = item.type.ifBlank { "未分类交易" },
+                    title = summaryTitle,
                     amountText = amountText,
                     amountColor = amountColor,
                     status = item.status.ifBlank { "未知状态" },
                     account = sourceAccountLabel,
                     targetUser = item.targetUser.ifBlank { "—" },
+                    resolvedPlace = resolvedPlace,
                     dateTime = item.dateTimeStrFormat.ifBlank { "—" },
-                    onCopy = { clipboard.setText(AnnotatedString(feedback)) },
+                    onCopy = {
+                        scope.launch {
+                            clipboard.setClipEntry(
+                                ClipData.newPlainText("bill-detail", feedback).toClipEntry()
+                            )
+                        }
+                    },
                     onStartEdit = { viewModel.startEditNotes() }
                 )
                 BillDetailFieldsPanel(
@@ -174,14 +191,21 @@ fun BillDetailScreen(
             ) {
                 BillDetailSummaryPanel(
                     modifier = Modifier.fillMaxWidth(),
-                    title = item.type.ifBlank { "未分类交易" },
+                    title = summaryTitle,
                     amountText = amountText,
                     amountColor = amountColor,
                     status = item.status.ifBlank { "未知状态" },
                     account = sourceAccountLabel,
                     targetUser = item.targetUser.ifBlank { "—" },
+                    resolvedPlace = resolvedPlace,
                     dateTime = item.dateTimeStrFormat.ifBlank { "—" },
-                    onCopy = { clipboard.setText(AnnotatedString(feedback)) },
+                    onCopy = {
+                        scope.launch {
+                            clipboard.setClipEntry(
+                                ClipData.newPlainText("bill-detail", feedback).toClipEntry()
+                            )
+                        }
+                    },
                     onStartEdit = { viewModel.startEditNotes() }
                 )
                 BillDetailFieldsPanel(
@@ -208,6 +232,7 @@ private fun BillDetailSummaryPanel(
     status: String,
     account: String,
     targetUser: String,
+    resolvedPlace: String?,
     dateTime: String,
     onCopy: () -> Unit,
     onStartEdit: () -> Unit
@@ -234,6 +259,9 @@ private fun BillDetailSummaryPanel(
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                 Text(amountText, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = amountColor)
+            }
+            resolvedPlace?.let {
+                DetailHighlightCard(label = "解析位置", value = it)
             }
             DetailHighlightCard(label = "对方账户", value = targetUser)
             DetailHighlightCard(label = "来源账号", value = account)

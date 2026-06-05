@@ -70,10 +70,18 @@ class FeatureSettingsStore @Inject constructor(
     val rulesUpdateUrl: StateFlow<String> = MutableStateFlow(
         prefs.getString("rules_update_url", "https://raw.githubusercontent.com/a645162/shmtu-terminal/main/database/bill")!!
     )
+    val rulesLastSyncAt: StateFlow<Long> = MutableStateFlow(
+        prefs.getLong("rules_last_sync_at", 0L)
+    )
 
     fun setRulesUpdateUrl(v: String) {
         prefs.edit().putString("rules_update_url", v).apply()
         (rulesUpdateUrl as MutableStateFlow).value = v
+    }
+
+    fun setRulesLastSyncAt(v: Long) {
+        prefs.edit().putLong("rules_last_sync_at", v).apply()
+        (rulesLastSyncAt as MutableStateFlow).value = v
     }
 
     // 更新

@@ -52,6 +52,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 private const val DEFAULT_RULES_URL =
@@ -150,6 +153,7 @@ fun ClassificationSettingsScreen(
     val clipboard = LocalClipboard.current
     val store = LocalFeatureStore.current
     val currentUrl by store.rulesUpdateUrl.collectAsState()
+    val lastSyncAt by store.rulesLastSyncAt.collectAsState()
     var urlDraft by remember(currentUrl) { mutableStateOf(currentUrl) }
     var status by remember { mutableStateOf("尚未同步") }
 
@@ -223,6 +227,11 @@ fun ClassificationSettingsScreen(
                 style = MaterialTheme.typography.bodyMedium
             )
             Text(
+                "上次同步: ${formatLastSyncAt(lastSyncAt)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
                 status,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -231,6 +240,7 @@ fun ClassificationSettingsScreen(
                 scope.launch {
                     val result = rulesManager.downloadAll()
                     status = if (result.allOk) {
+                        store.setRulesLastSyncAt(System.currentTimeMillis())
                         "同步成功，共更新 ${result.perFile.size} 个文件"
                     } else {
                         result.perFile.entries.joinToString("\n") { (name, item) ->
@@ -650,6 +660,16 @@ private fun formatMissSample(sample: ReclassifyMissSample): String {
         append(candidates)
     }
 }
+
+private fun formatLastSyncAt(epochMillis: Long): String {
+    if (epochMillis <= 0L) return "从未"
+    return LAST_SYNC_FMT.format(
+        Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault())
+    )
+}
+
+private val LAST_SYNC_FMT: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
 @Composable
 private fun RuleFileRow(file: BillRulesManager.RuleFileSnapshot) {
