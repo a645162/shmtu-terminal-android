@@ -56,4 +56,28 @@ interface BillRepository {
      * 用于"分类分析" Tab 选中具体分类时显示消费明细
      */
     fun getCategoryBills(identityId: Long?, category: String, startDate: String?, endDate: String?): Flow<List<BillItem>>
+
+    /**
+     * 重算数据库中**所有**账单的 building / room / position / category。
+     *
+     * 用途: 之前因 [cn.edu.shmtu.terminal.android.data.remote.EpayAdapter.positionTranslator]
+     * 加载顺序错误(rules.toml 优先于 position.toml),老数据里"海馨第一/二/三/四食堂"
+     * 等仅出现在 position.toml 的位置规则被静默丢失。该函数在不重新走 CAS 登录、
+     * 不重新拉取账单的前提下,用修复后的 classifier + positionTranslator 把所有
+     * 已有 bill 行重算并写回数据库。
+     *
+     * 遍历范围: 已打开过的所有 account 数据库 + 所有 identity 数据库。
+     */
+    suspend fun reclassifyAllBills(): ReclassifyResult
 }
+
+/**
+ * 重算结果统计(给 UI 展示)
+ */
+data class ReclassifyResult(
+    val totalScanned: Int,
+    val translated: Int,
+    val categoryUpdated: Int,
+    val missed: Int,
+    val durationMs: Long,
+)

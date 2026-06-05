@@ -1,5 +1,6 @@
 package cn.edu.shmtu.terminal.android.data.sync
 
+import android.util.Log
 import cn.edu.shmtu.cas.datatype.BillItem
 import cn.edu.shmtu.cas.sync.BillStore
 import cn.edu.shmtu.terminal.android.data.local.db.BillDatabase
@@ -36,6 +37,8 @@ class RoomBillStore @Inject constructor(
     private val identityId: Long,
 ) : BillStore {
 
+    private val TAG = "RoomBillStore"
+
     private val accountDb: BillDatabase
         get() = billDbManager.getAccountDatabase(studentId)
 
@@ -61,8 +64,32 @@ class RoomBillStore @Inject constructor(
         // 落库前按 Tauri 语义即时计算分类 / 位置翻译 — 与 Tauri BillClassifier.classify +
         // PositionTranslator.translate 行为一致,首次命中即返回,精确 + contains 匹配。
         val entities: List<BillEntity> = rawEntities.map { e ->
+            // 回调式 trace:让 lib 把命中模式暴露出来,日志在 app 层打。
+            // (lib 模块是纯 JVM,不能直接 import android.util.Log)
+            var lastTraceMode: String? = null
+            var lastTraceKeyword: String? = null
+            val pos = positionTranslator?.translate(e.targetUser) { mode, keyword, _ ->
+                lastTraceMode = mode
+                lastTraceKeyword = keyword
+            }
             val cat = classifier?.classifyKey(e.type, e.targetUser)
-            val pos = positionTranslator?.translate(e.targetUser)
+            // ====== 详细 logcat:方便定位为什么某条 bill 没被正确翻译 ======
+            if (Log.isLoggable(TAG, Log.DEBUG)) {
+                Log.d(TAG, "[translate] tx=${e.transactionNo} " +
+                        "type='${e.type}' targetUser='${e.targetUser}' " +
+                        "money=${e.money} " +
+                        "→ category=${cat ?: "(null→other)"} " +
+                        "building=${pos?.position ?: "(null)"} " +
+                        "room=${pos?.room ?: "(null)"} " +
+                        "matchMode=${lastTraceMode ?: "(none)"} " +
+                        "matchedKeyword='${lastTraceKeyword ?: ""}'")
+            }
+            // WARN 级:没命中位置规则的 bill 显式标出,便于扫日志快速定位问题条目
+            if (Log.isLoggable(TAG, Log.WARN) && pos == null && e.targetUser.isNotBlank()) {
+                Log.w(TAG, "[translate-MISS] tx=${e.transactionNo} " +
+                        "targetUser='${e.targetUser}' NO position rule matched. " +
+                        "rulesLoaded=${positionTranslator?.getAllKeywords()?.size ?: 0}")
+            }
             e.copy(
                 category = cat ?: "other",
                 position = pos?.position ?: e.position,
@@ -70,6 +97,9 @@ class RoomBillStore @Inject constructor(
                 building = pos?.position ?: e.building
             )
         }
+        Log.i(TAG, "merge() accountId=$accountId newBills=${newBills.size} " +
+                "classifier=${if (classifier != null) "loaded(${classifier!!.ruleCount()} rules)" else "NULL"} " +
+                "positionTranslator=${if (positionTranslator != null) "loaded(${positionTranslator!!.getAllKeywords().size} keywords)" else "NULL"}")
         kotlinx.coroutines.runBlocking {
             accountDb.billDao().insertAll(entities)
             identityDb.billDao().insertAll(entities)

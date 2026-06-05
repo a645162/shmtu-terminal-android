@@ -66,7 +66,7 @@ title: FAQ
 
 ### 账单分类不准确
 
-账单分类基于内置规则文件（`type.json`、`position.json`、`schedule.json`），如果商户名称发生变化可能导致分类偏差。这类问题需要更新规则文件才能修复。
+账单分类基于内置规则文件（`type.toml`、`position.toml`、`schedule.toml` / `rules.toml`），如果商户名称发生变化可能导致分类偏差。这类问题需要更新规则文件才能修复。
 
 ### 统计数据与账单明细不一致
 

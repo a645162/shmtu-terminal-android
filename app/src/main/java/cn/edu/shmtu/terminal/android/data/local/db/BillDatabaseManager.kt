@@ -80,4 +80,15 @@ class BillDatabaseManager @Inject constructor(
         closeIdentityDatabase(identityId)
         context.deleteDatabase("identity_${identityId}.sqlite")
     }
+
+    /**
+     * 返回所有已缓存的账号数据库 studentId 列表(打开过的账号)。
+     * 用于"重算历史账单"等需要遍历所有账号库的场景。
+     */
+    fun getAllAccountStudentIds(): List<String> = accountDatabases.keys.toList()
+
+    /**
+     * 返回所有已缓存的身份数据库 identityId 列表(打开过的身份)。
+     */
+    fun getAllIdentityIds(): List<Long> = identityDatabases.keys.toList()
 }

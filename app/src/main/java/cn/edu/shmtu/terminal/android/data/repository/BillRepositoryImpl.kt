@@ -22,11 +22,13 @@ import cn.edu.shmtu.terminal.android.domain.model.SyncStatus
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
+import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyResult
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.FullSyncAccountBillsUseCase
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.FullSyncIdentityBillsUseCase
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.SyncAccountBillsUseCase
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.SyncIdentityBillsUseCase
 import cn.edu.shmtu.terminal.android.data.local.db.entity.BillEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -35,6 +37,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
@@ -55,6 +58,8 @@ class BillRepositoryImpl @Inject constructor(
     private val fullSyncIdentityBillsUseCase: FullSyncIdentityBillsUseCase,
     /** GitHub 同步的规则文件管理器 — classifier/mealClassifier 走它读取本地缓存 */
     private val billRulesManager: cn.edu.shmtu.terminal.android.data.sync.BillRulesManager,
+    /** 用于 [reclassifyAllBills] 拿到懒加载的 classifier / positionTranslator */
+    private val epayAdapter: cn.edu.shmtu.terminal.android.data.remote.EpayAdapter,
 ) : BillRepository {
 
     private val _syncProgress = MutableSharedFlow<SyncProgress>(extraBufferCapacity = 1)
@@ -458,36 +463,16 @@ class BillRepositoryImpl @Inject constructor(
      * 加载失败时降级为 [MealClassifier.defaultRules] — 与 Tauri schedule.toml 默认内容完全一致。
      * 优先走 [BillRulesManager] 本地缓存(GitHub 同步目标),缺失回退到 assets/bill/。
      */
-    private val mealClassifier: cn.edu.shmtu.cas.classifier.MealClassifier by lazy {
-        try {
-            val rulesToml = runCatching { billRulesManager.readFile("rules.toml") }.getOrNull()
-            val scheduleToml = runCatching { billRulesManager.readFile("schedule.toml") }.getOrNull()
-            val text = rulesToml ?: scheduleToml
-            if (text != null) {
-                cn.edu.shmtu.cas.classifier.MealClassifier.fromRulesToml(text)
-            } else {
-                cn.edu.shmtu.cas.classifier.MealClassifier.defaultRules()
-            }
-        } catch (_: Exception) {
-            cn.edu.shmtu.cas.classifier.MealClassifier.defaultRules()
-        }
-    }
+    private val mealClassifier: cn.edu.shmtu.cas.classifier.MealClassifier
+        get() = epayAdapter.loadMealClassifier().classifier
 
     /**
      * 账单分类器(由 [BillRepositoryImpl] 构造时或首次访问时懒加载 rules.toml),
      * 用于 [getCategoryBreakdown] 内部对 category 字段为空的老数据做兜底分类。
      * 优先走 [BillRulesManager] 本地缓存(GitHub 同步目标),缺失回退到 assets/bill/。
      */
-    private val billClassifier: cn.edu.shmtu.cas.classifier.BillClassifier? by lazy {
-        try {
-            val rulesToml = runCatching { billRulesManager.readFile("rules.toml") }.getOrNull()
-            val typeToml = runCatching { billRulesManager.readFile("type.toml") }.getOrNull()
-            val text = rulesToml ?: typeToml ?: return@lazy null
-            cn.edu.shmtu.cas.classifier.BillClassifier.fromRulesToml(text)
-        } catch (_: Exception) {
-            null
-        }
-    }
+    private val billClassifier: cn.edu.shmtu.cas.classifier.BillClassifier?
+        get() = epayAdapter.loadClassifier().classifier
 
     private fun mergedBills(identityId: Long?): Flow<List<BillEntity>> {
         return getDatabases(identityId).flatMapLatest { dbs ->
@@ -499,6 +484,110 @@ class BillRepositoryImpl @Inject constructor(
                 }
             }
         }
+    }
+
+    // ==================== 重算历史账单 ====================
+
+    /**
+     * 重算数据库中**所有**账单的 building / room / position / category。
+     *
+     * 流程:
+     * 1. 从 [BillDatabaseManager] 拿到已打开过的所有账号库(studentId 列表) +
+     *    所有身份库(identityId 列表)。
+     * 2. 合并后逐个数据库遍历 → 取 [BillDao.getAllBillsForReclassify] 轻量行 →
+     *    注入 [epayAdapter] 的懒加载 classifier / positionTranslator 重算 →
+     *    逐行 [BillDao.updateBillClassify] 写回。
+     * 3. 统计 totalScanned / translated / categoryUpdated / missed,以及耗时。
+     *
+     * 注意: 同一笔 bill 可能在 account 库和 identity 库各存一份(双写),
+     * 两份都会被分别重算(对齐之前 [RoomBillStore.merge] 的双写语义)。
+     */
+    override suspend fun reclassifyAllBills(): ReclassifyResult = withContext(Dispatchers.IO) {
+        val tag = "BillReclassify"
+        val startMs = System.currentTimeMillis()
+
+        val classifier = epayAdapter.classifier
+        val positionTranslator = epayAdapter.positionTranslator
+
+        Log.d(tag, "[reclassify-start] classifier=${if (classifier != null) "loaded(${classifier.ruleCount()} rules)" else "NULL"} " +
+                "positionTranslator=${if (positionTranslator != null) "loaded(${positionTranslator.getAllKeywords().size} keywords)" else "NULL"}")
+
+        val accountStudentIds = billDbManager.getAllAccountStudentIds()
+        val identityIds = billDbManager.getAllIdentityIds()
+        Log.d(tag, "[reclassify-start] accountDbs=${accountStudentIds.size} identityDbs=${identityIds.size}")
+
+        val dbs: List<cn.edu.shmtu.terminal.android.data.local.db.BillDatabase> = buildList {
+            accountStudentIds.forEach { sid -> add(billDbManager.getAccountDatabase(sid)) }
+            identityIds.forEach { iid -> add(billDbManager.getIdentityDatabase(iid)) }
+        }
+
+        var totalScanned = 0
+        var translated = 0
+        var categoryUpdated = 0
+        var missed = 0
+
+        for (db in dbs) {
+            val dao = db.billDao()
+            val rows = dao.getAllBillsForReclassify()
+            Log.d(tag, "[reclassify-db] path=${db.openHelper.writableDatabase.path} rows=${rows.size}")
+            for (row in rows) {
+                totalScanned++
+                val target = row.targetUser
+                val type = row.type
+
+                // 用与 [RoomBillStore.merge] 完全一致的 trace 回调拿到 matchMode
+                var lastTraceMode: String? = null
+                var lastTraceKeyword: String? = null
+                val pos = positionTranslator?.translate(target) { mode, keyword, _ ->
+                    lastTraceMode = mode
+                    lastTraceKeyword = keyword
+                }
+                val cat = classifier?.classifyKey(type, target)
+
+                val newBuilding = pos?.position
+                val newRoom = pos?.room
+                val newPosition = pos?.position
+                val newCategory = cat ?: "other"
+
+                dao.updateBillClassify(
+                    id = row.id,
+                    building = newBuilding,
+                    room = newRoom,
+                    position = newPosition,
+                    category = newCategory
+                )
+
+                if (Log.isLoggable(tag, Log.DEBUG) || pos != null) {
+                    Log.d(tag, "[reclassify] id=${row.id} type='$type' targetUser='$target' " +
+                            "→ cat=$newCategory building=${newBuilding ?: "(null)"} " +
+                            "room=${newRoom ?: "(null)"} " +
+                            "matchMode=${lastTraceMode ?: "(none)"} " +
+                            "matchedKeyword='${lastTraceKeyword ?: ""}'")
+                }
+
+                if (newBuilding != null) translated++ else if (target.isNotBlank()) missed++
+
+                if (cat != null && cat != "other") categoryUpdated++
+
+                if (pos == null && target.isNotBlank()) {
+                    Log.w(tag, "[reclassify-MISS] id=${row.id} targetUser='$target' " +
+                            "NO position rule matched. " +
+                            "rulesLoaded=${positionTranslator?.getAllKeywords()?.size ?: 0}")
+                }
+            }
+        }
+
+        val durationMs = System.currentTimeMillis() - startMs
+        val result = ReclassifyResult(
+            totalScanned = totalScanned,
+            translated = translated,
+            categoryUpdated = categoryUpdated,
+            missed = missed,
+            durationMs = durationMs,
+        )
+        Log.i(tag, "[reclassify-done] total=$totalScanned translated=$translated " +
+                "categoryUpdated=$categoryUpdated missed=$missed durationMs=$durationMs")
+        result
     }
 
     companion object {

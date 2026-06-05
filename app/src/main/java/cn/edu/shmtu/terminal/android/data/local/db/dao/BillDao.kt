@@ -7,6 +7,13 @@ import androidx.room.Query
 import cn.edu.shmtu.terminal.android.data.local.db.entity.BillEntity
 import kotlinx.coroutines.flow.Flow
 
+/** 用于重算分类的轻量 POJO(只取必要字段,避免加载整张表) */
+data class BillReclassifyRow(
+    val id: Long,
+    val type: String,
+    val targetUser: String
+)
+
 data class TypeSum(val type: String, val total: Double)
 
 data class DailyTotal(val dateStr: String, val total: Double)
@@ -54,6 +61,20 @@ interface BillDao {
 
     @Query("SELECT COUNT(*) FROM bills")
     suspend fun getCount(): Int
+
+    /**
+     * 取出所有账单的轻量行(仅 id / type / targetUser),供"重算历史账单"功能使用。
+     * 配合 [updateBillClassify] 一起工作,避免加载整张表的所有字段。
+     */
+    @Query("SELECT id, type, targetUser FROM bills")
+    suspend fun getAllBillsForReclassify(): List<BillReclassifyRow>
+
+    /**
+     * 重算后批量写回分类/位置翻译结果。
+     * 一次只更新一行,大批量由 Repository 层在协程里循环调用。
+     */
+    @Query("UPDATE bills SET building = :building, room = :room, position = :position, category = :category WHERE id = :id")
+    suspend fun updateBillClassify(id: Long, building: String?, room: String?, position: String?, category: String?)
 
     @Query("""
         SELECT type, SUM(CAST(REPLACE(REPLACE(money, '¥', ''), ',', '') AS REAL)) as total

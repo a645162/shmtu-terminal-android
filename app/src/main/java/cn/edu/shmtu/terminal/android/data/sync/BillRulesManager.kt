@@ -118,11 +118,17 @@ class BillRulesManager @Inject constructor(
     /**
      * 读取本地缓存文件;缺失或空时回退到 assets/bill/<name>。
      * 抛出异常表示本地与 assets 都不可用。
+     *
+     * 重要: 如果本地文件存在但内容为空字符串(损坏 / 写入中断),**也会**回退到 assets,
+     * 避免上游解析出 0 条规则的惨案。
      */
     fun readFile(filename: String): String {
         val local = File(localDir, filename)
-        if (local.exists() && local.length() > 0L) {
-            return local.readText(Charsets.UTF_8)
+        if (local.exists()) {
+            val bytes = local.readBytes()
+            if (bytes.isNotEmpty()) {
+                return String(bytes, Charsets.UTF_8)
+            }
         }
         // 回退到 assets 内的出厂默认
         val assetPath = "bill/$filename"
@@ -133,6 +139,32 @@ class BillRulesManager @Inject constructor(
     fun hasLocalFile(filename: String): Boolean {
         val local = File(localDir, filename)
         return local.exists() && local.length() > 0L
+    }
+
+    /** 当前生效来源: 优先本地缓存,否则 assets 出厂默认。 */
+    fun activeSource(filename: String): String {
+        return if (hasLocalFile(filename)) {
+            "filesDir/bill/$filename"
+        } else {
+            "assets/bill/$filename"
+        }
+    }
+
+    fun inspectAllFiles(): List<RuleFileSnapshot> = DB_FILES.map(::inspectFile)
+
+    fun inspectFile(filename: String): RuleFileSnapshot {
+        val local = File(localDir, filename)
+        val localExists = local.exists()
+        val localBytes = if (localExists) local.length() else 0L
+        val activeSource = activeSource(filename)
+        val readable = runCatching { readFile(filename) }.isSuccess
+        return RuleFileSnapshot(
+            name = filename,
+            activeSource = activeSource,
+            localExists = localExists,
+            localBytes = localBytes,
+            readable = readable
+        )
     }
 
     /**
@@ -173,5 +205,13 @@ class BillRulesManager @Inject constructor(
     data class DownloadResult(
         val allOk: Boolean,
         val perFile: Map<String, DownloadFileResult>
+    )
+
+    data class RuleFileSnapshot(
+        val name: String,
+        val activeSource: String,
+        val localExists: Boolean,
+        val localBytes: Long,
+        val readable: Boolean
     )
 }

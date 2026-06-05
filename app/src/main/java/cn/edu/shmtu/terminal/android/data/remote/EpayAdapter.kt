@@ -5,6 +5,7 @@ import android.util.Log
 import cn.edu.shmtu.cas.auth.EpayAuth
 import cn.edu.shmtu.cas.classifier.BillCategory
 import cn.edu.shmtu.cas.classifier.BillClassifier
+import cn.edu.shmtu.cas.classifier.MealClassifier
 import cn.edu.shmtu.cas.classifier.PositionInfo
 import cn.edu.shmtu.cas.classifier.PositionTranslator
 import cn.edu.shmtu.cas.datatype.BillType
@@ -34,49 +35,149 @@ class EpayAdapter @Inject constructor(
     private val instances = mutableMapOf<Long, EpayAuth>()
 
     /**
-     * 账单分类器（懒加载，从 [BillRulesManager.readFile] 加载,
-     * 优先使用合并 rules.toml,回退到 type.toml。
-     * 本地缓存与 assets/bill/ 内的出厂默认都会被自动 fallback 处理,
-     * 与 Tauri `db_file_manager.read_file("rules.toml")` 行为一致。
+     * 加载策略: 多层 fallback + 自检 (避免静默加载到空规则导致全部 MISS)。
      */
-    val classifier: BillClassifier? by lazy {
-        try {
+    private val TAG_PT = "PositionTranslator"
+    private val TAG_CL = "BillClassifier"
+    private val MIN_POSITION_KEYWORDS = 15
+    private val MIN_CLASSIFIER_RULES = 5
+    private val MIN_MEAL_RULES = 1
+
+    data class LoadedClassifier(
+        val classifier: BillClassifier?,
+        val source: String,
+        val ruleCount: Int
+    )
+
+    data class LoadedPositionTranslator(
+        val translator: PositionTranslator?,
+        val source: String,
+        val keywordCount: Int
+    )
+
+    data class LoadedMealClassifier(
+        val classifier: MealClassifier,
+        val source: String,
+        val scheduleCount: Int
+    )
+
+    /**
+     * 账单分类器（懒加载,多层 fallback + 自检）。
+     * 优先 `rules.toml` 的 [type] 段(13 条),回退到 `type.toml`(12 条)。
+     */
+    fun loadClassifier(): LoadedClassifier {
+        return try {
             val rulesToml = runCatching { billRulesManager.readFile("rules.toml") }.getOrNull()
             val typeToml = runCatching { billRulesManager.readFile("type.toml") }.getOrNull()
-            val text = rulesToml ?: typeToml
-            if (text != null) {
-                BillClassifier.fromRulesToml(text).also {
-                    Log.d(TAG, "BillClassifier loaded: ${it.ruleCount()} rules from ${if (rulesToml != null) "rules.toml" else "type.toml"} (local=${billRulesManager.hasLocalFile(if (rulesToml != null) "rules.toml" else "type.toml")})")
-                }
-            } else {
-                Log.w(TAG, "no bill/*.toml found, classifier disabled")
-                null
+            val (text, source) = when {
+                rulesToml != null -> rulesToml to billRulesManager.activeSource("rules.toml")
+                typeToml != null -> typeToml to billRulesManager.activeSource("type.toml")
+                else -> null to "(none)"
             }
+            if (text == null) {
+                Log.e(TAG_CL, "ALL sources missing. rulesToml=${rulesToml != null} typeToml=${typeToml != null}")
+                return LoadedClassifier(null, "(none)", 0)
+            }
+            val clf = BillClassifier.fromRulesToml(text)
+            val ruleCount = clf.ruleCount()
+            Log.d(TAG_CL, "from $source → $ruleCount rules (localRules=${billRulesManager.hasLocalFile("rules.toml")}, localType=${billRulesManager.hasLocalFile("type.toml")})")
+            if (ruleCount < MIN_CLASSIFIER_RULES) {
+                Log.e(TAG_CL, "Rule count <$MIN_CLASSIFIER_RULES ($ruleCount). 分类器基本无效,所有 bill 都会 fall through 到 'other'")
+            } else {
+                Log.i(TAG_CL, "OK: $ruleCount rules loaded from $source")
+            }
+            LoadedClassifier(if (ruleCount == 0) null else clf, source, ruleCount)
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to load bill classifier: ${e.message}")
-            null
+            Log.e(TAG_CL, "Failed to load bill classifier: ${e.message}", e)
+            LoadedClassifier(null, "ERROR: ${e.message}", 0)
+        }
+    }
+
+    val classifier: BillClassifier?
+        get() = loadClassifier().classifier
+
+    /**
+     * 位置翻译器（懒加载）。
+     *
+     * 加载策略(对齐 Tauri `DatabaseFileManager::read_file` + 多层自检):
+     *   1) `position.toml`  — 单文件覆盖范围最全(包含 22 条规则)
+     *   2) `rules.toml`     — 合并文件中的 [position] 段(17+ 条,作为回退)
+     *   3) assets `position.toml` — 出厂默认
+     *
+     * 每层解析后都会校验 keyword 数。若最终 keyword 数 == 0,会打印 ERROR 级别的 log,
+     * 不再被静默吞掉(这是导致历史账单全部 MISS 的根因)。
+     */
+    fun loadPositionTranslator(): LoadedPositionTranslator {
+        return try {
+            val localPos = runCatching { billRulesManager.readFile("position.toml") }.getOrNull()
+            val localRules = runCatching { billRulesManager.readFile("rules.toml") }.getOrNull()
+            val (text, source) = when {
+                localPos != null -> localPos to billRulesManager.activeSource("position.toml")
+                localRules != null -> localRules to billRulesManager.activeSource("rules.toml")
+                else -> null to "(none)"
+            }
+            if (text == null) {
+                Log.e(TAG_PT, "ALL sources missing. localPos=${localPos != null} localRules=${localRules != null}")
+                return LoadedPositionTranslator(null, "(none)", 0)
+            }
+            var tr = PositionTranslator.fromRulesToml(text)
+            var keywordCount = tr.getAllKeywords().size
+            Log.d(TAG_PT, "from $source → $keywordCount keywords (localPos=${billRulesManager.hasLocalFile("position.toml")}, localRules=${billRulesManager.hasLocalFile("rules.toml")})")
+            // 自检: 如果该层拿到的 keywords 太可疑,降级到下一层
+            if (keywordCount < MIN_POSITION_KEYWORDS && localPos != null && localRules != null) {
+                Log.w(TAG_PT, "local position.toml 仅 $keywordCount keywords,降级用 rules.toml")
+                tr = PositionTranslator.fromRulesToml(localRules)
+                keywordCount = tr.getAllKeywords().size
+                Log.d(TAG_PT, "from ${billRulesManager.activeSource("rules.toml")} → $keywordCount keywords")
+            }
+            if (keywordCount < MIN_POSITION_KEYWORDS) {
+                Log.e(TAG_PT, "ALL local sources yield <$MIN_POSITION_KEYWORDS keywords ($keywordCount). " +
+                        "Position translation will be DISABLED — 所有 bill 全部 MISS! " +
+                        "可能原因: 本地 TOML 损坏 / 网络从未同步过 / 解析器 bug")
+            } else {
+                Log.i(TAG_PT, "OK: $keywordCount keywords loaded from $source")
+            }
+            LoadedPositionTranslator(if (keywordCount == 0) null else tr, source, keywordCount)
+        } catch (e: Exception) {
+            Log.e(TAG_PT, "Failed to load position translator: ${e.message}", e)
+            LoadedPositionTranslator(null, "ERROR: ${e.message}", 0)
+        }
+    }
+
+    val positionTranslator: PositionTranslator?
+        get() = loadPositionTranslator().translator
+
+    fun loadMealClassifier(): LoadedMealClassifier {
+        return try {
+            val rulesToml = runCatching { billRulesManager.readFile("rules.toml") }.getOrNull()
+            val scheduleToml = runCatching { billRulesManager.readFile("schedule.toml") }.getOrNull()
+            val (text, source) = when {
+                rulesToml != null -> rulesToml to billRulesManager.activeSource("rules.toml")
+                scheduleToml != null -> scheduleToml to billRulesManager.activeSource("schedule.toml")
+                else -> null to "(defaultRules)"
+            }
+            val classifier = if (text != null) {
+                MealClassifier.fromRulesToml(text)
+            } else {
+                MealClassifier.defaultRules()
+            }
+            val scheduleCount = classifier.ruleCount()
+            if (scheduleCount < MIN_MEAL_RULES) {
+                Log.e(TAG, "MealClassifier ruleCount <$MIN_MEAL_RULES ($scheduleCount)")
+            } else {
+                Log.i(TAG, "MealClassifier OK: $scheduleCount schedules loaded from $source")
+            }
+            LoadedMealClassifier(classifier, source, scheduleCount)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load meal classifier: ${e.message}", e)
+            val fallback = MealClassifier.defaultRules()
+            LoadedMealClassifier(fallback, "defaultRules(ERROR: ${e.message})", fallback.ruleCount())
         }
     }
 
     /**
-     * 位置翻译器（懒加载，走 [BillRulesManager.readFile], 优先合并 rules.toml）。
+     * (重复声明已删除 — 真正的 classifier 在更上面)
      */
-    val positionTranslator: PositionTranslator? by lazy {
-        try {
-            val rulesToml = runCatching { billRulesManager.readFile("rules.toml") }.getOrNull()
-            val positionToml = runCatching { billRulesManager.readFile("position.toml") }.getOrNull()
-            val text = rulesToml ?: positionToml
-            if (text != null) {
-                PositionTranslator.fromRulesToml(text)
-            } else {
-                Log.w(TAG, "no bill/position.toml found, position translator disabled")
-                null
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to load position translator: ${e.message}")
-            null
-        }
-    }
 
     fun getEpayAuth(accountId: Long): EpayAuth {
         return instances.getOrPut(accountId) { createEpayAuthWithCookies(accountId) }
