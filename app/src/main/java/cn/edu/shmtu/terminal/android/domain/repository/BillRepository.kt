@@ -80,4 +80,11 @@ data class ReclassifyResult(
     val categoryUpdated: Int,
     val missed: Int,
     val durationMs: Long,
+    val missedSamples: List<ReclassifyMissSample> = emptyList(),
+)
+
+data class ReclassifyMissSample(
+    val targetUser: String,
+    val sampleType: String,
+    val count: Int,
 )

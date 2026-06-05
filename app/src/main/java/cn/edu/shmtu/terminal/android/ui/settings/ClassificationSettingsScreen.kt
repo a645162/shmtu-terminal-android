@@ -38,6 +38,7 @@ import cn.edu.shmtu.cas.classifier.MealClassifier
 import cn.edu.shmtu.cas.classifier.PositionTranslator
 import cn.edu.shmtu.cas.classifier.RuleSummary
 import cn.edu.shmtu.terminal.android.data.sync.BillRulesManager
+import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyMissSample
 import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyResult
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.ReclassifyBillsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -283,6 +284,13 @@ fun ClassificationSettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
+                    if (r.missedSamples.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        MissedSamplesCard(
+                            samples = r.missedSamples,
+                            totalMissed = r.missed
+                        )
+                    }
                 }
                 is ReclassifyState.Failed -> {
                     Text(
@@ -290,6 +298,43 @@ fun ClassificationSettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MissedSamplesCard(samples: List<ReclassifyMissSample>, totalMissed: Int) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("未命中 targetUser", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "显示 ${samples.size} 个聚合项，总未命中 $totalMissed 条",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                TextButton(onClick = { expanded = !expanded }) {
+                    Text(if (expanded) "收起" else "展开")
+                }
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column {
+                    samples.forEach { sample ->
+                        MissedSampleRow(sample)
+                    }
                 }
             }
         }
@@ -443,6 +488,26 @@ private fun RulesOverviewCard(snapshot: ActiveRulesSnapshot) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun MissedSampleRow(sample: ReclassifyMissSample) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Text(sample.targetUser, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "出现 ${sample.count} 次 · 示例 type: ${sample.sampleType}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

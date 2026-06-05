@@ -22,6 +22,7 @@ import cn.edu.shmtu.terminal.android.domain.model.SyncStatus
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
+import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyMissSample
 import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyResult
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.FullSyncAccountBillsUseCase
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.FullSyncIdentityBillsUseCase
@@ -45,6 +46,7 @@ import javax.inject.Singleton
 
 /** 收入关键词 - 对齐 Rust 版 INCOME_KEYWORDS */
 private val INCOME_KEYWORDS = listOf("充值", "冲正", "退款", "返还", "补偿")
+private const val MAX_RECLASSIFY_MISS_SAMPLES = 100
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @Singleton
@@ -61,6 +63,10 @@ class BillRepositoryImpl @Inject constructor(
     /** 用于 [reclassifyAllBills] 拿到懒加载的 classifier / positionTranslator */
     private val epayAdapter: cn.edu.shmtu.terminal.android.data.remote.EpayAdapter,
 ) : BillRepository {
+    private data class MissAccumulator(
+        var count: Int,
+        val sampleType: String,
+    )
 
     private val _syncProgress = MutableSharedFlow<SyncProgress>(extraBufferCapacity = 1)
     override val syncProgress: SharedFlow<SyncProgress> = _syncProgress
@@ -525,6 +531,7 @@ class BillRepositoryImpl @Inject constructor(
         var translated = 0
         var categoryUpdated = 0
         var missed = 0
+        val missedSamples = LinkedHashMap<String, MissAccumulator>()
 
         for (db in dbs) {
             val dao = db.billDao()
@@ -570,6 +577,18 @@ class BillRepositoryImpl @Inject constructor(
                 if (cat != null && cat != "other") categoryUpdated++
 
                 if (pos == null && target.isNotBlank()) {
+                    val missKey = target.trim()
+                    val sampleType = type.trim().ifBlank { "—" }
+                    val current = missedSamples[missKey]
+                    when {
+                        current != null -> current.count += 1
+                        missedSamples.size < MAX_RECLASSIFY_MISS_SAMPLES -> {
+                            missedSamples[missKey] = MissAccumulator(
+                                count = 1,
+                                sampleType = sampleType
+                            )
+                        }
+                    }
                     Log.w(tag, "[reclassify-MISS] id=${row.id} targetUser='$target' " +
                             "NO position rule matched. " +
                             "rulesLoaded=${positionTranslator?.getAllKeywords()?.size ?: 0}")
@@ -584,6 +603,18 @@ class BillRepositoryImpl @Inject constructor(
             categoryUpdated = categoryUpdated,
             missed = missed,
             durationMs = durationMs,
+            missedSamples = missedSamples
+                .map { (targetUser, sample) ->
+                    ReclassifyMissSample(
+                        targetUser = targetUser,
+                        sampleType = sample.sampleType,
+                        count = sample.count
+                    )
+                }
+                .sortedWith(
+                    compareByDescending<ReclassifyMissSample> { it.count }
+                        .thenBy { it.targetUser }
+                ),
         )
         Log.i(tag, "[reclassify-done] total=$totalScanned translated=$translated " +
                 "categoryUpdated=$categoryUpdated missed=$missed durationMs=$durationMs")
