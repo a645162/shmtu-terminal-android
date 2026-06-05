@@ -1,5 +1,6 @@
 package cn.edu.shmtu.terminal.android.ui.settings
 
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model
@@ -57,14 +59,19 @@ fun OcrSettingsScreen(
     val ocrServerUrl by settingsViewModel.ocrServerUrl.collectAsState()
     val ocrRetryCount by viewModel.ocrRetryCount.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
     var showLoadSourceDialog by remember { mutableStateOf(false) }
     var showDownloadSourceDialog by remember { mutableStateOf(false) }
     var showDeviceDialog by remember { mutableStateOf<Pair<Boolean, Boolean>?>(null) }
     var showUrlEditor by remember { mutableStateOf(false) }
+    var showDeleteModelsDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.message) {
         uiState.message?.let {
+            if (it.startsWith("模型下载") || it.startsWith("下载失败")) {
+                Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+            }
             snackbarHostState.showSnackbar(it)
             viewModel.dismissMessage()
         }
@@ -84,6 +91,8 @@ fun OcrSettingsScreen(
                 showUrlEditor = showUrlEditor,
                 onShowUrlEditorChange = { showUrlEditor = it },
                 onReleaseModel = viewModel::releaseModel,
+                onVerifyDownloadedModels = viewModel::verifyDownloadedModels,
+                onDeleteDownloadedModels = { showDeleteModelsDialog = true },
                 onRefreshStatus = viewModel::refreshStatus,
                 onSetUseLocalOcr = settingsViewModel::setUseLocalOcr,
                 onSetOcrRetryCount = viewModel::setOcrRetryCount
@@ -131,6 +140,8 @@ fun OcrSettingsScreen(
                     showUrlEditor = showUrlEditor,
                     onShowUrlEditorChange = { showUrlEditor = it },
                     onReleaseModel = viewModel::releaseModel,
+                    onVerifyDownloadedModels = viewModel::verifyDownloadedModels,
+                    onDeleteDownloadedModels = { showDeleteModelsDialog = true },
                     onRefreshStatus = viewModel::refreshStatus,
                     onSetUseLocalOcr = settingsViewModel::setUseLocalOcr,
                     onSetOcrRetryCount = viewModel::setOcrRetryCount
@@ -262,6 +273,29 @@ fun OcrSettingsScreen(
             onDismiss = { showUrlEditor = false }
         )
     }
+
+    if (showDeleteModelsDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteModelsDialog = false },
+            title = { Text("删除所有本地模型") },
+            text = { Text("会删除当前已下载的全部本地模型文件，不影响应用内置模型。继续吗？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteDownloadedModels()
+                        showDeleteModelsDialog = false
+                    }
+                ) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteModelsDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -277,6 +311,8 @@ private fun OcrSettingsContent(
     showUrlEditor: Boolean,
     onShowUrlEditorChange: (Boolean) -> Unit,
     onReleaseModel: () -> Unit,
+    onVerifyDownloadedModels: () -> Unit,
+    onDeleteDownloadedModels: () -> Unit,
     onRefreshStatus: () -> Unit,
     onSetUseLocalOcr: (Boolean) -> Unit,
     onSetOcrRetryCount: (Int) -> Unit
@@ -447,22 +483,57 @@ private fun OcrSettingsContent(
             }
         }
 
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = onVerifyDownloadedModels,
+                enabled = uiState.hasDownloadedModel && !uiState.isDownloading && !uiState.isLoadingModel && !uiState.isVerifyingSha256,
+                modifier = Modifier.weight(1f)
+            ) {
+                if (uiState.isVerifyingSha256) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text("验证 SHA256")
+                }
+            }
+
+            TextButton(
+                onClick = onDeleteDownloadedModels,
+                enabled = uiState.hasDownloadedModel && !uiState.isDownloading && !uiState.isLoadingModel && !uiState.isVerifyingSha256,
+                modifier = Modifier.align(Alignment.CenterVertically)
+            ) {
+                Text("删除所有本地模型")
+            }
+        }
+
         if (uiState.isDownloading) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    text = "下载进度: ${uiState.downloadCurrentFile}/${uiState.downloadTotalFiles} 文件",
+                    text = "文件进度: ${uiState.downloadCurrentFile}/${uiState.downloadTotalFiles}",
                     style = MaterialTheme.typography.bodySmall
                 )
                 LinearProgressIndicator(
-                    progress = {
-                        if (uiState.downloadTotalFiles > 0) {
-                            ((uiState.downloadCurrentFile - 1) * 100 + uiState.downloadProgress) /
-                                (uiState.downloadTotalFiles * 100).toFloat()
-                        } else 0f
-                    },
+                    progress = { (uiState.overallDownloadProgress / 100f).coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = "当前文件: ${uiState.downloadCurrentFileName ?: "准备中..."}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    text = "当前文件下载进度: ${uiState.currentFileProgress}%",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                LinearProgressIndicator(
+                    progress = { (uiState.currentFileProgress / 100f).coerceIn(0f, 1f) },
                     modifier = Modifier.fillMaxWidth()
                 )
             }

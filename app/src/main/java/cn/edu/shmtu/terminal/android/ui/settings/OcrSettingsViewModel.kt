@@ -8,6 +8,7 @@ import cn.edu.shmtu.cas.ocr.SHMTU_NCNN
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model
 import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -98,18 +99,28 @@ class OcrSettingsViewModel @Inject constructor(
         if (_uiState.value.isDownloading) return
         _uiState.value = _uiState.value.copy(
             isDownloading = true,
-            downloadProgress = 0,
+            overallDownloadProgress = 0,
+            currentFileProgress = 0,
             downloadCurrentFile = 0,
             downloadTotalFiles = SHMTU_NCNN_Model.MODEL_FILES.size,
+            downloadCurrentFileName = null,
             message = null
         )
 
         modelDownloader.download(source, context, object : ModelDownloader.DownloadProgressListener {
-            override fun onProgress(fileIndex: Int, totalFiles: Int, currentFileProgress: Int) {
+            override fun onProgress(
+                fileIndex: Int,
+                totalFiles: Int,
+                currentFileName: String,
+                currentFileProgress: Int,
+                overallProgress: Int
+            ) {
                 _uiState.value = _uiState.value.copy(
                     downloadCurrentFile = fileIndex,
                     downloadTotalFiles = totalFiles,
-                    downloadProgress = currentFileProgress
+                    downloadCurrentFileName = currentFileName,
+                    currentFileProgress = currentFileProgress,
+                    overallDownloadProgress = overallProgress
                 )
             }
 
@@ -117,6 +128,8 @@ class OcrSettingsViewModel @Inject constructor(
                 refreshStatus()
                 _uiState.value = _uiState.value.copy(
                     isDownloading = false,
+                    overallDownloadProgress = 100,
+                    currentFileProgress = 100,
                     message = "模型下载成功"
                 )
             }
@@ -128,6 +141,40 @@ class OcrSettingsViewModel @Inject constructor(
                 )
             }
         })
+    }
+
+    fun deleteDownloadedModels() {
+        if (_uiState.value.isDownloading || _uiState.value.isLoadingModel) return
+        shmtuNcnn.releaseModel()
+        val deleted = SHMTU_NCNN_Model.deleteDownloadedModels(context)
+        refreshStatus()
+        _uiState.value = _uiState.value.copy(
+            message = if (deleted > 0) {
+                "已删除 $deleted 个本地模型文件"
+            } else {
+                "当前没有可删除的本地模型文件"
+            },
+            overallDownloadProgress = 0,
+            currentFileProgress = 0,
+            downloadCurrentFile = 0,
+            downloadCurrentFileName = null
+        )
+    }
+
+    fun verifyDownloadedModels() {
+        val current = _uiState.value
+        if (current.isDownloading || current.isLoadingModel || current.isVerifyingSha256) return
+        _uiState.value = current.copy(
+            isVerifyingSha256 = true,
+            message = null
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = modelDownloader.verifyDownloadedModels(context)
+            _uiState.value = _uiState.value.copy(
+                isVerifyingSha256 = false,
+                message = result.getOrElse { "SHA256 校验失败: ${it.message}" }
+            )
+        }
     }
 
     fun dismissMessage() {
@@ -157,6 +204,9 @@ data class OcrSettingsUiState(
     val isDownloading: Boolean = false,
     val downloadCurrentFile: Int = 0,
     val downloadTotalFiles: Int = 0,
-    val downloadProgress: Int = 0,
+    val downloadCurrentFileName: String? = null,
+    val currentFileProgress: Int = 0,
+    val overallDownloadProgress: Int = 0,
+    val isVerifyingSha256: Boolean = false,
     val message: String? = null
 )

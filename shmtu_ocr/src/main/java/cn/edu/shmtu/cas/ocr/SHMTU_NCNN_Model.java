@@ -109,6 +109,23 @@ public class SHMTU_NCNN_Model {
         return info.toString();
     }
 
+    public static int deleteDownloadedModels(Context context) {
+        String modelDir = getModelDir(context);
+        int deleted = 0;
+        for (String fileName : MODEL_FILES) {
+            File file = new File(modelDir + fileName);
+            if (file.exists() && file.delete()) {
+                deleted++;
+            }
+        }
+        File dir = new File(modelDir);
+        File[] remaining = dir.listFiles();
+        if (remaining != null && remaining.length == 0) {
+            dir.delete();
+        }
+        return deleted;
+    }
+
     public static void loadModelFromAssetsAsync(SHMTU_NCNN ncnn, AssetManager assetManager, boolean useGpu, LoadCallback callback) {
         new Thread(() -> {
             try {

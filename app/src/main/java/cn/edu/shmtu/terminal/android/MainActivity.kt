@@ -31,6 +31,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.ui.navigation.AppNavigation
 import cn.edu.shmtu.terminal.android.ui.navigation.AppShellViewModel
 import cn.edu.shmtu.terminal.android.ui.navigation.TopLevelDestination
+import cn.edu.shmtu.terminal.android.ui.settings.SettingsViewModelWrapper
 import cn.edu.shmtu.terminal.android.ui.theme.ShmtuterminalandroidTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -40,15 +41,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            ShmtuterminalandroidTheme {
-                ShmtuterminalandroidApp()
-            }
+            ShmtuterminalandroidApp()
         }
     }
 }
 
 @Composable
 fun ShmtuterminalandroidApp() {
+    val settingsWrapper: SettingsViewModelWrapper = hiltViewModel()
+    val themeMode by settingsWrapper.featureStore.themeMode.collectAsState()
     val shellViewModel: AppShellViewModel = hiltViewModel()
     val currentIdentity by shellViewModel.currentIdentity.collectAsState()
     val navController = rememberNavController()
@@ -62,109 +63,111 @@ fun ShmtuterminalandroidApp() {
     val meLabel = currentIdentity?.remark?.ifBlank { currentIdentity?.username ?: "当前身份" }
         ?: "当前身份"
 
-    if (wideLayout) {
-        Row(modifier = Modifier.fillMaxSize()) {
-            NavigationRail(
-                modifier = Modifier.navigationBarsPadding(),
-                containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface
-            ) {
-                topLevelDestinations.forEach { destination ->
-                    val label = if (destination == TopLevelDestination.ME) meLabel else destination.label
-                    NavigationRailItem(
-                        icon = {
-                            Icon(
-                                imageVector = destination.icon,
-                                contentDescription = label
-                            )
-                        },
-                        label = { Text(label) },
-                        selected = destination == currentDestination,
-                        onClick = {
-                            if (currentRoute != destination.route) {
-                                navController.navigate(destination.route) {
-                                    popUpTo(navController.graph.startDestinationId) {
-                                        inclusive = false
+    ShmtuterminalandroidTheme(themeMode = themeMode) {
+        if (wideLayout) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                NavigationRail(
+                    modifier = Modifier.navigationBarsPadding(),
+                    containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface
+                ) {
+                    topLevelDestinations.forEach { destination ->
+                        val label = if (destination == TopLevelDestination.ME) meLabel else destination.label
+                        NavigationRailItem(
+                            icon = {
+                                Icon(
+                                    imageVector = destination.icon,
+                                    contentDescription = label
+                                )
+                            },
+                            label = { Text(label) },
+                            selected = destination == currentDestination,
+                            onClick = {
+                                if (currentRoute != destination.route) {
+                                    navController.navigate(destination.route) {
+                                        popUpTo(navController.graph.startDestinationId) {
+                                            inclusive = false
+                                        }
+                                        launchSingleTop = true
                                     }
-                                    launchSingleTop = true
                                 }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
-            }
-
-            Surface(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                androidx.compose.material3.MaterialTheme.colorScheme.surface,
-                                androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerLowest
+    
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    androidx.compose.material3.MaterialTheme.colorScheme.surface,
+                                    androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerLowest
+                                )
                             )
                         )
-                    )
-            ) {
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    contentWindowInsets = WindowInsets(0, 0, 0, 0)
-                ) { innerPadding ->
-                    AppNavigation(
-                        navController = navController,
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                ) {
+                    Scaffold(
+                        modifier = Modifier.fillMaxSize(),
+                        contentWindowInsets = WindowInsets(0, 0, 0, 0)
+                    ) { innerPadding ->
+                        AppNavigation(
+                            navController = navController,
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    }
                 }
             }
-        }
-    } else {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Surface(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                androidx.compose.material3.MaterialTheme.colorScheme.surface,
-                                androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerLowest
+        } else {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    androidx.compose.material3.MaterialTheme.colorScheme.surface,
+                                    androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerLowest
+                                )
                             )
                         )
-                    )
-            ) {
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    contentWindowInsets = WindowInsets(0, 0, 0, 0)
-                ) { innerPadding ->
-                    AppNavigation(
-                        navController = navController,
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                ) {
+                    Scaffold(
+                        modifier = Modifier.fillMaxSize(),
+                        contentWindowInsets = WindowInsets(0, 0, 0, 0)
+                    ) { innerPadding ->
+                        AppNavigation(
+                            navController = navController,
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    }
                 }
-            }
-
-            NavigationBar {
-                topLevelDestinations.forEach { destination ->
-                    val label = if (destination == TopLevelDestination.ME) meLabel else destination.label
-                    NavigationBarItem(
-                        icon = {
-                            Icon(
-                                imageVector = destination.icon,
-                                contentDescription = label
-                            )
-                        },
-                        label = { Text(label) },
-                        selected = destination == currentDestination,
-                        onClick = {
-                            if (currentRoute != destination.route) {
-                                navController.navigate(destination.route) {
-                                    popUpTo(navController.graph.startDestinationId) {
-                                        inclusive = false
+    
+                NavigationBar {
+                    topLevelDestinations.forEach { destination ->
+                        val label = if (destination == TopLevelDestination.ME) meLabel else destination.label
+                        NavigationBarItem(
+                            icon = {
+                                Icon(
+                                    imageVector = destination.icon,
+                                    contentDescription = label
+                                )
+                            },
+                            label = { Text(label) },
+                            selected = destination == currentDestination,
+                            onClick = {
+                                if (currentRoute != destination.route) {
+                                    navController.navigate(destination.route) {
+                                        popUpTo(navController.graph.startDestinationId) {
+                                            inclusive = false
+                                        }
+                                        launchSingleTop = true
                                     }
-                                    launchSingleTop = true
                                 }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }

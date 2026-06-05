@@ -62,6 +62,9 @@ interface BillDao {
     @Query("SELECT COUNT(*) FROM bills")
     suspend fun getCount(): Int
 
+    @Query("SELECT COUNT(*) FROM bills WHERE accountId = :accountId")
+    suspend fun getCountByAccountId(accountId: Long): Int
+
     /**
      * 取出所有账单的轻量行(仅 id / type / targetUser),供"重算历史账单"功能使用。
      * 配合 [updateBillClassify] 一起工作,避免加载整张表的所有字段。
@@ -275,4 +278,16 @@ interface BillDao {
         )
     """)
     suspend fun dedupeByTransactionNo(): Int
+
+    @Query("""
+        DELETE FROM bills
+        WHERE accountId = :accountId
+          AND id NOT IN (
+              SELECT MIN(id)
+              FROM bills
+              WHERE accountId = :accountId
+              GROUP BY transactionNo
+          )
+    """)
+    suspend fun dedupeByTransactionNoForAccount(accountId: Long): Int
 }

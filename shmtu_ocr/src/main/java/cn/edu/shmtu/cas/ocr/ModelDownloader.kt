@@ -20,7 +20,13 @@ class ModelDownloader {
     }
 
     interface DownloadProgressListener {
-        fun onProgress(fileIndex: Int, totalFiles: Int, currentFileProgress: Int)
+        fun onProgress(
+            fileIndex: Int,
+            totalFiles: Int,
+            currentFileName: String,
+            currentFileProgress: Int,
+            overallProgress: Int
+        )
         fun onSuccess()
         fun onError(error: String)
     }
@@ -83,16 +89,59 @@ class ModelDownloader {
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
+    fun verifyDownloadedModels(context: Context): Result<String> {
+        val checksums = fetchChecksums(
+            primarySource = SHMTU_NCNN_Model.ModelSource.GITEE,
+            fallbackSource = SHMTU_NCNN_Model.ModelSource.GITHUB
+        ) ?: return Result.failure(IllegalStateException("无法获取 SHA256 校验清单"))
+
+        val modelDir = SHMTU_NCNN_Model.getModelDir(context)
+        val mismatches = mutableListOf<String>()
+        var verifiedCount = 0
+
+        SHMTU_NCNN_Model.MODEL_FILES.forEach { fileName ->
+            val file = File(modelDir + fileName)
+            if (!file.exists() || file.length() <= 0L) {
+                mismatches += "$fileName 不存在或为空"
+                return@forEach
+            }
+            val expectedHash = checksums[fileName]
+            if (expectedHash == null) {
+                mismatches += "$fileName 缺少远端校验值"
+                return@forEach
+            }
+            val actualHash = computeSHA256(file)
+            if (actualHash != expectedHash) {
+                mismatches += "$fileName 校验失败"
+                return@forEach
+            }
+            verifiedCount++
+        }
+
+        return if (mismatches.isEmpty()) {
+            Result.success("SHA256 校验通过，已验证 $verifiedCount 个模型文件")
+        } else {
+            Result.failure(IllegalStateException(mismatches.joinToString("；")))
+        }
+    }
+
     private fun downloadFile(
         urlStr: String,
         file: File,
         fileIndex: Int,
         totalFiles: Int,
+        completedFilesBefore: Int,
         listener: DownloadProgressListener
     ): Boolean {
         try {
             mainHandler.post {
-                listener.onProgress(fileIndex, totalFiles, 0)
+                listener.onProgress(
+                    fileIndex = fileIndex,
+                    totalFiles = totalFiles,
+                    currentFileName = file.name,
+                    currentFileProgress = 0,
+                    overallProgress = ((completedFilesBefore * 100f) / totalFiles).toInt()
+                )
             }
 
             val request = Request.Builder()
@@ -117,8 +166,15 @@ class ModelDownloader {
                             bytesRead += read
                             if (contentLength > 0) {
                                 val progress = ((bytesRead * 100) / contentLength).toInt()
+                                val overallProgress = (((completedFilesBefore * 100L) + progress) / totalFiles).toInt()
                                 mainHandler.post {
-                                    listener.onProgress(fileIndex, totalFiles, progress)
+                                    listener.onProgress(
+                                        fileIndex = fileIndex,
+                                        totalFiles = totalFiles,
+                                        currentFileName = file.name,
+                                        currentFileProgress = progress,
+                                        overallProgress = overallProgress
+                                    )
                                 }
                             }
                         }
@@ -168,13 +224,19 @@ class ModelDownloader {
             for (i in 0 until totalFiles) {
                 val fileName = SHMTU_NCNN_Model.MODEL_FILES[i]
                 val file = File(modelDir + fileName)
+                val fileIndex = i + 1
 
                 if (file.exists()) {
-                    downloadedFiles++
-                    val overallProgress = ((downloadedFiles * 100) / totalFiles)
                     mainHandler.post {
-                        listener.onProgress(downloadedFiles, totalFiles, 100)
+                        listener.onProgress(
+                            fileIndex = fileIndex,
+                            totalFiles = totalFiles,
+                            currentFileName = fileName,
+                            currentFileProgress = 100,
+                            overallProgress = (((i + 1) * 100f) / totalFiles).toInt()
+                        )
                     }
+                    downloadedFiles++
                     continue
                 }
 
@@ -187,7 +249,14 @@ class ModelDownloader {
                     val urlStr = if (attempt % 2 == 0) urls[i] else fallbackUrls[i]
                     val sourceLabel = if (attempt % 2 == 0) "primary" else "fallback"
 
-                    val downloadOk = downloadFile(urlStr, file, downloadedFiles, totalFiles, listener)
+                    val downloadOk = downloadFile(
+                        urlStr = urlStr,
+                        file = file,
+                        fileIndex = fileIndex,
+                        totalFiles = totalFiles,
+                        completedFilesBefore = i,
+                        listener = listener
+                    )
                     if (!downloadOk) {
                         lastError = "HTTP download failed from $sourceLabel"
                         if (file.exists()) file.delete()
@@ -213,7 +282,13 @@ class ModelDownloader {
                 if (success) {
                     downloadedFiles++
                     mainHandler.post {
-                        listener.onProgress(downloadedFiles, totalFiles, 100)
+                        listener.onProgress(
+                            fileIndex = fileIndex,
+                            totalFiles = totalFiles,
+                            currentFileName = fileName,
+                            currentFileProgress = 100,
+                            overallProgress = (((i + 1) * 100f) / totalFiles).toInt()
+                        )
                     }
                 } else {
                     mainHandler.post {

@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,8 +65,8 @@ class DataSettingsViewModel @Inject constructor(
             .also { _ -> /* id 仅为避免编译器警告 */ }
     }
 
-    suspend fun dedupeAccount(identityId: Long): Pair<Int, Int> =
-        dedupeRepository.dedupeAccount(identityId)
+    suspend fun dedupeAccount(identityId: Long, accountId: Long): Pair<Int, Int> =
+        dedupeRepository.dedupeAccount(identityId, accountId)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -88,6 +89,12 @@ fun DataSettingsScreen(
     var running by remember { mutableStateOf(false) }
     var selectedAccountId by remember { mutableStateOf<Long?>(null) }
     var accountExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(accounts, currentIdentityId) {
+        if (selectedAccountId == null || accounts.none { it.id == selectedAccountId }) {
+            selectedAccountId = accounts.firstOrNull()?.id
+        }
+    }
 
     SettingsDetailScreen(
         title = "数据设置",
@@ -133,6 +140,7 @@ fun DataSettingsScreen(
             )
 
             val currentIdentity = identities.find { it.id == currentIdentityId }
+            val selectedAccount = accounts.find { it.id == selectedAccountId }
             Text(
                 if (currentIdentity != null) {
                     "当前身份：${displayName(currentIdentity)}（ID #${currentIdentity.id}）"
@@ -143,6 +151,14 @@ fun DataSettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
+            if (selectedAccount != null) {
+                Text(
+                    "当前账号：${accountDisplayName(selectedAccount)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             if (accounts.isEmpty()) {
                 Text(
                     "当前身份下还没有账号。",
@@ -152,7 +168,7 @@ fun DataSettingsScreen(
             } else {
                 val selectedAccountLabel = accounts
                     .find { it.id == selectedAccountId }
-                    ?.let { "${it.label}（ID #${it.id}）" }
+                    ?.let { accountDisplayName(it) }
                     ?: "请选择要执行去重的账号"
 
                 ExposedDropdownMenuBox(
@@ -177,7 +193,7 @@ fun DataSettingsScreen(
                     ) {
                         accounts.forEach { account ->
                             DropdownMenuItem(
-                                text = { Text("${account.label}（ID #${account.id}）") },
+                                text = { Text(accountDisplayName(account)) },
                                 onClick = {
                                     selectedAccountId = account.id
                                     accountExpanded = false
@@ -197,12 +213,13 @@ fun DataSettingsScreen(
                 enabled = !running && currentIdentityId != null && selectedAccountId != null,
                 onClick = {
                     val identityId = currentIdentityId ?: return@Button
+                    val accountId = selectedAccountId ?: return@Button
                     scope.launch {
                         running = true
                         try {
-                            val (kept, removed) = viewModel.dedupeAccount(identityId)
-                            val acctLabel = accounts.find { it.id == selectedAccountId }
-                                ?.let { "${it.label}（ID #${it.id}）" } ?: "账号 #$selectedAccountId"
+                            val (kept, removed) = viewModel.dedupeAccount(identityId, accountId)
+                            val acctLabel = accounts.find { it.id == accountId }
+                                ?.let(::accountDisplayName) ?: "账号 #$accountId"
                             accountStatus = "完成（$acctLabel）：保留 $kept 条，删除 $removed 条重复记录"
                         } catch (e: Exception) {
                             accountStatus = "失败：${e.message}"
@@ -220,3 +237,9 @@ fun DataSettingsScreen(
 
 private fun displayName(identity: cn.edu.shmtu.terminal.android.domain.model.Identity): String =
     identity.remark.ifBlank { identity.username }
+
+private fun accountDisplayName(account: Account): String {
+    val primary = account.label.ifBlank { "未命名账号" }
+    val userId = account.userId.ifBlank { "未填写学号" }
+    return "$primary（账号: $userId，ID #${account.id}）"
+}
