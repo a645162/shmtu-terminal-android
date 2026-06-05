@@ -330,7 +330,7 @@ private fun DetailFor(
         "classification" -> ClassificationSettingsScreen(onBack = onBack, rulesManager = rulesManager, embedded = embedded)
         "update" -> UpdateSettingsScreen(onBack = onBack, embedded = embedded)
         "debug" -> DebugSettingsScreen(onBack = onBack, embedded = embedded)
-        "ocr" -> onNavigateToOcrSettings()
+        "ocr" -> OcrSettingsScreen(onBack = onBack, embedded = embedded)
         "about" -> AboutScreen(onBack = onBack, embedded = embedded)
         else -> SettingsDetailBody {
             Box(
