@@ -291,7 +291,16 @@ private fun CompactBillListLayout(
             )
         }
         if (currentIdentityId != null) {
-            FilterBar(typeFilter, dateRange, searchInput, onTypeFilterChange, onDateRangeChange, onSearchInputChanged, onSearch)
+            FilterBar(
+                typeFilter = typeFilter,
+                dateRange = dateRange,
+                searchInput = searchInput,
+                onTypeFilterChange = onTypeFilterChange,
+                onDateRangeChange = onDateRangeChange,
+                onSearchInputChanged = onSearchInputChanged,
+                onSearch = onSearch,
+                compact = true
+            )
         }
         SyncPanels(syncProgress, isSyncing, onClearSyncProgress, progressMessage)
         AccountSyncPanel(

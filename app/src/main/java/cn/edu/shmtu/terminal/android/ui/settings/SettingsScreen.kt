@@ -1,5 +1,14 @@
 package cn.edu.shmtu.terminal.android.ui.settings
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,13 +28,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Storage
@@ -110,64 +119,110 @@ fun SettingsScreen(
                         tonalElevation = 1.dp,
                         shadowElevation = 0.dp
                     ) {
-                        DetailFor(
-                            key = selectedKey,
-                            embedded = true,
-                            onBack = onBack,
-                            rulesManager = rulesManager,
-                            dedupeRepository = dedupeRepository,
-                            onNavigateToAbout = onNavigateToAbout,
-                            onNavigateToOcrSettings = onNavigateToOcrSettings
-                        )
+                        AnimatedContent(
+                            targetState = selectedKey,
+                            transitionSpec = {
+                                settingsTabletTransition()
+                            },
+                            label = "settings_tablet_detail"
+                        ) { detailKey ->
+                            DetailFor(
+                                key = detailKey,
+                                embedded = true,
+                                onBack = onBack,
+                                rulesManager = rulesManager,
+                                dedupeRepository = dedupeRepository,
+                                onNavigateToAbout = onNavigateToAbout,
+                                onNavigateToOcrSettings = onNavigateToOcrSettings
+                            )
+                        }
                     }
                 }
             }
         } else {
-            if (phoneDetailKey != null) {
-                DetailFor(
-                    key = phoneDetailKey,
-                    embedded = false,
-                    onBack = { phoneDetailKey = null },
-                    rulesManager = rulesManager,
-                    dedupeRepository = dedupeRepository,
-                    onNavigateToAbout = onNavigateToAbout,
-                    onNavigateToOcrSettings = onNavigateToOcrSettings
-                )
-            } else {
-                Scaffold(
-                    topBar = {
-                        TopAppBar(
-                            title = { Text("设置") },
-                            navigationIcon = {
-                                IconButton(onClick = onBack) {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+            AnimatedContent(
+                targetState = phoneDetailKey,
+                transitionSpec = {
+                    settingsPhoneTransition(targetState != null)
+                },
+                label = "settings_phone_page"
+            ) { detailKey ->
+                if (detailKey != null) {
+                    DetailFor(
+                        key = detailKey,
+                        embedded = false,
+                        onBack = { phoneDetailKey = null },
+                        rulesManager = rulesManager,
+                        dedupeRepository = dedupeRepository,
+                        onNavigateToAbout = onNavigateToAbout,
+                        onNavigateToOcrSettings = onNavigateToOcrSettings
+                    )
+                } else {
+                    Scaffold(
+                        topBar = {
+                            TopAppBar(
+                                title = { Text("设置") },
+                                navigationIcon = {
+                                    IconButton(onClick = onBack) {
+                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                                    }
                                 }
-                            }
-                        )
-                    }
-                ) { inner ->
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(inner),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        item {
-                            SettingsHero()
-                        }
-                        items(groups) { group ->
-                            SettingsGroupCard(
-                                group = group,
-                                selected = false,
-                                onClick = { phoneDetailKey = group.key }
                             )
+                        }
+                    ) { inner ->
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(inner),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            item {
+                                SettingsHero()
+                            }
+                            items(groups) { group ->
+                                SettingsGroupCard(
+                                    group = group,
+                                    selected = false,
+                                    onClick = { phoneDetailKey = group.key }
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
+}
+
+private fun settingsPhoneTransition(enteringDetail: Boolean): ContentTransform {
+    val duration = 320
+    val enterOffset: (Int) -> Int = { fullWidth -> if (enteringDetail) fullWidth / 5 else -fullWidth / 5 }
+    val exitOffset: (Int) -> Int = { fullWidth -> if (enteringDetail) -fullWidth / 8 else fullWidth / 8 }
+    return (slideInHorizontally(
+        animationSpec = tween(durationMillis = duration, easing = FastOutSlowInEasing),
+        initialOffsetX = enterOffset
+    ) + fadeIn(animationSpec = tween(durationMillis = duration)))
+        .togetherWith(
+            slideOutHorizontally(
+                animationSpec = tween(durationMillis = duration, easing = FastOutSlowInEasing),
+                targetOffsetX = exitOffset
+            ) + fadeOut(animationSpec = tween(durationMillis = duration - 40))
+        )
+}
+
+private fun settingsTabletTransition(): ContentTransform {
+    val duration = 240
+    return (slideInHorizontally(
+        animationSpec = tween(durationMillis = duration, easing = FastOutSlowInEasing),
+        initialOffsetX = { it / 18 }
+    ) + fadeIn(animationSpec = tween(durationMillis = duration)))
+        .togetherWith(
+            slideOutHorizontally(
+                animationSpec = tween(durationMillis = duration - 20, easing = FastOutSlowInEasing),
+                targetOffsetX = { -it / 18 }
+            ) + fadeOut(animationSpec = tween(durationMillis = duration - 40))
+        )
 }
 
 private data class SettingsGroup(
@@ -375,7 +430,7 @@ private fun settingsGroups(): List<SettingsGroup> {
             title = "消费展示",
             subtitle = "原始类型与解析位置",
             description = "控制账单标题优先显示原始消费类型还是解析出的楼栋/窗口。",
-            icon = Icons.Filled.ReceiptLong,
+            icon = Icons.AutoMirrored.Filled.ReceiptLong,
             accent = listOf(Color(0xFF7B5E57), Color(0xFFD7CCC8))
         ),
         SettingsGroup(
