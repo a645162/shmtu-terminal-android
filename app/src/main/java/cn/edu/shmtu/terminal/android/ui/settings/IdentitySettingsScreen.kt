@@ -84,6 +84,10 @@ fun IdentitySettingsScreen(
                     )
                 }
             }
+            SettingsExampleBlock {
+                SettingsExampleLine("上一次使用的身份", "如果你昨晚最后查看的是“研究生校园卡”，下次启动会优先回到它。")
+                SettingsExampleLine("设置的默认身份", "即使你上次临时切到别的身份，下次启动仍固定进入你指定的默认身份。")
+            }
         }
 
         SettingsCard(emphasized = mode == "configured_default") {
@@ -152,6 +156,9 @@ fun IdentitySettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            SettingsExampleBlock {
+                SettingsExampleLine("示例", "你可以把最常用的身份固定为默认，避免每次启动后都重新切换。")
+            }
         }
     }
 }

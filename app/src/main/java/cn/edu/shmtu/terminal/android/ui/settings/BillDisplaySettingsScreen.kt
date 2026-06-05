@@ -51,15 +51,20 @@ fun BillDisplaySettingsScreen(
                 checked = preferParsedBillDisplay,
                 onCheckedChange = viewModel::setPreferParsedBillDisplay
             )
+            SettingsExampleBlock {
+                SettingsExampleLine("开启时", "账单标题优先显示：海馨一食堂/自选区")
+                SettingsExampleLine("关闭时", "同一笔账单标题显示：NFC刷卡消费")
+                SettingsExampleLine("商户字段", "商户名称仍可看到：海馨第一食堂")
+            }
         }
 
         SettingsCard {
             Text("当前生效")
             Text(
                 if (preferParsedBillDisplay) {
-                    "解析成功显示解析位置，解析失败显示原始值。"
+                    "解析成功时优先显示更具体的位置，例如“海馨一食堂/自选区”；解析失败时回退为原始消费类型。"
                 } else {
-                    "统一显示原始消费类型，详情页仍保留解析位置和消费类型字段。"
+                    "统一显示原始消费类型，例如“NFC刷卡消费”；详情页仍保留解析位置和消费类型字段。"
                 },
                 style = MaterialTheme.typography.bodyMedium
             )

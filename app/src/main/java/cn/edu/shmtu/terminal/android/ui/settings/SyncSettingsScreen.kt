@@ -168,6 +168,10 @@ fun SyncSettingsScreen(
                 onValueChange = { viewModel.setSyncMaxPages(it.toInt()) },
                 valueRange = 10f..500f
             )
+            SettingsExampleBlock {
+                SettingsExampleLine("页数较小", "例如 30 页，适合日常补拉，速度更快。")
+                SettingsExampleLine("页数较大", "例如 200 页，适合首次同步或很久没同步后补齐历史数据。")
+            }
         }
 
         SettingsCard {
@@ -178,6 +182,10 @@ fun SyncSettingsScreen(
                 onValueChange = { viewModel.setSyncEarlyStop(it.toInt()) },
                 valueRange = 1f..20f
             )
+            SettingsExampleBlock {
+                SettingsExampleLine("阈值 = 3", "如果连续 3 页都没拉到新账单，就提前结束，不再继续翻页。")
+                SettingsExampleLine("阈值更高", "更保守，适合担心中间有零散新账单时使用。")
+            }
         }
 
         SettingsCard {
@@ -194,6 +202,10 @@ fun SyncSettingsScreen(
                 checked = syncAutoMerge,
                 onCheckedChange = { viewModel.setSyncAutoMerge(it) }
             )
+            SettingsExampleBlock {
+                SettingsExampleLine("跳过已毕业账号", "开启后，不再反复尝试长期失效的账号，减少报错和等待。")
+                SettingsExampleLine("同步后自动合并", "开启后，同步完成会立刻做去重和分类整理；关闭后只拉原始账单。")
+            }
         }
 
         SettingsCard(emphasized = autoSyncEnabled) {
@@ -224,6 +236,10 @@ fun SyncSettingsScreen(
                         )
                     }
                 }
+            }
+            SettingsExampleBlock {
+                SettingsExampleLine("间隔 60 分钟", "表示应用大约每小时检查一次是否需要同步。")
+                SettingsExampleLine("范围选“半个月”", "自动同步时优先只补最近半个月的数据，减少无关历史请求。")
             }
         }
 

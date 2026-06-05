@@ -8,6 +8,8 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -19,6 +21,8 @@ fun UpdateSettingsScreen(
 ) {
     val store = LocalFeatureStore.current
     val context = LocalContext.current
+    val autoCheckUpdate by store.autoCheckUpdate.collectAsState()
+    val checkIntervalHours by store.checkIntervalHours.collectAsState()
 
     SettingsDetailScreen(
         title = "更新设置",
@@ -36,17 +40,21 @@ fun UpdateSettingsScreen(
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Switch(
-                    checked = store.autoCheckUpdate.value,
+                    checked = autoCheckUpdate,
                     onCheckedChange = { store.setAutoCheckUpdate(it) }
                 )
             }
-            if (store.autoCheckUpdate.value) {
-                Text("检查间隔：${store.checkIntervalHours.value} 小时", style = MaterialTheme.typography.bodyMedium)
+            if (autoCheckUpdate) {
+                Text("检查间隔：$checkIntervalHours 小时", style = MaterialTheme.typography.bodyMedium)
                 Slider(
-                    value = store.checkIntervalHours.value.toFloat(),
+                    value = checkIntervalHours.toFloat(),
                     onValueChange = { store.setCheckIntervalHours(it.toInt()) },
                     valueRange = 1f..168f
                 )
+            }
+            SettingsExampleBlock {
+                SettingsExampleLine("开启后", "例如设为 24 小时，应用会大约每天自动检查一次新版本。")
+                SettingsExampleLine("关闭后", "不会自动检查，需要你自己到发布页手动查看是否有更新。")
             }
         }
 

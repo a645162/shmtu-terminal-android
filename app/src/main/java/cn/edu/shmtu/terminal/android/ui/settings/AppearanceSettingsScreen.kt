@@ -61,6 +61,10 @@ fun AppearanceSettingsScreen(
                     )
                 }
             }
+            SettingsExampleBlock {
+                SettingsExampleLine("跟随系统", "白天和夜间会跟着系统主题自动切换。")
+                SettingsExampleLine("固定浅色 / 深色", "适合希望应用始终保持同一种观感的场景。")
+            }
         }
 
         SettingsCard {
