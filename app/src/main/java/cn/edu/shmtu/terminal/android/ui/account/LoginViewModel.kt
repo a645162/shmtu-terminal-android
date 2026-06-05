@@ -1,10 +1,13 @@
 package cn.edu.shmtu.terminal.android.ui.account
 
+import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.cas.captcha.Captcha
+import cn.edu.shmtu.cas.captcha.CaptchaOcrHelper
+import cn.edu.shmtu.cas.ocr.NcnnModelLoader
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN
 import cn.edu.shmtu.cas.session.LoginSubmitResult
 import cn.edu.shmtu.cas.session.SessionProbe
@@ -13,6 +16,7 @@ import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
 import cn.edu.shmtu.terminal.android.data.remote.EpayAdapter
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,7 +41,8 @@ class LoginViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
     private val secureStorage: SecureStorage,
     private val epayAdapter: EpayAdapter,
-    private val settingsDataStore: SettingsDataStore
+    private val settingsDataStore: SettingsDataStore,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     private val shmtuNcnn = SHMTU_NCNN()
@@ -270,20 +275,19 @@ class LoginViewModel @Inject constructor(
     }
 
     private suspend fun recognizeLocal(imageData: ByteArray): String? = withContext(Dispatchers.Default) {
-        val status = shmtuNcnn.modelStatus
-        if (status == SHMTU_NCNN.ModelStatus.NOT_LOADED) {
-            Log.w(TAG, "Local OCR model not loaded")
+        if (!NcnnModelLoader.ensureLoaded(shmtuNcnn, context)) {
+            Log.w(TAG, "Local OCR model not loaded (no downloaded/built-in model found)")
             return@withContext null
         }
         val bitmap = BitmapFactory.decodeByteArray(imageData, 0, imageData.size) ?: return@withContext null
         val resultObj = shmtuNcnn.predict_validate_code(bitmap)
-        if (resultObj == null || resultObj.size < 2) {
+        if (resultObj == null || resultObj.size < 4) {
             Log.w(TAG, "Local OCR returned null or incomplete result")
             return@withContext null
         }
-        val text = resultObj[1] as? String
-        Log.d(TAG, "Local OCR result: $text")
-        text
+        val expr = CaptchaOcrHelper.buildExprString(resultObj)
+        Log.d(TAG, "Local OCR result: $expr")
+        expr
     }
 
     private suspend fun recognizeRemote(imageData: ByteArray): String? = withContext(Dispatchers.IO) {
