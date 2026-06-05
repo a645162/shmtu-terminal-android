@@ -24,7 +24,7 @@ import javax.inject.Singleton
 @Singleton
 class EpayAdapter @Inject constructor(
     private val secureStorage: SecureStorage,
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     /** 由 Hilt 注入 [BillDatabaseManager] 供 [cn.edu.shmtu.terminal.android.data.sync.RoomBillStore] 使用 */
     val billDbManager: BillDatabaseManager,
     /** 由 Hilt 注入 [BillRulesManager], 走 filesDir/bill/ 本地缓存(缺失回退到 assets/bill/) */

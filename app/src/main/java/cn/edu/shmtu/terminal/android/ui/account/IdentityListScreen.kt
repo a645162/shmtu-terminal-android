@@ -186,21 +186,22 @@ fun SwipeableIdentityCard(
     onDismissMenu: () -> Unit
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
-        positionalThreshold = { totalDistance -> totalDistance * 0.25f },
-        confirmValueChange = { dismissValue ->
-            when (dismissValue) {
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    onEdit()
-                    false
-                }
-                SwipeToDismissBoxValue.EndToStart -> {
-                    onDelete()
-                    false
-                }
-                SwipeToDismissBoxValue.Settled -> false
-            }
-        }
+        positionalThreshold = { totalDistance -> totalDistance * 0.25f }
     )
+
+    LaunchedEffect(dismissState.currentValue) {
+        when (dismissState.currentValue) {
+            SwipeToDismissBoxValue.StartToEnd -> {
+                onEdit()
+                dismissState.reset()
+            }
+            SwipeToDismissBoxValue.EndToStart -> {
+                onDelete()
+                dismissState.reset()
+            }
+            SwipeToDismissBoxValue.Settled -> Unit
+        }
+    }
 
     val offset = runCatching { dismissState.requireOffset() }.getOrDefault(0f)
     val direction = when {

@@ -24,26 +24,26 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ManageSearch
 import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.material.icons.outlined.Inventory2
-import androidx.compose.material.icons.outlined.ManageSearch
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -845,7 +845,7 @@ private fun FilterBar(
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))
-            TabRow(
+            PrimaryTabRow(
                 selectedTabIndex = BillTypeFilter.entries.indexOf(typeFilter),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -867,7 +867,7 @@ private fun FilterBar(
                             readOnly = true,
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(dateExpanded) },
                             modifier = Modifier
-                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                                 .fillMaxWidth(),
                             textStyle = MaterialTheme.typography.bodySmall
                         )
@@ -886,7 +886,7 @@ private fun FilterBar(
                         textStyle = MaterialTheme.typography.bodySmall,
                         leadingIcon = {
                             Icon(
-                                Icons.Outlined.ManageSearch,
+                                Icons.AutoMirrored.Outlined.ManageSearch,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -905,7 +905,9 @@ private fun FilterBar(
                                 {},
                                 readOnly = true,
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(dateExpanded) },
-                                modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).width(130.dp),
+                                modifier = Modifier
+                                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                                    .width(130.dp),
                                 textStyle = MaterialTheme.typography.bodySmall
                             )
                             ExposedDropdownMenu(dateExpanded, { dateExpanded = false }) {
@@ -923,7 +925,7 @@ private fun FilterBar(
                             textStyle = MaterialTheme.typography.bodySmall,
                             leadingIcon = {
                                 Icon(
-                                    Icons.Outlined.ManageSearch,
+                                    Icons.AutoMirrored.Outlined.ManageSearch,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

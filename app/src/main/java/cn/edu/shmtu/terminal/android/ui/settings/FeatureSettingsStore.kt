@@ -14,7 +14,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class FeatureSettingsStore @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("feature_settings", Context.MODE_PRIVATE)

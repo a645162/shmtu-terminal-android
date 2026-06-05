@@ -36,7 +36,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class BillRulesManager @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val featureStore: FeatureSettingsStore
 ) {
 
@@ -179,8 +179,7 @@ class BillRulesManager @Inject constructor(
             if (!resp.isSuccessful) {
                 throw IllegalStateException("HTTP ${resp.code}: $url")
             }
-            val body = resp.body?.string()
-                ?: throw IllegalStateException("Empty body: $url")
+            val body = resp.body.string()
             // 备份旧文件
             val local = File(localDir, filename)
             if (local.exists()) {

@@ -11,7 +11,7 @@ import javax.inject.Singleton
 
 @Singleton
 class SettingsDataStore @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)

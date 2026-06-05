@@ -52,7 +52,7 @@ class ModelDownloader {
 
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
-                        val body = response.body ?: continue
+                        val body = response.body
                         val content = body.string()
                         val checksums = mutableMapOf<String, String>()
                         for (line in content.lines()) {
@@ -153,7 +153,7 @@ class ModelDownloader {
                 if (!response.isSuccessful) {
                     return false
                 }
-                val body = response.body ?: return false
+                val body = response.body
                 val contentLength = body.contentLength()
                 var bytesRead: Long = 0
 

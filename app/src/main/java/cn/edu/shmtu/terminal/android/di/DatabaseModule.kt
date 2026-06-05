@@ -27,7 +27,7 @@ object DatabaseModule {
             MainDatabase::class.java,
             "shmtu_terminal"
         )
-            .fallbackToDestructiveMigration()
+            .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
     }
 

@@ -18,7 +18,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class OcrSettingsViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val settingsDataStore: SettingsDataStore,
     private val featureStore: FeatureSettingsStore
 ) : ViewModel() {

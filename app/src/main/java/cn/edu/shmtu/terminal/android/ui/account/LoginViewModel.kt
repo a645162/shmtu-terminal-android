@@ -42,7 +42,7 @@ class LoginViewModel @Inject constructor(
     private val secureStorage: SecureStorage,
     private val epayAdapter: EpayAdapter,
     private val settingsDataStore: SettingsDataStore,
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     private val shmtuNcnn = SHMTU_NCNN()
