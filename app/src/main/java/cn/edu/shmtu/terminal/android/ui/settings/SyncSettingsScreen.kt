@@ -1,5 +1,6 @@
 package cn.edu.shmtu.terminal.android.ui.settings
 
+import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.FilterChip
@@ -8,16 +9,143 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import cn.edu.shmtu.terminal.android.data.sync.PeriodicBillSyncWorker
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+data class AutoSyncStatus(
+    val enabled: Boolean,
+    val isRunning: Boolean,
+    val nextRunInSeconds: Long?,
+    val successRuns: Int,
+    val failedRuns: Int
+) {
+    companion object {
+        val EMPTY = AutoSyncStatus(
+            enabled = false,
+            isRunning = false,
+            nextRunInSeconds = null,
+            successRuns = 0,
+            failedRuns = 0
+        )
+    }
+}
+
+@HiltViewModel
+class SyncSettingsViewModel @Inject constructor(
+    private val store: FeatureSettingsStore
+) : ViewModel() {
+
+    private val _status = MutableStateFlow(AutoSyncStatus.EMPTY)
+    val status: StateFlow<AutoSyncStatus> = _status.asStateFlow()
+
+    val autoSyncEnabled: StateFlow<Boolean> = store.autoSyncEnabled
+    val autoSyncInterval: StateFlow<Int> = store.autoSyncInterval
+    val autoSyncRange: StateFlow<String> = store.autoSyncRange
+    val syncMaxPages: StateFlow<Int> = store.syncMaxPages
+    val syncEarlyStop: StateFlow<Int> = store.syncEarlyStop
+    val syncSkipGraduated: StateFlow<Boolean> = store.syncSkipGraduated
+    val syncAutoMerge: StateFlow<Boolean> = store.syncAutoMerge
+
+    fun setAutoSyncEnabled(v: Boolean) = store.setAutoSyncEnabled(v)
+    fun setAutoSyncInterval(n: Int) = store.setAutoSyncInterval(n)
+    fun setAutoSyncRange(v: String) = store.setAutoSyncRange(v)
+    fun setSyncMaxPages(n: Int) = store.setSyncMaxPages(n)
+    fun setSyncEarlyStop(n: Int) = store.setSyncEarlyStop(n)
+    fun setSyncSkipGraduated(v: Boolean) = store.setSyncSkipGraduated(v)
+    fun setSyncAutoMerge(v: Boolean) = store.setSyncAutoMerge(v)
+
+    /**
+     * 周期性查询 WorkManager 的 unique work 状态 — 对齐 Tauri 端
+     *  `get_auto_sync_status` 行为。
+     *
+     *  - enabled: FeatureSettingsStore.autoSyncEnabled
+     *  - isRunning: 列表中存在 RUNNING/ENQUEUED
+     *  - nextRunInSeconds: WorkInfo.nextScheduleTimeMillis 距现在的秒数
+     *  - 累计成功/失败: 当前 WorkInfo 列表的 SUCCEEDED/FAILED+ CANCELLED 个数
+     *    (WorkManager 默认仅保留最近 30 条, 接近 Tauri 端「近期累计」语义)
+     */
+    fun startStatusPolling(context: Context) {
+        viewModelScope.launch {
+            val wm = WorkManager.getInstance(context)
+            while (true) {
+                val infos = wm.getWorkInfosForUniqueWork(PeriodicBillSyncWorker.NAME).get()
+                val enabled = store.autoSyncEnabled.value
+                val isRunning = infos.any {
+                    it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED
+                }
+                val now = System.currentTimeMillis()
+                val nextRunInSeconds: Long? = infos
+                    .mapNotNull { info ->
+                        val n = runCatching { info.nextScheduleTimeMillis }.getOrNull()
+                        if (n != null && n > 0L) (n - now) / 1000 else null
+                    }
+                    .minOrNull()
+                    ?.coerceAtLeast(0L)
+                val success = infos.count { it.state == WorkInfo.State.SUCCEEDED }
+                val failed = infos.count {
+                    it.state == WorkInfo.State.FAILED || it.state == WorkInfo.State.CANCELLED
+                }
+                _status.value = AutoSyncStatus(
+                    enabled = enabled,
+                    isRunning = isRunning,
+                    nextRunInSeconds = nextRunInSeconds,
+                    successRuns = success,
+                    failedRuns = failed
+                )
+                delay(15_000)
+            }
+        }
+    }
+}
 
 @Composable
 fun SyncSettingsScreen(
     onBack: () -> Unit,
-    embedded: Boolean = false
+    embedded: Boolean = false,
+    viewModel: SyncSettingsViewModel = hiltViewModel()
 ) {
-    val store = LocalFeatureStore.current
+    val context = LocalContext.current
+    val autoSyncEnabled by viewModel.autoSyncEnabled.collectAsState()
+    val autoSyncInterval by viewModel.autoSyncInterval.collectAsState()
+    val autoSyncRange by viewModel.autoSyncRange.collectAsState()
+    val syncMaxPages by viewModel.syncMaxPages.collectAsState()
+    val syncEarlyStop by viewModel.syncEarlyStop.collectAsState()
+    val syncSkipGraduated by viewModel.syncSkipGraduated.collectAsState()
+    val syncAutoMerge by viewModel.syncAutoMerge.collectAsState()
+    val status by viewModel.status.collectAsState()
+    var nextRunCountdown by remember { mutableStateOf(status.nextRunInSeconds) }
+
+    LaunchedEffect(Unit) { viewModel.startStatusPolling(context) }
+    LaunchedEffect(status.nextRunInSeconds) { nextRunCountdown = status.nextRunInSeconds }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            nextRunCountdown = nextRunCountdown?.let { if (it <= 0L) 0L else it - 1 }
+        }
+    }
+
     val rangeOptions = listOf(
         "week" to "最近一周",
         "half_month" to "半个月",
@@ -34,20 +162,20 @@ fun SyncSettingsScreen(
     ) {
         SettingsCard {
             Text("同步页数上限")
-            Text("当前最多拉取 ${store.syncMaxPages.value} 页账单数据。", style = MaterialTheme.typography.bodyMedium)
+            Text("当前最多拉取 $syncMaxPages 页账单数据。", style = MaterialTheme.typography.bodyMedium)
             Slider(
-                value = store.syncMaxPages.value.toFloat(),
-                onValueChange = { store.setSyncMaxPages(it.toInt()) },
+                value = syncMaxPages.toFloat(),
+                onValueChange = { viewModel.setSyncMaxPages(it.toInt()) },
                 valueRange = 10f..500f
             )
         }
 
         SettingsCard {
             Text("提前停止阈值")
-            Text("连续 ${store.syncEarlyStop.value} 页无有效新数据时提前结束。", style = MaterialTheme.typography.bodyMedium)
+            Text("连续 $syncEarlyStop 页无有效新数据时提前结束。", style = MaterialTheme.typography.bodyMedium)
             Slider(
-                value = store.syncEarlyStop.value.toFloat(),
-                onValueChange = { store.setSyncEarlyStop(it.toInt()) },
+                value = syncEarlyStop.toFloat(),
+                onValueChange = { viewModel.setSyncEarlyStop(it.toInt()) },
                 valueRange = 1f..20f
             )
         }
@@ -57,30 +185,30 @@ fun SyncSettingsScreen(
             SettingsSwitchRow(
                 title = "跳过已毕业账号",
                 subtitle = "减少无效请求和失败重试。",
-                checked = store.syncSkipGraduated.value,
-                onCheckedChange = { store.setSyncSkipGraduated(it) }
+                checked = syncSkipGraduated,
+                onCheckedChange = { viewModel.setSyncSkipGraduated(it) }
             )
             SettingsSwitchRow(
                 title = "同步后自动合并",
                 subtitle = "同步结束后自动做账单合并处理。",
-                checked = store.syncAutoMerge.value,
-                onCheckedChange = { store.setSyncAutoMerge(it) }
+                checked = syncAutoMerge,
+                onCheckedChange = { viewModel.setSyncAutoMerge(it) }
             )
         }
 
-        SettingsCard(emphasized = store.autoSyncEnabled.value) {
+        SettingsCard(emphasized = autoSyncEnabled) {
             Text("自动同步")
             SettingsSwitchRow(
                 title = "启用定时账单同步",
                 subtitle = "在后台按固定间隔自动检查并执行同步。",
-                checked = store.autoSyncEnabled.value,
-                onCheckedChange = { store.setAutoSyncEnabled(it) }
+                checked = autoSyncEnabled,
+                onCheckedChange = { viewModel.setAutoSyncEnabled(it) }
             )
-            if (store.autoSyncEnabled.value) {
-                Text("检查间隔: ${store.autoSyncInterval.value} 分钟", style = MaterialTheme.typography.bodyMedium)
+            if (autoSyncEnabled) {
+                Text("检查间隔: $autoSyncInterval 分钟", style = MaterialTheme.typography.bodyMedium)
                 Slider(
-                    value = store.autoSyncInterval.value.toFloat(),
-                    onValueChange = { store.setAutoSyncInterval(it.toInt()) },
+                    value = autoSyncInterval.toFloat(),
+                    onValueChange = { viewModel.setAutoSyncInterval(it.toInt()) },
                     valueRange = 5f..1440f
                 )
                 Text("自动同步范围", style = MaterialTheme.typography.titleMedium)
@@ -90,14 +218,38 @@ fun SyncSettingsScreen(
                 ) {
                     rangeOptions.forEach { (value, label) ->
                         FilterChip(
-                            selected = store.autoSyncRange.value == value,
-                            onClick = { store.setAutoSyncRange(value) },
+                            selected = autoSyncRange == value,
+                            onClick = { viewModel.setAutoSyncRange(value) },
                             label = { Text(label) }
                         )
                     }
                 }
             }
         }
+
+        SettingsCard {
+            Text("自动同步状态")
+            Text(
+                "WorkManager 周期任务的当前执行情况与最近运行结果。",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text("当前状态：${if (status.isRunning) "运行中" else "未运行"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("距离下次同步：${formatCountdown(nextRunCountdown)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("累计成功/失败（近 30 次）：${status.successRuns} / ${status.failedRuns}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+private fun formatCountdown(seconds: Long?): String {
+    if (seconds == null) return "未计划"
+    val s = seconds.coerceAtLeast(0)
+    val hours = s / 3600
+    val minutes = (s % 3600) / 60
+    val remain = s % 60
+    return when {
+        hours > 0 -> "${hours}小时 ${minutes}分钟"
+        minutes > 0 -> "${minutes}分钟 ${remain}秒"
+        else -> "${remain}秒"
     }
 }
 

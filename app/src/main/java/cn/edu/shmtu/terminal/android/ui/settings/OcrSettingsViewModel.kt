@@ -18,7 +18,8 @@ import javax.inject.Inject
 @HiltViewModel
 class OcrSettingsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val settingsDataStore: SettingsDataStore
+    private val settingsDataStore: SettingsDataStore,
+    private val featureStore: FeatureSettingsStore
 ) : ViewModel() {
 
     private val shmtuNcnn = SHMTU_NCNN()
@@ -26,6 +27,11 @@ class OcrSettingsViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(OcrSettingsUiState())
     val uiState: StateFlow<OcrSettingsUiState> = _uiState.asStateFlow()
+
+    /** 验证码错误重试次数 (对齐 Tauri `ocr_retry_count`)。 */
+    val ocrRetryCount: StateFlow<Int> = featureStore.ocrRetryCount
+
+    fun setOcrRetryCount(n: Int) = featureStore.setOcrRetryCount(n)
 
     init {
         refreshStatus()

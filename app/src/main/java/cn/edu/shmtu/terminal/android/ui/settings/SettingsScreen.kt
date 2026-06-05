@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
@@ -324,6 +325,7 @@ private fun DetailFor(
     when (key) {
         "appearance" -> AppearanceSettingsScreen(onBack = onBack, embedded = embedded)
         "home_chart" -> HomeChartSettingsScreen(onBack = onBack, embedded = embedded)
+        "identity" -> IdentitySettingsScreen(onBack = onBack, embedded = embedded)
         "sync" -> SyncSettingsScreen(onBack = onBack, embedded = embedded)
         "security" -> SecuritySettingsScreen(onBack = onBack, embedded = embedded)
         "data" -> DataSettingsScreen(onBack = onBack, dedupeRepository = dedupeRepository, embedded = embedded)
@@ -415,6 +417,14 @@ private fun settingsGroups(): List<SettingsGroup> {
             accent = listOf(Color(0xFFAA334B), Color(0xFFFF98A9))
         ),
         SettingsGroup(
+            key = "identity",
+            title = "身份",
+            subtitle = "启动默认身份",
+            description = "配置应用启动时优先进入哪个身份。",
+            icon = Icons.Filled.Person,
+            accent = listOf(Color(0xFF6B5CA5), Color(0xFFA7A0E8))
+        ),
+        SettingsGroup(
             key = "update",
             title = "更新",
             subtitle = "自动检查与手动查看版本",
@@ -435,7 +445,7 @@ private fun settingsGroups(): List<SettingsGroup> {
             title = "关于",
             subtitle = "版本、作者与开源信息",
             description = "查看当前应用的基础元信息。",
-            icon = Icons.Filled.Person,
+            icon = Icons.Filled.Info,
             accent = listOf(Color(0xFF6B5CA5), Color(0xFFA7A0E8))
         )
     )

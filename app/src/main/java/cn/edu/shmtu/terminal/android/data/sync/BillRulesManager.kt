@@ -2,6 +2,7 @@ package cn.edu.shmtu.terminal.android.data.sync
 
 import android.content.Context
 import android.util.Log
+import cn.edu.shmtu.terminal.android.ui.settings.FeatureSettingsStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -35,13 +36,14 @@ import javax.inject.Singleton
  */
 @Singleton
 class BillRulesManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val featureStore: FeatureSettingsStore
 ) {
 
     private val TAG = "BillRulesManager"
 
-    /** GitHub raw URL base — 与 Tauri `database/mod.rs:18` 完全一致 */
-    private val GITHUB_RAW_BASE =
+    /** GitHub raw URL base 默认值 — 与 Tauri `database/mod.rs:18` 完全一致 */
+    private val DEFAULT_GITHUB_RAW_BASE =
         "https://raw.githubusercontent.com/a645162/shmtu-terminal/main/database/bill"
 
     /** 4 个文件名 — 与 Tauri `database/mod.rs:21` 完全一致 */
@@ -59,6 +61,18 @@ class BillRulesManager @Inject constructor(
     }
 
     /**
+     * 当前生效的规则远程 base URL。
+     * 优先使用用户在「设置 → 分类规则」中自定义的 URL;为空时回退到默认 GitHub。
+     */
+    fun currentRemoteBase(): String {
+        val custom = runCatching { featureStore.rulesUpdateUrl.value }
+            .getOrNull()
+            ?.trim()
+            .orEmpty()
+        return if (custom.isNotEmpty()) custom.removeSuffix("/") else DEFAULT_GITHUB_RAW_BASE
+    }
+
+    /**
      * 启动时调用,确保本地 4 个文件都存在;缺失则从 GitHub 下载补齐。
      * 网络失败时**不会**抛异常 — 由后续 [readFile] 走 assets 回退。
      */
@@ -71,17 +85,17 @@ class BillRulesManager @Inject constructor(
                 results[filename] = true
                 continue
             }
-            // 缺失 → 从 GitHub 下载
+            // 缺失 → 从远程 base 下载
             val ok = runCatching { downloadFileInternal(filename) }.isSuccess
             results[filename] = ok
-            if (ok) Log.d(TAG, "$filename: downloaded from GitHub")
+            if (ok) Log.d(TAG, "$filename: downloaded from ${currentRemoteBase()}")
             else Log.w(TAG, "$filename: download failed, will fallback to assets at read time")
         }
         EnsureResult(results)
     }
 
     /**
-     * 强制从 GitHub 同步全部 4 个文件到本地缓存。
+     * 强制从远程 base 同步全部 4 个文件到本地缓存。
      * 写盘前把旧文件备份为 <name>.bak(若旧文件存在)。
      */
     suspend fun downloadAll(): DownloadResult = withContext(Dispatchers.IO) {
@@ -122,11 +136,11 @@ class BillRulesManager @Inject constructor(
     }
 
     /**
-     * 从 GitHub 下载单个文件,写盘前备份旧文件为 .bak。
+     * 从 [currentRemoteBase] 下载单个文件,写盘前备份旧文件为 .bak。
      * 内部方法,出错抛异常由调用方 [ensureLocalFiles] / [downloadAll] 捕获。
      */
     private fun downloadFileInternal(filename: String): File {
-        val url = "$GITHUB_RAW_BASE/$filename"
+        val url = "${currentRemoteBase()}/$filename"
         val request = Request.Builder().url(url).build()
         val response = client.newCall(request).execute()
         response.use { resp ->

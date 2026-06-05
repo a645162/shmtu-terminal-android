@@ -25,6 +25,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -54,6 +55,7 @@ fun OcrSettingsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val useLocalOcr by settingsViewModel.useLocalOcr.collectAsState()
     val ocrServerUrl by settingsViewModel.ocrServerUrl.collectAsState()
+    val ocrRetryCount by viewModel.ocrRetryCount.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var showLoadSourceDialog by remember { mutableStateOf(false) }
@@ -74,6 +76,7 @@ fun OcrSettingsScreen(
                 uiState = uiState,
                 useLocalOcr = useLocalOcr,
                 ocrServerUrl = ocrServerUrl,
+                ocrRetryCount = ocrRetryCount,
                 showLoadSourceDialog = showLoadSourceDialog,
                 onShowLoadSourceDialogChange = { showLoadSourceDialog = it },
                 showDownloadSourceDialog = showDownloadSourceDialog,
@@ -82,7 +85,8 @@ fun OcrSettingsScreen(
                 onShowUrlEditorChange = { showUrlEditor = it },
                 onReleaseModel = viewModel::releaseModel,
                 onRefreshStatus = viewModel::refreshStatus,
-                onSetUseLocalOcr = settingsViewModel::setUseLocalOcr
+                onSetUseLocalOcr = settingsViewModel::setUseLocalOcr,
+                onSetOcrRetryCount = viewModel::setOcrRetryCount
             )
         }
     } else {
@@ -119,6 +123,7 @@ fun OcrSettingsScreen(
                     uiState = uiState,
                     useLocalOcr = useLocalOcr,
                     ocrServerUrl = ocrServerUrl,
+                    ocrRetryCount = ocrRetryCount,
                     showLoadSourceDialog = showLoadSourceDialog,
                     onShowLoadSourceDialogChange = { showLoadSourceDialog = it },
                     showDownloadSourceDialog = showDownloadSourceDialog,
@@ -127,7 +132,8 @@ fun OcrSettingsScreen(
                     onShowUrlEditorChange = { showUrlEditor = it },
                     onReleaseModel = viewModel::releaseModel,
                     onRefreshStatus = viewModel::refreshStatus,
-                    onSetUseLocalOcr = settingsViewModel::setUseLocalOcr
+                    onSetUseLocalOcr = settingsViewModel::setUseLocalOcr,
+                    onSetOcrRetryCount = viewModel::setOcrRetryCount
                 )
             }
         }
@@ -263,6 +269,7 @@ private fun OcrSettingsContent(
     uiState: OcrSettingsUiState,
     useLocalOcr: Boolean,
     ocrServerUrl: String,
+    ocrRetryCount: Int,
     showLoadSourceDialog: Boolean,
     onShowLoadSourceDialogChange: (Boolean) -> Unit,
     showDownloadSourceDialog: Boolean,
@@ -271,7 +278,8 @@ private fun OcrSettingsContent(
     onShowUrlEditorChange: (Boolean) -> Unit,
     onReleaseModel: () -> Unit,
     onRefreshStatus: () -> Unit,
-    onSetUseLocalOcr: (Boolean) -> Unit
+    onSetUseLocalOcr: (Boolean) -> Unit,
+    onSetOcrRetryCount: (Int) -> Unit
 ) {
     SettingsCard {
         androidx.compose.foundation.layout.Row(
@@ -368,6 +376,30 @@ private fun OcrSettingsContent(
                 )
                 HorizontalDivider()
             }
+
+            // 验证码错误重试次数 — 对齐 Tauri `ocr_retry_count` Slider
+            ListItem(
+                headlineContent = { Text("验证码错误重试次数") },
+                supportingContent = {
+                    Text(
+                        "识别失败后自动重新尝试的次数。当前 $ocrRetryCount 次。",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            )
+            androidx.compose.foundation.layout.Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            ) {
+                Slider(
+                    value = ocrRetryCount.toFloat(),
+                    onValueChange = { onSetOcrRetryCount(it.toInt().coerceIn(1, 20)) },
+                    valueRange = 1f..20f,
+                    steps = 18
+                )
+            }
+            HorizontalDivider()
         }
     }
 

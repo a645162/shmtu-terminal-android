@@ -66,6 +66,16 @@ class FeatureSettingsStore @Inject constructor(
     fun setOcrRetryCount(n: Int) { prefs.edit().putInt("ocr_retry", n).apply(); (ocrRetryCount as MutableStateFlow).value = n }
     fun setOcrHttpUrl(v: String) { prefs.edit().putString("ocr_http_url", v).apply(); (ocrHttpUrl as MutableStateFlow).value = v }
 
+    // 分类规则 - 对齐 Tauri `classification.rules_update_url`;默认填仓库 URL
+    val rulesUpdateUrl: StateFlow<String> = MutableStateFlow(
+        prefs.getString("rules_update_url", "https://raw.githubusercontent.com/a645162/shmtu-terminal/main/database/bill")!!
+    )
+
+    fun setRulesUpdateUrl(v: String) {
+        prefs.edit().putString("rules_update_url", v).apply()
+        (rulesUpdateUrl as MutableStateFlow).value = v
+    }
+
     // 更新
     val autoCheckUpdate: StateFlow<Boolean> = MutableStateFlow(prefs.getBoolean("auto_check_update", true))
     val checkIntervalHours: StateFlow<Int> = MutableStateFlow(prefs.getInt("check_interval_hours", 24))
