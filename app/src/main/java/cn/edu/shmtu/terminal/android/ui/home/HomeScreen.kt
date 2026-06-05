@@ -1,5 +1,7 @@
 package cn.edu.shmtu.terminal.android.ui.home
 
+import android.content.ClipData
+
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -46,6 +48,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,14 +58,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.toClipEntry
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.domain.model.BillItem
+import cn.edu.shmtu.terminal.android.domain.model.displayTitle
 import cn.edu.shmtu.terminal.android.domain.model.BillOverview
 import cn.edu.shmtu.terminal.android.domain.model.CategoryBreakdown
 import cn.edu.shmtu.terminal.android.domain.model.DailyTrend
@@ -74,10 +78,12 @@ import cn.edu.shmtu.terminal.android.ui.component.AppDonutChart
 import cn.edu.shmtu.terminal.android.ui.component.AppDonutSlice
 import cn.edu.shmtu.terminal.android.ui.component.AppLineChart
 import cn.edu.shmtu.terminal.android.ui.component.AppLineSeries
+import cn.edu.shmtu.terminal.android.ui.settings.LocalFeatureStore
 import cn.edu.shmtu.terminal.android.ui.theme.BrandForeground1
 import cn.edu.shmtu.terminal.android.ui.theme.CategoryColors
 import cn.edu.shmtu.terminal.android.ui.theme.GreenForeground3
 import cn.edu.shmtu.terminal.android.ui.theme.RedForeground3
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
@@ -101,6 +107,8 @@ fun HomeScreen(
     onBillClick: (Long) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
+    val featureStore = LocalFeatureStore.current
+    val preferParsedBillDisplay by featureStore.preferParsedBillDisplay.collectAsState()
     val identities by viewModel.identities.collectAsState()
     val currentIdentity by viewModel.currentIdentity.collectAsState()
     val billOverview by viewModel.billOverview.collectAsState()
@@ -225,7 +233,8 @@ fun HomeScreen(
                             bills = recentBills,
                             onBillClick = onBillClick,
                             modifier = Modifier.weight(1.18f),
-                            compact = true
+                            compact = true,
+                            preferParsedDisplay = preferParsedBillDisplay
                         )
                     }
                 }
@@ -262,7 +271,8 @@ fun HomeScreen(
                 ForgotCardAlertCard(forgotCardRisk)
                 RecentTransactionsCard(
                     bills = recentBills,
-                    onBillClick = onBillClick
+                    onBillClick = onBillClick,
+                    preferParsedDisplay = preferParsedBillDisplay
                 )
 
                 Row(
@@ -633,9 +643,11 @@ private fun RecentTransactionsCard(
     bills: List<BillItem>,
     onBillClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
-    compact: Boolean = false
+    compact: Boolean = false,
+    preferParsedDisplay: Boolean = true
 ) {
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
     ElevatedCard(modifier = modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
         Column(modifier = Modifier.padding(if (compact) 14.dp else 16.dp)) {
             Row(
@@ -657,9 +669,22 @@ private fun RecentTransactionsCard(
                 bills.take(if (compact) 8 else bills.size).forEach { bill ->
                     BillRow(
                         bill = bill,
+                        preferParsedDisplay = preferParsedDisplay,
                         onClick = { onBillClick(bill.id) },
-                        onCopyTarget = { clipboard.setText(AnnotatedString(bill.targetUser)) },
-                        onCopyMoney = { clipboard.setText(AnnotatedString("¥${bill.money}")) }
+                        onCopyTarget = {
+                            scope.launch {
+                                clipboard.setClipEntry(
+                                    ClipData.newPlainText("bill-target-user", bill.targetUser).toClipEntry()
+                                )
+                            }
+                        },
+                        onCopyMoney = {
+                            scope.launch {
+                                clipboard.setClipEntry(
+                                    ClipData.newPlainText("bill-money", "¥${bill.money}").toClipEntry()
+                                )
+                            }
+                        }
                     )
                 }
             }
@@ -721,6 +746,7 @@ private fun QuickActionsCard(
 @Composable
 private fun BillRow(
     bill: BillItem,
+    preferParsedDisplay: Boolean,
     onClick: () -> Unit,
     onCopyTarget: () -> Unit,
     onCopyMoney: () -> Unit
@@ -744,7 +770,11 @@ private fun BillRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(bill.type, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                Text(
+                    bill.displayTitle(preferParsedDisplay),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1
+                )
                 Text(
                     bill.dateTimeStrFormat,
                     style = MaterialTheme.typography.labelSmall,

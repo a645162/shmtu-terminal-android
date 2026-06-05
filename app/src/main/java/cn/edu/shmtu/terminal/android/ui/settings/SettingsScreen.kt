@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Storage
@@ -324,6 +325,7 @@ private fun DetailFor(
 ) {
     when (key) {
         "appearance" -> AppearanceSettingsScreen(onBack = onBack, embedded = embedded)
+        "bill_display" -> BillDisplaySettingsScreen(onBack = onBack, embedded = embedded)
         "home_chart" -> HomeChartSettingsScreen(onBack = onBack, embedded = embedded)
         "identity" -> IdentitySettingsScreen(onBack = onBack, embedded = embedded)
         "sync" -> SyncSettingsScreen(onBack = onBack, embedded = embedded)
@@ -367,6 +369,14 @@ private fun settingsGroups(): List<SettingsGroup> {
             description = "调整应用的外观基调和统计数字精度。",
             icon = Icons.Filled.Brush,
             accent = listOf(Color(0xFF3E7BFA), Color(0xFF6DB9FF))
+        ),
+        SettingsGroup(
+            key = "bill_display",
+            title = "消费展示",
+            subtitle = "原始类型与解析位置",
+            description = "控制账单标题优先显示原始消费类型还是解析出的楼栋/窗口。",
+            icon = Icons.Filled.ReceiptLong,
+            accent = listOf(Color(0xFF7B5E57), Color(0xFFD7CCC8))
         ),
         SettingsGroup(
             key = "home_chart",

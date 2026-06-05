@@ -23,12 +23,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cn.edu.shmtu.terminal.android.domain.model.BillItem
+import cn.edu.shmtu.terminal.android.domain.model.displaySubtitle
+import cn.edu.shmtu.terminal.android.domain.model.displayTitle
 
 @Composable
 fun BillItemCard(
     bill: BillItem,
     onClick: () -> Unit,
-    compact: Boolean = false
+    compact: Boolean = false,
+    preferParsedDisplay: Boolean = true
 ) {
     val isIncome = bill.isIncomeLike()
     val amountColor = if (isIncome) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
@@ -61,14 +64,14 @@ fun BillItemCard(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = bill.type.ifBlank { "未分类交易" },
+                        text = bill.displayTitle(preferParsedDisplay),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = bill.targetUser.ifBlank { "未知商户/位置" },
+                        text = bill.displaySubtitle(),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,

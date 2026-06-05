@@ -48,6 +48,9 @@ import androidx.compose.ui.platform.toClipEntry
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import cn.edu.shmtu.terminal.android.domain.model.displayTitle
+import cn.edu.shmtu.terminal.android.domain.model.resolvedPlace
+import cn.edu.shmtu.terminal.android.ui.settings.LocalFeatureStore
 import kotlinx.coroutines.launch
 
 /**
@@ -55,7 +58,7 @@ import kotlinx.coroutines.launch
  *
  * 字段(13 个,完全对齐 Tauri):
  * - 日期时间 dateTimeStrFormat
- * - 交易名称 type
+ * - 消费类型 type
  * - 交易号 transactionNo
  * - 对方账户 targetUser
  * - 位置 position/building
@@ -75,6 +78,8 @@ fun BillDetailScreen(
     onBack: () -> Unit,
     viewModel: BillDetailViewModel = hiltViewModel()
 ) {
+    val featureStore = LocalFeatureStore.current
+    val preferParsedBillDisplay by featureStore.preferParsedBillDisplay.collectAsState()
     val bill by viewModel.bill.collectAsState()
     val notes by viewModel.notes.collectAsState()
     val editing by viewModel.editingNotes.collectAsState()
@@ -118,14 +123,13 @@ fun BillDetailScreen(
         val resolvedBuilding = item.building?.takeIf { it.isNotBlank() }
             ?: item.position?.takeIf { it.isNotBlank() }
         val resolvedRoom = item.room?.takeIf { it.isNotBlank() }
-        val resolvedPlace = listOfNotNull(resolvedBuilding, resolvedRoom).joinToString("/")
-            .ifBlank { null }
-        val summaryTitle = resolvedPlace ?: item.type.ifBlank { "未分类交易" }
+        val resolvedPlace = item.resolvedPlace()
+        val summaryTitle = item.displayTitle(preferParsedBillDisplay)
 
         // Tauri BillDetailDialog 字段顺序(去掉 Tauri 的 13 个字段中 Android 端暂无的 synced_at / source_account_id,补 12 个)
         val fields = listOf(
             "日期时间" to item.dateTimeStrFormat.ifBlank { "—" },
-            "交易名称" to item.type.ifBlank { "—" },
+            "消费类型" to item.type.ifBlank { "—" },
             "交易号" to item.transactionNo.ifBlank { "—" },
             "对方账户" to item.targetUser.ifBlank { "—" },
             "位置" to (resolvedBuilding ?: "—"),

@@ -20,3 +20,22 @@ data class BillItem(
     // 对齐 Tauri ClassifiedStatisticsItem.building 字段。
     val building: String? = null
 )
+
+fun BillItem.resolvedPlace(): String? {
+    val resolvedBuilding = building?.takeIf { it.isNotBlank() }
+        ?: position?.takeIf { it.isNotBlank() }
+    val resolvedRoom = room?.takeIf { it.isNotBlank() }
+    return listOfNotNull(resolvedBuilding, resolvedRoom)
+        .joinToString("/")
+        .ifBlank { null }
+}
+
+fun BillItem.displayTitle(preferParsed: Boolean = true): String {
+    return if (preferParsed) {
+        resolvedPlace() ?: type.ifBlank { "未分类交易" }
+    } else {
+        type.ifBlank { resolvedPlace() ?: "未分类交易" }
+    }
+}
+
+fun BillItem.displaySubtitle(): String = targetUser.ifBlank { "未知商户/位置" }

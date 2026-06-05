@@ -66,6 +66,7 @@ import cn.edu.shmtu.terminal.android.ui.component.AppDonutChart
 import cn.edu.shmtu.terminal.android.ui.component.AppDonutSlice
 import cn.edu.shmtu.terminal.android.ui.component.AppLineChart
 import cn.edu.shmtu.terminal.android.ui.component.AppLineSeries
+import cn.edu.shmtu.terminal.android.ui.settings.LocalFeatureStore
 import cn.edu.shmtu.terminal.android.ui.theme.BrandForeground1
 import cn.edu.shmtu.terminal.android.ui.theme.GreenForeground3
 import cn.edu.shmtu.terminal.android.ui.theme.RedForeground3
@@ -88,6 +89,8 @@ fun BillStatisticsScreen(
     onBack: () -> Unit,
     viewModel: BillStatisticsViewModel = hiltViewModel()
 ) {
+    val featureStore = LocalFeatureStore.current
+    val preferParsedBillDisplay by featureStore.preferParsedBillDisplay.collectAsState()
     val currentIdentity by viewModel.currentIdentity.collectAsState()
     val identities by viewModel.identities.collectAsState()
     val overview by viewModel.overview.collectAsState()
@@ -214,6 +217,7 @@ fun BillStatisticsScreen(
                                 CategoryBillsTableCard(
                                     category = selectedCategory,
                                     bills = categoryBills,
+                                    preferParsedDisplay = preferParsedBillDisplay,
                                     onBillClick = { /* TODO: navigate to bill detail */ }
                                 )
                             }
@@ -802,6 +806,7 @@ private fun CategoryLegend(
 private fun CategoryBillsTableCard(
     category: String,
     bills: List<BillItem>,
+    preferParsedDisplay: Boolean,
     onBillClick: (Long) -> Unit
 ) {
     ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
@@ -832,7 +837,11 @@ private fun CategoryBillsTableCard(
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     bills.take(50).forEach { bill ->
-                        BillItemCard(bill = bill, onClick = { onBillClick(bill.id) })
+                        BillItemCard(
+                            bill = bill,
+                            onClick = { onBillClick(bill.id) },
+                            preferParsedDisplay = preferParsedDisplay
+                        )
                     }
                     if (bills.size > 50) {
                         Text(

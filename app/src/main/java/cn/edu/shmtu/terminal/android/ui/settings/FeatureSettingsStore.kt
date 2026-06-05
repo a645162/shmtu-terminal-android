@@ -29,9 +29,16 @@ class FeatureSettingsStore @Inject constructor(
     // 首页图表
     val homeTrendRange: StateFlow<String> = MutableStateFlow(prefs.getString("home_trend", "week")!!)
     val homeCategoryRange: StateFlow<String> = MutableStateFlow(prefs.getString("home_category", "month")!!)
+    val preferParsedBillDisplay: StateFlow<Boolean> = MutableStateFlow(
+        prefs.getBoolean("prefer_parsed_bill_display", true)
+    )
 
     fun setHomeTrendRange(v: String) { prefs.edit().putString("home_trend", v).apply(); (homeTrendRange as MutableStateFlow).value = v }
     fun setHomeCategoryRange(v: String) { prefs.edit().putString("home_category", v).apply(); (homeCategoryRange as MutableStateFlow).value = v }
+    fun setPreferParsedBillDisplay(v: Boolean) {
+        prefs.edit().putBoolean("prefer_parsed_bill_display", v).apply()
+        (preferParsedBillDisplay as MutableStateFlow).value = v
+    }
 
     // 同步
     val syncMaxPages: StateFlow<Int> = MutableStateFlow(prefs.getInt("sync_max_pages", 100))

@@ -71,6 +71,7 @@ import cn.edu.shmtu.terminal.android.domain.model.SyncStatus
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.CaptchaRequiredException
 import cn.edu.shmtu.terminal.android.ui.component.BillItemCard
 import cn.edu.shmtu.terminal.android.ui.component.CaptchaDialog
+import cn.edu.shmtu.terminal.android.ui.settings.LocalFeatureStore
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -79,6 +80,8 @@ fun BillListScreen(
     onBillClick: (Long) -> Unit,
     viewModel: BillListViewModel = hiltViewModel()
 ) {
+    val featureStore = LocalFeatureStore.current
+    val preferParsedBillDisplay by featureStore.preferParsedBillDisplay.collectAsState()
     val currentIdentity by viewModel.currentIdentity.collectAsState()
     val currentIdentityId by viewModel.currentIdentityId.collectAsState()
     val accounts by viewModel.accounts.collectAsState()
@@ -158,6 +161,7 @@ fun BillListScreen(
                 onAccountIncremental = { pendingSyncAction = PendingSyncAction.AccountIncremental(it) },
                 onAccountFull = { pendingSyncAction = PendingSyncAction.AccountFull(it) },
                 bills = bills,
+                preferParsedDisplay = preferParsedBillDisplay,
                 onBillClick = onBillClick,
                 onPageChange = { viewModel.setPage(it) },
                 onClearSyncProgress = { viewModel.clearSyncProgress() },
@@ -188,6 +192,7 @@ fun BillListScreen(
                 onAccountIncremental = { pendingSyncAction = PendingSyncAction.AccountIncremental(it) },
                 onAccountFull = { pendingSyncAction = PendingSyncAction.AccountFull(it) },
                 bills = bills,
+                preferParsedDisplay = preferParsedBillDisplay,
                 onBillClick = onBillClick,
                 onPageChange = { viewModel.setPage(it) },
                 onClearSyncProgress = { viewModel.clearSyncProgress() },
@@ -265,6 +270,7 @@ private fun CompactBillListLayout(
     onAccountIncremental: (Long) -> Unit,
     onAccountFull: (Long) -> Unit,
     bills: List<BillItem>,
+    preferParsedDisplay: Boolean,
     onBillClick: (Long) -> Unit,
     onPageChange: (Int) -> Unit,
     onClearSyncProgress: () -> Unit,
@@ -298,6 +304,7 @@ private fun CompactBillListLayout(
         BillListContent(
             currentIdentityId = currentIdentityId,
             bills = bills,
+            preferParsedDisplay = preferParsedDisplay,
             onBillClick = onBillClick,
             totalPages = totalPages,
             currentPage = currentPage,
@@ -332,6 +339,7 @@ private fun WideBillListLayout(
     onAccountIncremental: (Long) -> Unit,
     onAccountFull: (Long) -> Unit,
     bills: List<BillItem>,
+    preferParsedDisplay: Boolean,
     onBillClick: (Long) -> Unit,
     onPageChange: (Int) -> Unit,
     onClearSyncProgress: () -> Unit,
@@ -472,6 +480,7 @@ private fun WideBillListLayout(
                 BillListContent(
                     currentIdentityId = currentIdentityId,
                     bills = bills,
+                    preferParsedDisplay = preferParsedDisplay,
                     onBillClick = onBillClick,
                     totalPages = totalPages,
                     currentPage = currentPage,
@@ -584,6 +593,7 @@ private fun AccountSyncPanel(
 private fun BillListContent(
     currentIdentityId: Long?,
     bills: List<BillItem>,
+    preferParsedDisplay: Boolean,
     onBillClick: (Long) -> Unit,
     totalPages: Int,
     currentPage: Int,
@@ -626,7 +636,8 @@ private fun BillListContent(
                         BillItemRow(
                             bill = bill,
                             onClick = { onBillClick(bill.id) },
-                            compact = compact
+                            compact = compact,
+                            preferParsedDisplay = preferParsedDisplay
                         )
                     }
                 }
@@ -643,7 +654,8 @@ private fun BillListContent(
                         BillItemRow(
                             bill = bill,
                             onClick = { onBillClick(bill.id) },
-                            compact = compact
+                            compact = compact,
+                            preferParsedDisplay = preferParsedDisplay
                         )
                     }
                 }
@@ -981,8 +993,18 @@ private fun SyncStatusPanel(progress: SyncProgress, message: String, compact: Bo
 // ==================== 账单行 ====================
 
 @Composable
-fun BillItemRow(bill: BillItem, onClick: () -> Unit, compact: Boolean = false) {
-    BillItemCard(bill = bill, onClick = onClick, compact = compact)
+fun BillItemRow(
+    bill: BillItem,
+    onClick: () -> Unit,
+    compact: Boolean = false,
+    preferParsedDisplay: Boolean = true
+) {
+    BillItemCard(
+        bill = bill,
+        onClick = onClick,
+        compact = compact,
+        preferParsedDisplay = preferParsedDisplay
+    )
 }
 
 @Composable
