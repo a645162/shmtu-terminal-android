@@ -6,6 +6,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import androidx.hilt.navigation.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.ui.account.AddAccountScreen
 import cn.edu.shmtu.terminal.android.ui.account.IdentityDetailScreen
 import cn.edu.shmtu.terminal.android.ui.account.IdentityListScreen
@@ -19,8 +20,17 @@ import cn.edu.shmtu.terminal.android.ui.home.HomeScreen
 import cn.edu.shmtu.terminal.android.ui.me.MeScreen
 import cn.edu.shmtu.terminal.android.ui.statistics.BillStatisticsScreen
 import cn.edu.shmtu.terminal.android.ui.settings.AboutScreen
+import cn.edu.shmtu.terminal.android.ui.settings.AppearanceSettingsScreen
+import cn.edu.shmtu.terminal.android.ui.settings.ClassificationSettingsScreen
+import cn.edu.shmtu.terminal.android.ui.settings.DataSettingsScreen
+import cn.edu.shmtu.terminal.android.ui.settings.DebugSettingsScreen
+import cn.edu.shmtu.terminal.android.ui.settings.HomeChartSettingsScreen
 import cn.edu.shmtu.terminal.android.ui.settings.OcrSettingsScreen
+import cn.edu.shmtu.terminal.android.ui.settings.SecuritySettingsScreen
 import cn.edu.shmtu.terminal.android.ui.settings.SettingsScreen
+import cn.edu.shmtu.terminal.android.ui.settings.SettingsViewModelWrapper
+import cn.edu.shmtu.terminal.android.ui.settings.SyncSettingsScreen
+import cn.edu.shmtu.terminal.android.ui.settings.UpdateSettingsScreen
 
 @Composable
 fun AppNavigation(
@@ -62,15 +72,24 @@ fun AppNavigation(
             )
         }
         composable(TopLevelDestination.SETTINGS.route) {
+            val wrapper: SettingsViewModelWrapper = hiltViewModel()
             SettingsScreen(
-                onNavigateToAbout = {
-                    navController.navigate("about")
-                },
-                onNavigateToOcrSettings = {
-                    navController.navigate("ocr_settings")
-                }
+                featureStore = wrapper.featureStore,
+                rulesManager = wrapper.rulesManager,
+                onBack = { navController.popBackStack() },
+                onNavigateToAbout = { navController.navigate("about") },
+                onNavigateToOcrSettings = { navController.navigate("ocr_settings") },
+                onDedupeIdentity = { Pair(0, 0) },
+                onDedupeAccount = { Pair(0, 0) }
             )
         }
+        // ==================== 新增 8 个 settings sub-route ====================
+        composable("settings/appearance") { AppearanceSettingsScreen(onBack = { navController.popBackStack() }) }
+        composable("settings/home_chart") { HomeChartSettingsScreen(onBack = { navController.popBackStack() }) }
+        composable("settings/security") { SecuritySettingsScreen(onBack = { navController.popBackStack() }) }
+        composable("settings/sync") { SyncSettingsScreen(onBack = { navController.popBackStack() }) }
+        composable("settings/update") { UpdateSettingsScreen(onBack = { navController.popBackStack() }) }
+        composable("settings/debug") { DebugSettingsScreen(onBack = { navController.popBackStack() }) }
         composable("bill_statistics") {
             BillStatisticsScreen(
                 onBack = { navController.popBackStack() }
