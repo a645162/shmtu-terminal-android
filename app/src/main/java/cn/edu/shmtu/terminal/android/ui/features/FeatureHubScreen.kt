@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 private data class FeatureItem(
@@ -76,6 +77,7 @@ fun FeatureHubScreen(
     onNavigateToDataTransfer: () -> Unit = {}
 ) {
     val configuration = LocalConfiguration.current
+    val phoneCompact = configuration.screenWidthDp < 600
     val ultraWide = configuration.screenWidthDp >= 1200
 
     Scaffold(
@@ -125,13 +127,18 @@ fun FeatureHubScreen(
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 168.dp),
+                columns = if (phoneCompact) GridCells.Fixed(2) else GridCells.Adaptive(minSize = 168.dp),
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                contentPadding = PaddingValues(
+                    start = if (phoneCompact) 12.dp else 16.dp,
+                    end = if (phoneCompact) 12.dp else 16.dp,
+                    top = 12.dp,
+                    bottom = 20.dp
+                ),
+                horizontalArrangement = Arrangement.spacedBy(if (phoneCompact) 10.dp else 12.dp),
+                verticalArrangement = Arrangement.spacedBy(if (phoneCompact) 10.dp else 12.dp)
             ) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     FeatureHeroCard(compact = true)
@@ -140,6 +147,7 @@ fun FeatureHubScreen(
                     FeatureTile(
                         feature = feature,
                         compact = true,
+                        phoneCompact = phoneCompact,
                         onClick = {
                             if (feature.available) {
                                 when (feature.route) {
@@ -258,6 +266,7 @@ private fun DeskSummaryPill(text: String) {
 private fun FeatureTile(
     feature: FeatureItem,
     compact: Boolean,
+    phoneCompact: Boolean = false,
     onClick: () -> Unit
 ) {
     val enabledBg = Brush.verticalGradient(
@@ -277,7 +286,13 @@ private fun FeatureTile(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(if (compact) 0.9f else 1.08f)
+            .aspectRatio(
+                when {
+                    phoneCompact -> 1.12f
+                    compact -> 0.9f
+                    else -> 1.08f
+                }
+            )
             .then(if (feature.available) Modifier.clickable(onClick = onClick) else Modifier),
         shape = RoundedCornerShape(24.dp),
         color = Color.Transparent,
@@ -289,7 +304,13 @@ private fun FeatureTile(
                 .fillMaxSize()
                 .clip(RoundedCornerShape(24.dp))
                 .background(if (feature.available) enabledBg else disabledBg)
-                .padding(if (compact) 16.dp else 18.dp),
+                .padding(
+                    when {
+                        phoneCompact -> 13.dp
+                        compact -> 16.dp
+                        else -> 18.dp
+                    }
+                ),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
@@ -299,7 +320,13 @@ private fun FeatureTile(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(if (compact) 46.dp else 52.dp)
+                        .size(
+                            when {
+                                phoneCompact -> 40.dp
+                                compact -> 46.dp
+                                else -> 52.dp
+                            }
+                        )
                         .clip(RoundedCornerShape(16.dp))
                         .background(
                             if (feature.available) feature.accent.copy(alpha = 0.14f)
@@ -311,7 +338,13 @@ private fun FeatureTile(
                         imageVector = feature.icon,
                         contentDescription = feature.title,
                         tint = if (feature.available) feature.accent else MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.size(if (compact) 24.dp else 26.dp)
+                        modifier = Modifier.size(
+                            when {
+                                phoneCompact -> 21.dp
+                                compact -> 24.dp
+                                else -> 26.dp
+                            }
+                        )
                     )
                 }
                 StatusTag(
@@ -325,13 +358,17 @@ private fun FeatureTile(
                 Text(
                     text = feature.title,
                     style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
-                    color = if (feature.available) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (feature.available) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = feature.description,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    minLines = if (compact) 2 else 3
+                    minLines = if (compact) 2 else 3,
+                    maxLines = if (phoneCompact) 2 else 3,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
@@ -348,7 +385,7 @@ private fun FeatureTile(
                 if (feature.available) {
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(if (phoneCompact) 28.dp else 32.dp)
                             .clip(CircleShape)
                             .background(feature.accent.copy(alpha = 0.10f)),
                         contentAlignment = Alignment.Center
@@ -357,7 +394,7 @@ private fun FeatureTile(
                             imageVector = Icons.Outlined.ArrowOutward,
                             contentDescription = null,
                             tint = feature.accent,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(if (phoneCompact) 16.dp else 18.dp)
                         )
                     }
                 }
