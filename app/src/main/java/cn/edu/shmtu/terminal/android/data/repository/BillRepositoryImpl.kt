@@ -23,6 +23,7 @@ import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
 import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyMissSample
+import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyProgress
 import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyResult
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.FullSyncAccountBillsUseCase
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.FullSyncIdentityBillsUseCase
@@ -508,7 +509,9 @@ class BillRepositoryImpl @Inject constructor(
      * 注意: 同一笔 bill 可能在 account 库和 identity 库各存一份(双写),
      * 两份都会被分别重算(对齐之前 [RoomBillStore.merge] 的双写语义)。
      */
-    override suspend fun reclassifyAllBills(): ReclassifyResult = withContext(Dispatchers.IO) {
+    override suspend fun reclassifyAllBills(
+        onProgress: (ReclassifyProgress) -> Unit,
+    ): ReclassifyResult = withContext(Dispatchers.IO) {
         val tag = "BillReclassify"
         val startMs = System.currentTimeMillis()
 
@@ -526,6 +529,11 @@ class BillRepositoryImpl @Inject constructor(
             accountStudentIds.forEach { sid -> add(billDbManager.getAccountDatabase(sid)) }
             identityIds.forEach { iid -> add(billDbManager.getIdentityDatabase(iid)) }
         }
+        val rowsPerDb = dbs.map { db ->
+            db.billDao().getAllBillsForReclassify()
+        }
+        val totalDbs = rowsPerDb.size
+        val totalRows = rowsPerDb.sumOf { it.size }
 
         var totalScanned = 0
         var translated = 0
@@ -533,9 +541,18 @@ class BillRepositoryImpl @Inject constructor(
         var missed = 0
         val missedSamples = LinkedHashMap<String, MissAccumulator>()
 
-        for (db in dbs) {
+        onProgress(
+            ReclassifyProgress(
+                processed = 0,
+                total = totalRows,
+                currentDbIndex = if (totalDbs == 0) 0 else 1,
+                totalDbs = totalDbs,
+            )
+        )
+
+        for ((dbIndex, db) in dbs.withIndex()) {
             val dao = db.billDao()
-            val rows = dao.getAllBillsForReclassify()
+            val rows = rowsPerDb[dbIndex]
             Log.d(tag, "[reclassify-db] path=${db.openHelper.writableDatabase.path} rows=${rows.size}")
             for (row in rows) {
                 totalScanned++
@@ -593,6 +610,16 @@ class BillRepositoryImpl @Inject constructor(
                             "NO position rule matched. " +
                             "rulesLoaded=${positionTranslator?.getAllKeywords()?.size ?: 0}")
                 }
+
+                onProgress(
+                    ReclassifyProgress(
+                        processed = totalScanned,
+                        total = totalRows,
+                        currentDbIndex = dbIndex + 1,
+                        totalDbs = totalDbs,
+                        currentTargetUser = target.takeIf { it.isNotBlank() }
+                    )
+                )
             }
         }
 

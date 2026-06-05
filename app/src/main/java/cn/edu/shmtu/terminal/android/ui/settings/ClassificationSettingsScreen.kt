@@ -16,6 +16,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -39,6 +40,7 @@ import cn.edu.shmtu.cas.classifier.PositionTranslator
 import cn.edu.shmtu.cas.classifier.RuleSummary
 import cn.edu.shmtu.terminal.android.data.sync.BillRulesManager
 import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyMissSample
+import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyProgress
 import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyResult
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.ReclassifyBillsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -54,7 +56,7 @@ private const val DEFAULT_RULES_URL =
 /** UI 状态: 重算历史账单 */
 sealed interface ReclassifyState {
     data object Idle : ReclassifyState
-    data object Running : ReclassifyState
+    data class Running(val progress: ReclassifyProgress) : ReclassifyState
     data class Done(val result: ReclassifyResult) : ReclassifyState
     data class Failed(val error: String) : ReclassifyState
 }
@@ -112,10 +114,19 @@ class ClassificationSettingsViewModel @Inject constructor(
 
     fun reclassify() {
         if (_reclassifyState.value is ReclassifyState.Running) return
-        _reclassifyState.value = ReclassifyState.Running
+        _reclassifyState.value = ReclassifyState.Running(
+            ReclassifyProgress(
+                processed = 0,
+                total = 0,
+                currentDbIndex = 0,
+                totalDbs = 0
+            )
+        )
         viewModelScope.launch {
             try {
-                val result = reclassifyBillsUseCase()
+                val result = reclassifyBillsUseCase { progress ->
+                    _reclassifyState.value = ReclassifyState.Running(progress)
+                }
                 _reclassifyState.value = ReclassifyState.Done(result)
             } catch (e: Exception) {
                 _reclassifyState.value = ReclassifyState.Failed(e.message ?: e.javaClass.simpleName)
@@ -270,11 +281,33 @@ fun ClassificationSettingsScreen(
                     )
                 }
                 is ReclassifyState.Running -> {
-                    Text(
-                        "正在重算…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    val progress = s.progress
+                    if (progress.total > 0) {
+                        LinearProgressIndicator(
+                            progress = { progress.fraction.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "正在重算… ${progress.processed} / ${progress.total} " +
+                                    "（数据库 ${progress.currentDbIndex.coerceAtLeast(1)} / ${progress.totalDbs.coerceAtLeast(1)}）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        progress.currentTargetUser?.let { target ->
+                            Text(
+                                "当前: $target",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        Text(
+                            "正在统计重算总量…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 is ReclassifyState.Done -> {
                     val r = s.result

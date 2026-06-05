@@ -68,7 +68,9 @@ interface BillRepository {
      *
      * 遍历范围: 已打开过的所有 account 数据库 + 所有 identity 数据库。
      */
-    suspend fun reclassifyAllBills(): ReclassifyResult
+    suspend fun reclassifyAllBills(
+        onProgress: (ReclassifyProgress) -> Unit = {},
+    ): ReclassifyResult
 }
 
 /**
@@ -88,3 +90,14 @@ data class ReclassifyMissSample(
     val sampleType: String,
     val count: Int,
 )
+
+data class ReclassifyProgress(
+    val processed: Int,
+    val total: Int,
+    val currentDbIndex: Int,
+    val totalDbs: Int,
+    val currentTargetUser: String? = null,
+) {
+    val fraction: Float
+        get() = if (total <= 0) 0f else processed.toFloat() / total.toFloat()
+}

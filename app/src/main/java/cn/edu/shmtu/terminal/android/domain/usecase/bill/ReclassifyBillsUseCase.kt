@@ -1,6 +1,7 @@
 package cn.edu.shmtu.terminal.android.domain.usecase.bill
 
 import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
+import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyProgress
 import cn.edu.shmtu.terminal.android.domain.repository.ReclassifyResult
 import javax.inject.Inject
 
@@ -15,5 +16,7 @@ import javax.inject.Inject
 class ReclassifyBillsUseCase @Inject constructor(
     private val billRepository: BillRepository,
 ) {
-    suspend operator fun invoke(): ReclassifyResult = billRepository.reclassifyAllBills()
+    suspend operator fun invoke(
+        onProgress: (ReclassifyProgress) -> Unit = {},
+    ): ReclassifyResult = billRepository.reclassifyAllBills(onProgress)
 }
