@@ -184,7 +184,7 @@ private fun FeatureHeroCard(compact: Boolean) {
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "把高频功能集中在一页里。已上线入口优先突出，未开放功能保持可见但不过度干扰。",
+                    text = "常用校园服务集中在这里，已上线功能可直接使用，更多入口会陆续加入。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.82f)
                 )

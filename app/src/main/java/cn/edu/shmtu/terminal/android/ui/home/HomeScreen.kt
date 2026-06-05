@@ -79,6 +79,7 @@ import cn.edu.shmtu.terminal.android.ui.component.AppDonutSlice
 import cn.edu.shmtu.terminal.android.ui.component.AppLineChart
 import cn.edu.shmtu.terminal.android.ui.component.AppLineSeries
 import cn.edu.shmtu.terminal.android.ui.settings.LocalFeatureStore
+import cn.edu.shmtu.terminal.android.ui.statistics.CategoryDisplay
 import cn.edu.shmtu.terminal.android.ui.theme.BrandForeground1
 import cn.edu.shmtu.terminal.android.ui.theme.CategoryColors
 import cn.edu.shmtu.terminal.android.ui.theme.GreenForeground3
@@ -528,7 +529,7 @@ private fun CategoryPieCard(data: List<CategoryBreakdown>, isLoading: Boolean, m
                     AppDonutChart(
                         slices = data.mapIndexed { index, item ->
                             AppDonutSlice(
-                                label = item.type,
+                                label = CategoryDisplay.displayName(item.type),
                                 value = item.amount.toFloat(),
                                 color = CategoryColors[index % CategoryColors.size],
                             )
@@ -540,7 +541,11 @@ private fun CategoryPieCard(data: List<CategoryBreakdown>, isLoading: Boolean, m
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 1.dp)) {
                                 Canvas(modifier = Modifier.size(10.dp)) { drawCircle(CategoryColors[index % CategoryColors.size]) }
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("${item.type} ${(item.percentage * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                                Text(
+                                    "${CategoryDisplay.displayName(item.type)} ${(item.percentage * 100).toInt()}%",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1
+                                )
                             }
                         }
                     }
@@ -704,7 +709,7 @@ private fun HomeDeskIntroCard() {
         ) {
             Text("首页工作台", style = MaterialTheme.typography.titleLarge)
             Text(
-                "超宽平板下把概览、提醒和图表拆开，左侧看状态，右侧看趋势与明细，不再是一条很长的纵向信息流。",
+                "概览、提醒和趋势分区展示，重要信息一眼可见，查看近况和明细更顺手。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

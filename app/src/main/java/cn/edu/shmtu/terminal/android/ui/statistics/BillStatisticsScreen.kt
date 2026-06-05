@@ -638,7 +638,7 @@ private fun CategoryDonutChart(
                     AppDonutChart(
                         slices = categories.map { item ->
                             AppDonutSlice(
-                                label = item.type,
+                                label = CategoryDisplay.displayName(item.type),
                                 value = item.amount.toFloat(),
                                 color = CategoryDisplay.color(item.type),
                             )
