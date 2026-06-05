@@ -1,25 +1,14 @@
 package cn.edu.shmtu.terminal.android.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -38,54 +27,63 @@ class AppearanceViewModel @Inject constructor(
     fun setDecimalPlaces(n: Int) = store.setDecimalPlaces(n)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppearanceSettingsScreen(
     onBack: () -> Unit,
+    embedded: Boolean = false,
     viewModel: AppearanceViewModel = hiltViewModel()
 ) {
     val themeMode by viewModel.themeMode.collectAsState()
-    val dp by viewModel.decimalPlaces.collectAsState()
-    val configuration = LocalConfiguration.current
-    val isWide = configuration.screenWidthDp >= 600
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("界面设置") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
+    val decimalPlaces by viewModel.decimalPlaces.collectAsState()
+    val themeOptions = listOf(
+        "system" to "跟随系统",
+        "light" to "浅色",
+        "dark" to "深色"
+    )
+
+    SettingsDetailScreen(
+        title = "界面设置",
+        onBack = onBack,
+        embedded = embedded
+    ) {
+        SettingsCard {
+            Text("主题模式")
+            Text("决定应用整体明暗风格。", style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                themeOptions.forEach { (value, label) ->
+                    FilterChip(
+                        selected = themeMode == value,
+                        onClick = { viewModel.setThemeMode(value) },
+                        label = { Text(label) }
+                    )
                 }
+            }
+        }
+
+        SettingsCard {
+            Text("统计小数位数")
+            Text(
+                "当前保留 $decimalPlaces 位小数，用于金额和统计结果展示。",
+                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium
+            )
+            Slider(
+                value = decimalPlaces.toFloat(),
+                onValueChange = { viewModel.setDecimalPlaces(it.toInt()) },
+                valueRange = 0f..4f,
+                steps = 3
             )
         }
-    ) { inner ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(inner)
-                .padding(if (isWide) 32.dp else 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surfaceVariant
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("主题", style = MaterialTheme.typography.titleMedium)
-                    Text("当前: $themeMode", style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surfaceVariant
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("统计小数位数: $dp", style = MaterialTheme.typography.titleMedium)
-                }
-            }
+
+        SettingsCard {
+            Text("预览")
+            Text("金额示例会跟随当前小数位设置变化。", style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+            Text(
+                String.format("%.${decimalPlaces}f", 12.34567),
+                style = androidx.compose.material3.MaterialTheme.typography.headlineSmall
+            )
         }
     }
 }

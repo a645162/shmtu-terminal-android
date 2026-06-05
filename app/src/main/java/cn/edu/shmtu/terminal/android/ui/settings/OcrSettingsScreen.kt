@@ -20,13 +20,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -44,12 +42,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model
-import cn.edu.shmtu.terminal.android.data.local.datastore.CaptchaMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OcrSettingsScreen(
     onBack: () -> Unit,
+    embedded: Boolean = false,
     viewModel: OcrSettingsViewModel = hiltViewModel(),
     settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
@@ -70,187 +68,67 @@ fun OcrSettingsScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            MediumTopAppBar(
-                title = { Text("OCR 设置") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = "返回"
-                        )
+    if (embedded) {
+        SettingsDetailBody {
+            OcrSettingsContent(
+                uiState = uiState,
+                useLocalOcr = useLocalOcr,
+                ocrServerUrl = ocrServerUrl,
+                showLoadSourceDialog = showLoadSourceDialog,
+                onShowLoadSourceDialogChange = { showLoadSourceDialog = it },
+                showDownloadSourceDialog = showDownloadSourceDialog,
+                onShowDownloadSourceDialogChange = { showDownloadSourceDialog = it },
+                showUrlEditor = showUrlEditor,
+                onShowUrlEditorChange = { showUrlEditor = it },
+                onReleaseModel = viewModel::releaseModel,
+                onRefreshStatus = viewModel::refreshStatus,
+                onSetUseLocalOcr = settingsViewModel::setUseLocalOcr
+            )
+        }
+    } else {
+        androidx.compose.material3.Scaffold(
+            topBar = {
+                MediumTopAppBar(
+                    title = { Text("OCR 设置") },
+                    navigationIcon = {
+                        androidx.compose.material3.IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = "返回"
+                            )
+                        }
+                    },
+                    actions = {
+                        TextButton(onClick = { viewModel.refreshStatus() }) {
+                            Text("刷新")
+                        }
                     }
-                },
-                actions = {
-                    TextButton(onClick = { viewModel.refreshStatus() }) {
-                        Text("刷新")
-                    }
-                }
-            )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // Model status section
-            ListItem(
-                headlineContent = { Text("模型状态") },
-                supportingContent = {
-                    Text(
-                        when (uiState.modelStatus) {
-                            cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.NOT_LOADED -> "未加载"
-                            cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.LOADED_CPU -> "已加载 (CPU)"
-                            cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.LOADED_GPU -> "已加载 (GPU)"
-                        },
-                        color = if (uiState.modelStatus == cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.NOT_LOADED)
-                            MaterialTheme.colorScheme.error
-                        else
-                            MaterialTheme.colorScheme.primary
-                    )
-                }
-            )
-            HorizontalDivider()
-
-            // Built-in model
-            ListItem(
-                headlineContent = { Text("内置模型") },
-                supportingContent = {
-                    Text(
-                        if (uiState.hasBuiltInModel) "可用" else "不可用",
-                        color = if (uiState.hasBuiltInModel)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.error
-                    )
-                }
-            )
-            HorizontalDivider()
-
-            // Downloaded model
-            ListItem(
-                headlineContent = { Text("本地已下载模型") },
-                supportingContent = {
-                    Text(
-                        if (uiState.hasDownloadedModel) "已下载" else "未下载",
-                        color = if (uiState.hasDownloadedModel)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.error
-                    )
-                }
-            )
-            HorizontalDivider()
-
-            // GPU support
-            ListItem(
-                headlineContent = { Text("GPU 加速") },
-                supportingContent = {
-                    Text(
-                        if (uiState.gpuSupported) "支持 Vulkan" else "不支持",
-                        color = if (uiState.gpuSupported)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            )
-            HorizontalDivider()
-
-            // OCR preference
-            ListItem(
-                headlineContent = { Text("优先使用本地模型") },
-                supportingContent = { Text("关闭后将使用远程 OCR 服务器") },
-                trailingContent = {
-                    Switch(
-                        checked = useLocalOcr,
-                        onCheckedChange = { settingsViewModel.setUseLocalOcr(it) }
-                    )
-                }
-            )
-            HorizontalDivider()
-
-            if (!useLocalOcr) {
-                ListItem(
-                    headlineContent = { Text("远程 OCR 服务器") },
-                    supportingContent = { Text(ocrServerUrl) },
-                    modifier = Modifier.clickable { showUrlEditor = true }
                 )
-                HorizontalDivider()
-            }
-
-            // Action buttons
-            Row(
+            },
+            snackbarHost = { SnackbarHost(snackbarHostState) }
+        ) { innerPadding ->
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 16.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(
-                    onClick = { showLoadSourceDialog = true },
-                    enabled = uiState.modelStatus == cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.NOT_LOADED && !uiState.isLoadingModel,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    if (uiState.isLoadingModel) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Text("加载模型")
-                    }
-                }
-
-                Button(
-                    onClick = { viewModel.releaseModel() },
-                    enabled = uiState.modelStatus != cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.NOT_LOADED,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("释放模型")
-                }
-            }
-
-            Button(
-                onClick = { showDownloadSourceDialog = true },
-                enabled = !uiState.isDownloading,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (uiState.isDownloading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Text("下载模型")
-                }
-            }
-
-            // Download progress
-            if (uiState.isDownloading) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = "下载进度: ${uiState.downloadCurrentFile}/${uiState.downloadTotalFiles} 文件",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    LinearProgressIndicator(
-                        progress = {
-                            if (uiState.downloadTotalFiles > 0) {
-                                ((uiState.downloadCurrentFile - 1) * 100 + uiState.downloadProgress) /
-                                    (uiState.downloadTotalFiles * 100).toFloat()
-                            } else 0f
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
+                OcrSettingsContent(
+                    uiState = uiState,
+                    useLocalOcr = useLocalOcr,
+                    ocrServerUrl = ocrServerUrl,
+                    showLoadSourceDialog = showLoadSourceDialog,
+                    onShowLoadSourceDialogChange = { showLoadSourceDialog = it },
+                    showDownloadSourceDialog = showDownloadSourceDialog,
+                    onShowDownloadSourceDialogChange = { showDownloadSourceDialog = it },
+                    showUrlEditor = showUrlEditor,
+                    onShowUrlEditorChange = { showUrlEditor = it },
+                    onReleaseModel = viewModel::releaseModel,
+                    onRefreshStatus = viewModel::refreshStatus,
+                    onSetUseLocalOcr = settingsViewModel::setUseLocalOcr
+                )
             }
         }
     }
@@ -377,6 +255,186 @@ fun OcrSettingsScreen(
             },
             onDismiss = { showUrlEditor = false }
         )
+    }
+}
+
+@Composable
+private fun OcrSettingsContent(
+    uiState: OcrSettingsUiState,
+    useLocalOcr: Boolean,
+    ocrServerUrl: String,
+    showLoadSourceDialog: Boolean,
+    onShowLoadSourceDialogChange: (Boolean) -> Unit,
+    showDownloadSourceDialog: Boolean,
+    onShowDownloadSourceDialogChange: (Boolean) -> Unit,
+    showUrlEditor: Boolean,
+    onShowUrlEditorChange: (Boolean) -> Unit,
+    onReleaseModel: () -> Unit,
+    onRefreshStatus: () -> Unit,
+    onSetUseLocalOcr: (Boolean) -> Unit
+) {
+    SettingsCard {
+        androidx.compose.foundation.layout.Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("OCR 状态", style = MaterialTheme.typography.titleLarge)
+            TextButton(onClick = onRefreshStatus) { Text("刷新") }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            // Model status section
+            ListItem(
+                headlineContent = { Text("模型状态") },
+                supportingContent = {
+                    Text(
+                        when (uiState.modelStatus) {
+                            cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.NOT_LOADED -> "未加载"
+                            cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.LOADED_CPU -> "已加载 (CPU)"
+                            cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.LOADED_GPU -> "已加载 (GPU)"
+                        },
+                        color = if (uiState.modelStatus == cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.NOT_LOADED)
+                            MaterialTheme.colorScheme.error
+                        else
+                            MaterialTheme.colorScheme.primary
+                    )
+                }
+            )
+            HorizontalDivider()
+
+            // Built-in model
+            ListItem(
+                headlineContent = { Text("内置模型") },
+                supportingContent = {
+                    Text(
+                        if (uiState.hasBuiltInModel) "可用" else "不可用",
+                        color = if (uiState.hasBuiltInModel)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.error
+                    )
+                }
+            )
+            HorizontalDivider()
+
+            // Downloaded model
+            ListItem(
+                headlineContent = { Text("本地已下载模型") },
+                supportingContent = {
+                    Text(
+                        if (uiState.hasDownloadedModel) "已下载" else "未下载",
+                        color = if (uiState.hasDownloadedModel)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.error
+                    )
+                }
+            )
+            HorizontalDivider()
+
+            // GPU support
+            ListItem(
+                headlineContent = { Text("GPU 加速") },
+                supportingContent = {
+                    Text(
+                        if (uiState.gpuSupported) "支持 Vulkan" else "不支持",
+                        color = if (uiState.gpuSupported)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            )
+            HorizontalDivider()
+
+            // OCR preference
+            ListItem(
+                headlineContent = { Text("优先使用本地模型") },
+                supportingContent = { Text("关闭后将使用远程 OCR 服务器") },
+                trailingContent = {
+                    Switch(
+                        checked = useLocalOcr,
+                        onCheckedChange = onSetUseLocalOcr
+                    )
+                }
+            )
+            HorizontalDivider()
+
+            if (!useLocalOcr) {
+                ListItem(
+                    headlineContent = { Text("远程 OCR 服务器") },
+                    supportingContent = { Text(ocrServerUrl) },
+                    modifier = Modifier.clickable { onShowUrlEditorChange(true) }
+                )
+                HorizontalDivider()
+            }
+        }
+    }
+
+    SettingsCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = { onShowLoadSourceDialogChange(true) },
+                enabled = uiState.modelStatus == cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.NOT_LOADED && !uiState.isLoadingModel,
+                modifier = Modifier.weight(1f)
+            ) {
+                if (uiState.isLoadingModel) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text("加载模型")
+                }
+            }
+
+            Button(
+                onClick = onReleaseModel,
+                enabled = uiState.modelStatus != cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.NOT_LOADED,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("释放模型")
+            }
+        }
+
+        Button(
+            onClick = { onShowDownloadSourceDialogChange(true) },
+            enabled = !uiState.isDownloading,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (uiState.isDownloading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text("下载模型")
+            }
+        }
+
+        if (uiState.isDownloading) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "下载进度: ${uiState.downloadCurrentFile}/${uiState.downloadTotalFiles} 文件",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                LinearProgressIndicator(
+                    progress = {
+                        if (uiState.downloadTotalFiles > 0) {
+                            ((uiState.downloadCurrentFile - 1) * 100 + uiState.downloadProgress) /
+                                (uiState.downloadTotalFiles * 100).toFloat()
+                        } else 0f
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
     }
 }
 

@@ -1,75 +1,124 @@
 package cn.edu.shmtu.terminal.android.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SyncSettingsScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    embedded: Boolean = false
 ) {
     val store = LocalFeatureStore.current
-    val isWide = LocalConfiguration.current.screenWidthDp >= 600
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("同步设置") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") } }
+    val rangeOptions = listOf(
+        "week" to "最近一周",
+        "half_month" to "半个月",
+        "month" to "一个月",
+        "half_year" to "半年",
+        "year" to "一年",
+        "all" to "全部"
+    )
+
+    SettingsDetailScreen(
+        title = "同步设置",
+        onBack = onBack,
+        embedded = embedded
+    ) {
+        SettingsCard {
+            Text("同步页数上限")
+            Text("当前最多拉取 ${store.syncMaxPages.value} 页账单数据。", style = MaterialTheme.typography.bodyMedium)
+            Slider(
+                value = store.syncMaxPages.value.toFloat(),
+                onValueChange = { store.setSyncMaxPages(it.toInt()) },
+                valueRange = 10f..500f
             )
         }
-    ) { inner ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(inner).padding(if (isWide) 32.dp else 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            SettingCard("默认同步页数上限: ${store.syncMaxPages.value}") { Slider(value = store.syncMaxPages.value.toFloat(), onValueChange = { store.setSyncMaxPages(it.toInt()) }, valueRange = 10f..500f) }
-            SettingCard("提前停止阈值: ${store.syncEarlyStop.value}") { Slider(value = store.syncEarlyStop.value.toFloat(), onValueChange = { store.setSyncEarlyStop(it.toInt()) }, valueRange = 1f..20f) }
-            SettingSwitch("跳过已毕业账号同步", store.syncSkipGraduated.value) { store.setSyncSkipGraduated(it) }
-            SettingSwitch("同步后自动合并", store.syncAutoMerge.value) { store.setSyncAutoMerge(it) }
-            SettingSwitch("启用定时账单同步", store.autoSyncEnabled.value) { store.setAutoSyncEnabled(it) }
+
+        SettingsCard {
+            Text("提前停止阈值")
+            Text("连续 ${store.syncEarlyStop.value} 页无有效新数据时提前结束。", style = MaterialTheme.typography.bodyMedium)
+            Slider(
+                value = store.syncEarlyStop.value.toFloat(),
+                onValueChange = { store.setSyncEarlyStop(it.toInt()) },
+                valueRange = 1f..20f
+            )
+        }
+
+        SettingsCard {
+            Text("同步策略")
+            SettingsSwitchRow(
+                title = "跳过已毕业账号",
+                subtitle = "减少无效请求和失败重试。",
+                checked = store.syncSkipGraduated.value,
+                onCheckedChange = { store.setSyncSkipGraduated(it) }
+            )
+            SettingsSwitchRow(
+                title = "同步后自动合并",
+                subtitle = "同步结束后自动做账单合并处理。",
+                checked = store.syncAutoMerge.value,
+                onCheckedChange = { store.setSyncAutoMerge(it) }
+            )
+        }
+
+        SettingsCard(emphasized = store.autoSyncEnabled.value) {
+            Text("自动同步")
+            SettingsSwitchRow(
+                title = "启用定时账单同步",
+                subtitle = "在后台按固定间隔自动检查并执行同步。",
+                checked = store.autoSyncEnabled.value,
+                onCheckedChange = { store.setAutoSyncEnabled(it) }
+            )
             if (store.autoSyncEnabled.value) {
-                SettingCard("定时同步间隔(分钟): ${store.autoSyncInterval.value}") { Slider(value = store.autoSyncInterval.value.toFloat(), onValueChange = { store.setAutoSyncInterval(it.toInt()) }, valueRange = 5f..1440f) }
-                SettingCard("定时同步范围: ${store.autoSyncRange.value}") { Text("可选: week / half_month / month / half_year / year / all", style = MaterialTheme.typography.bodySmall) }
+                Text("检查间隔: ${store.autoSyncInterval.value} 分钟", style = MaterialTheme.typography.bodyMedium)
+                Slider(
+                    value = store.autoSyncInterval.value.toFloat(),
+                    onValueChange = { store.setAutoSyncInterval(it.toInt()) },
+                    valueRange = 5f..1440f
+                )
+                Text("自动同步范围", style = MaterialTheme.typography.titleMedium)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    rangeOptions.forEach { (value, label) ->
+                        FilterChip(
+                            selected = store.autoSyncRange.value == value,
+                            onClick = { store.setAutoSyncRange(value) },
+                            label = { Text(label) }
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun SettingCard(title: String, content: @Composable () -> Unit) {
-    Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun SettingsSwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    androidx.compose.foundation.layout.Row(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        androidx.compose.foundation.layout.Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
             Text(title, style = MaterialTheme.typography.titleMedium)
-            content()
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-    }
-}
-
-@Composable
-private fun SettingSwitch(title: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Switch(checked = checked, onCheckedChange = onChange)
-        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }

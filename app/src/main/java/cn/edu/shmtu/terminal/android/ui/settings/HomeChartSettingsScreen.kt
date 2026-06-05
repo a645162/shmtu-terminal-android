@@ -1,57 +1,77 @@
 package cn.edu.shmtu.terminal.android.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeChartSettingsScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    embedded: Boolean = false
 ) {
     val store = LocalFeatureStore.current
-    val isWide = LocalConfiguration.current.screenWidthDp >= 600
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("首页图表设置") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") } }
-            )
+    val trendOptions = listOf(
+        "today" to "今天",
+        "week" to "本周",
+        "recent_7_days" to "近 7 天",
+        "month" to "本月"
+    )
+    val categoryOptions = listOf(
+        "week" to "本周",
+        "month" to "本月",
+        "half_year" to "半年",
+        "year" to "全年"
+    )
+
+    SettingsDetailScreen(
+        title = "首页图表设置",
+        onBack = onBack,
+        embedded = embedded
+    ) {
+        SettingsCard {
+            Text("趋势图默认范围")
+            Text("打开首页后优先展示的趋势时间窗口。", style = MaterialTheme.typography.bodyMedium)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                trendOptions.forEach { (value, label) ->
+                    FilterChip(
+                        selected = store.homeTrendRange.value == value,
+                        onClick = { store.setHomeTrendRange(value) },
+                        label = { Text(label) }
+                    )
+                }
+            }
         }
-    ) { inner ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(inner).padding(if (isWide) 32.dp else 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("趋势图表范围", style = MaterialTheme.typography.titleMedium)
-                    Text("当前: ${store.homeTrendRange.value}", style = MaterialTheme.typography.bodyMedium)
-                    Text("可选: today / week / recent_7_days / month", style = MaterialTheme.typography.bodySmall)
+
+        SettingsCard {
+            Text("分类图默认范围")
+            Text("控制分类统计图默认聚合的时间区间。", style = MaterialTheme.typography.bodyMedium)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                categoryOptions.forEach { (value, label) ->
+                    FilterChip(
+                        selected = store.homeCategoryRange.value == value,
+                        onClick = { store.setHomeCategoryRange(value) },
+                        label = { Text(label) }
+                    )
                 }
             }
-            Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("分类图表范围", style = MaterialTheme.typography.titleMedium)
-                    Text("当前: ${store.homeCategoryRange.value}", style = MaterialTheme.typography.bodyMedium)
-                }
-            }
+        }
+
+        SettingsCard {
+            Text("当前生效")
+            Text(
+                "趋势图: ${store.homeTrendRange.value}    分类图: ${store.homeCategoryRange.value}",
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
     }
 }
