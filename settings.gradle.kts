@@ -37,6 +37,14 @@ dependencyResolutionManagement {
                 mavenCentral()
             }
             filter {
+                includeModule("org.jetbrains.kotlin", "kotlin-metadata-jvm")
+            }
+        }
+        exclusiveContent {
+            forRepository {
+                mavenCentral()
+            }
+            filter {
                 includeGroup("io.github.koalaplot")
             }
         }
