@@ -27,6 +27,7 @@ class SettingsDataStore @Inject constructor(
     private val _p2pDeviceNameFlow = MutableStateFlow(getP2PDeviceName())
     private val _p2pPortFlow = MutableStateFlow(getP2PPort())
     private val _p2pAutoAcceptFlow = MutableStateFlow(getP2PAutoAccept())
+    private val _p2pAutoReconnectFlow = MutableStateFlow(getP2PAutoReconnect())
 
     val captchaMode: Flow<CaptchaMode> = _captchaModeFlow.asStateFlow()
     val useLocalOcr: Flow<Boolean> = _useLocalOcrFlow.asStateFlow()
@@ -39,6 +40,10 @@ class SettingsDataStore @Inject constructor(
     val p2pDeviceName: Flow<String> = _p2pDeviceNameFlow.asStateFlow()
     val p2pPort: Flow<Int> = _p2pPortFlow.asStateFlow()
     val p2pAutoAccept: Flow<Boolean> = _p2pAutoAcceptFlow.asStateFlow()
+    val p2pAutoReconnect: Flow<Boolean> = _p2pAutoReconnectFlow.asStateFlow()
+
+    fun p2pDeviceNameFlowValue(): String = _p2pDeviceNameFlow.value
+    fun p2pPortFlowValue(): Int = _p2pPortFlow.value
 
     fun setCaptchaMode(mode: CaptchaMode) {
         prefs.edit().putString(KEY_CAPTCHA_MODE, when (mode) {
@@ -95,6 +100,13 @@ class SettingsDataStore @Inject constructor(
         _p2pAutoAcceptFlow.value = value
     }
 
+    fun setP2PAutoReconnect(value: Boolean) {
+        prefs.edit().putBoolean(KEY_P2P_AUTO_RECONNECT, value).apply()
+        _p2pAutoReconnectFlow.value = value
+    }
+
+    fun getP2PAutoReconnectNow(): Boolean = _p2pAutoReconnectFlow.value
+
     private fun getSessionCheckInterval(): Int =
         prefs.getInt(KEY_SESSION_CHECK_INTERVAL, 10)
 
@@ -131,6 +143,9 @@ class SettingsDataStore @Inject constructor(
     private fun getP2PAutoAccept(): Boolean =
         prefs.getBoolean(KEY_P2P_AUTO_ACCEPT, false)
 
+    private fun getP2PAutoReconnect(): Boolean =
+        prefs.getBoolean(KEY_P2P_AUTO_RECONNECT, false)
+
     companion object {
         private const val KEY_CAPTCHA_MODE = "captcha_mode"
         private const val KEY_USE_LOCAL_OCR = "use_local_ocr"
@@ -142,6 +157,7 @@ class SettingsDataStore @Inject constructor(
         private const val KEY_P2P_DEVICE_NAME = "p2p_device_name"
         private const val KEY_P2P_PORT = "p2p_port"
         private const val KEY_P2P_AUTO_ACCEPT = "p2p_auto_accept"
+        private const val KEY_P2P_AUTO_RECONNECT = "p2p_auto_reconnect"
     }
 }
 

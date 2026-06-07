@@ -1,5 +1,6 @@
 package cn.edu.shmtu.terminal.android.ui.settings
 
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import cn.edu.shmtu.terminal.android.data.p2p.P2PForegroundService
 import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
 
 /**
@@ -29,8 +31,10 @@ fun P2PSettingsScreen(
     embedded: Boolean = false,
     settingsDataStore: SettingsDataStore
 ) {
+    val context = LocalContext.current
     val autoStart by settingsDataStore.p2pAutoStart.collectAsState(initial = false)
     val autoAccept by settingsDataStore.p2pAutoAccept.collectAsState(initial = false)
+    val autoReconnect by settingsDataStore.p2pAutoReconnect.collectAsState(initial = false)
     val deviceName by settingsDataStore.p2pDeviceName.collectAsState(initial = "")
     val port by settingsDataStore.p2pPort.collectAsState(initial = 19827)
 
@@ -60,6 +64,11 @@ fun P2PSettingsScreen(
                     checked = autoStart,
                     onCheckedChange = { checked ->
                         settingsDataStore.setP2PAutoStart(checked)
+                        if (checked) {
+                            P2PForegroundService.start(context)
+                        } else {
+                            P2PForegroundService.stop(context)
+                        }
                     }
                 )
             }
@@ -83,6 +92,29 @@ fun P2PSettingsScreen(
                     checked = autoAccept,
                     onCheckedChange = { checked ->
                         settingsDataStore.setP2PAutoAccept(checked)
+                    }
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("自动尝试重连", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        text = "连接断开后自动尝试恢复已配对会话，包括对方先发起建立的会话。默认关闭。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = autoReconnect,
+                    onCheckedChange = { checked ->
+                        settingsDataStore.setP2PAutoReconnect(checked)
                     }
                 )
             }

@@ -26,12 +26,18 @@ data class P2PSession(
     val remoteAddr: String,
     val remotePort: Int = P2PProtocol.DEFAULT_PORT,
     val pairCode: String? = null,
+    val reconnectIps: List<String> = emptyList(),
+    val reconnectPort: Int? = null,
     val isLocallyInitiated: Boolean = false,
     val isPaired: Boolean = false,
+    val isConnected: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 ) {
     val canSendBills: Boolean
-        get() = isLocallyInitiated && !pairCode.isNullOrBlank()
+        get() = isPaired
+
+    val canReconnect: Boolean
+        get() = pairCode != null && (isLocallyInitiated || (reconnectIps.isNotEmpty() && reconnectPort != null))
 }
 
 data class P2PStatus(
@@ -62,6 +68,8 @@ data class P2PPairRequest(
     val remoteAddr: String,
     val remoteDevice: String,
     val pairCode: String,
+    val reconnectIps: List<String> = emptyList(),
+    val reconnectPort: Int? = null,
     val timestamp: Long = System.currentTimeMillis()
 )
 

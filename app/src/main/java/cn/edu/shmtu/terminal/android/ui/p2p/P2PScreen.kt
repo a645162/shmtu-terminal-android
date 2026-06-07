@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -77,6 +78,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.data.p2p.P2PInfo
+import cn.edu.shmtu.terminal.android.data.p2p.P2PForegroundService
 import cn.edu.shmtu.terminal.android.data.p2p.P2PSession
 import cn.edu.shmtu.terminal.android.data.p2p.P2PTransferProgress
 import cn.edu.shmtu.terminal.android.data.p2p.P2PProtocol
@@ -96,6 +98,7 @@ fun P2PScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val status by viewModel.status.collectAsState()
+    val context = LocalContext.current
 
     // Observe QR scan result returned from QRScanScreen via savedStateHandle (stored as JSON string)
     val savedStateHandle = navController?.currentBackStackEntry?.savedStateHandle
@@ -212,8 +215,8 @@ fun P2PScreen(
                 0 -> QRTab(
                     status = status,
                     qrPayloadJson = uiState.qrPayloadJson,
-                    onStartServer = { viewModel.startServer() },
-                    onStopServer = { viewModel.stopServer() }
+                    onStartServer = { P2PForegroundService.start(context) },
+                    onStopServer = { P2PForegroundService.stop(context) }
                 )
                 1 -> ConnectTab(
                     isConnecting = uiState.isConnecting,
@@ -228,7 +231,9 @@ fun P2PScreen(
                     sessions = status.sessions,
                     isSending = uiState.isSending,
                     sendError = uiState.sendError,
+                    activeTransfer = activeTransfer,
                     onSendBills = { viewModel.sendBills(it) },
+                    onReconnect = { viewModel.reconnect(it) },
                     onDisconnect = { viewModel.disconnect(it) },
                     onClearError = { viewModel.clearSendError() }
                 )
@@ -838,7 +843,9 @@ private fun PairedTab(
     sessions: List<P2PSession>,
     isSending: Boolean,
     sendError: String?,
+    activeTransfer: P2PTransferProgress?,
     onSendBills: (String) -> Unit,
+    onReconnect: (String) -> Unit,
     onDisconnect: (String) -> Unit,
     onClearError: () -> Unit
 ) {
@@ -882,33 +889,72 @@ private fun PairedTab(
             }
         }
 
-        if (sessions.isEmpty()) {
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors()
+        if (activeTransfer != null) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                tonalElevation = 0.dp
             ) {
                 Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        Icons.Filled.PhoneAndroid,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "暂无已配对设备",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = if (activeTransfer.direction == cn.edu.shmtu.terminal.android.data.p2p.TransferDirection.SEND) {
+                            "正在发送账单"
+                        } else {
+                            "正在接收账单"
+                        },
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.SemiBold
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    LinearProgressIndicator(
+                        progress = { activeTransfer.progressFraction },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     Text(
-                        text = "请先通过二维码或手动输入配对码连接设备",
+                        text = formatProgressText(activeTransfer),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
+                }
+            }
+        }
+
+        if (sessions.isEmpty()) {
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                ElevatedCard(
+                    modifier = Modifier
+                        .widthIn(max = 420.dp)
+                        .fillMaxWidth(),
+                    colors = CardDefaults.elevatedCardColors()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Filled.PhoneAndroid,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "暂无已配对设备",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "请先通过二维码或手动输入配对码连接设备",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
                 }
             }
         } else {
@@ -942,7 +988,11 @@ private fun PairedTab(
                             }
                             Surface(
                                 shape = RoundedCornerShape(999.dp),
-                                color = Color(0xFF4CAF50).copy(alpha = 0.12f),
+                                color = if (session.isConnected) {
+                                    Color(0xFF4CAF50).copy(alpha = 0.12f)
+                                } else {
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                },
                                 tonalElevation = 0.dp
                             ) {
                                 Row(
@@ -954,12 +1004,20 @@ private fun PairedTab(
                                         Icons.Filled.CheckCircle,
                                         contentDescription = null,
                                         modifier = Modifier.size(14.dp),
-                                        tint = Color(0xFF4CAF50)
+                                        tint = if (session.isConnected) {
+                                            Color(0xFF4CAF50)
+                                        } else {
+                                            MaterialTheme.colorScheme.onSecondaryContainer
+                                        }
                                     )
                                     Text(
-                                        text = "已配对",
+                                        text = if (session.isConnected) "已连接" else "未连接",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFF4CAF50)
+                                        color = if (session.isConnected) {
+                                            Color(0xFF4CAF50)
+                                        } else {
+                                            MaterialTheme.colorScheme.onSecondaryContainer
+                                        }
                                     )
                                 }
                             }
@@ -971,12 +1029,18 @@ private fun PairedTab(
                         ) {
                             FilledTonalButton(
                                 onClick = { onSendBills(session.sessionId) },
-                                enabled = !isSending && session.canSendBills,
+                                enabled = !isSending && session.canSendBills && session.isConnected,
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("发送账单")
+                            }
+                            OutlinedButton(
+                                onClick = { onReconnect(session.sessionId) },
+                                enabled = !session.isConnected && session.canReconnect
+                            ) {
+                                Text("重连")
                             }
                             OutlinedButton(
                                 onClick = { onDisconnect(session.sessionId) },
@@ -988,13 +1052,6 @@ private fun PairedTab(
                             }
                         }
 
-                        if (!session.canSendBills) {
-                            Text(
-                                text = "该会话由对方主动连接建立，仅支持接收；如需发送，请由本机主动扫描对方二维码重新配对。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
                     }
                 }
             }

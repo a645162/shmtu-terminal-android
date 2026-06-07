@@ -82,12 +82,16 @@ class P2PViewModel @Inject constructor(
                     )
                 } else if (identities.size == 1) {
                     // Only one identity — import directly without dialog
+                    _uiState.value = _uiState.value.copy(
+                        lastMessage = "已收到 ${pending.billCount} 条账单，正在导入"
+                    )
                     importBillsToIdentity(pending, identities.first().id)
                 } else {
                     // Multiple identities — show selection dialog
                     _uiState.value = _uiState.value.copy(
                         pendingImport = pending,
-                        identities = identities
+                        identities = identities,
+                        lastMessage = "已收到 ${pending.billCount} 条账单，请选择导入身份"
                     )
                 }
             }
@@ -219,7 +223,12 @@ class P2PViewModel @Inject constructor(
 
     fun sendBills(sessionId: String) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isSending = true, sendError = null)
+            val session = _uiState.value.status.sessions.find { it.sessionId == sessionId }
+            _uiState.value = _uiState.value.copy(
+                isSending = true,
+                sendError = null,
+                lastMessage = if (session != null) "开始向 ${session.remoteDevice} 发送账单" else "开始发送账单"
+            )
             val result = p2pManager.sendBills(sessionId)
             _uiState.value = _uiState.value.copy(
                 isSending = false,
@@ -231,6 +240,19 @@ class P2PViewModel @Inject constructor(
 
     fun disconnect(sessionId: String) {
         p2pManager.disconnectSession(sessionId)
+    }
+
+    fun reconnect(sessionId: String) {
+        viewModelScope.launch {
+            val result = p2pManager.reconnectSession(sessionId)
+            _uiState.value = _uiState.value.copy(
+                lastMessage = if (result.isSuccess) {
+                    "已重新连接 ${result.getOrNull()?.remoteDevice}"
+                } else {
+                    "重连失败: ${result.exceptionOrNull()?.message}"
+                }
+            )
+        }
     }
 
     /**

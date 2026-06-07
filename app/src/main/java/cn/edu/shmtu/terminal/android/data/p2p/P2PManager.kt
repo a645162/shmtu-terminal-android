@@ -2,6 +2,7 @@ package cn.edu.shmtu.terminal.android.data.p2p
 
 import android.content.Context
 import android.util.Log
+import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
 import cn.edu.shmtu.terminal.android.data.local.db.BillDatabaseManager
 import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
@@ -41,6 +42,8 @@ import javax.inject.Singleton
 @Singleton
 class P2PManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
+    private val settingsDataStore: SettingsDataStore,
+    private val sessionStore: P2PSessionStore,
     private val billRepository: BillRepository,
     private val billDbManager: BillDatabaseManager,
     private val identityRepository: IdentityRepository,
@@ -82,13 +85,28 @@ class P2PManager @Inject constructor(
     private var serverPort: Int = P2PProtocol.DEFAULT_PORT
 
     init {
+        sessionStore.loadSessions().forEach { session ->
+            sessions[session.sessionId] = session
+        }
+        _status.value = _status.value.copy(
+            sessions = sessions.values.sortedByDescending { it.createdAt }
+        )
+
         server.setCallback(object : P2PServerCallback {
-            override fun onPairRequest(remoteAddr: String, deviceName: String, pairCode: String) {
+            override fun onPairRequest(
+                remoteAddr: String,
+                deviceName: String,
+                pairCode: String,
+                reconnectIps: List<String>,
+                reconnectPort: Int?
+            ) {
                 Log.d(tag, "Pair request from $remoteAddr: device=$deviceName")
                 val request = P2PPairRequest(
                     remoteAddr = remoteAddr,
                     remoteDevice = deviceName,
-                    pairCode = pairCode
+                    pairCode = pairCode,
+                    reconnectIps = reconnectIps,
+                    reconnectPort = reconnectPort
                 )
                 _pairRequests.value = _pairRequests.value + request
             }
@@ -113,26 +131,54 @@ class P2PManager @Inject constructor(
                 updateTransferProgress(sessionId, fileName, data.size.toLong(), data.size.toLong(), TransferDirection.RECEIVE)
             }
 
+            override fun onPairAccepted(sessionId: String, remoteAddr: String) {
+                val existing = sessions[sessionId]
+                if (existing != null) {
+                    sessions[sessionId] = existing.copy(isConnected = true)
+                    _status.value = _status.value.copy(sessions = sessions.values.toList())
+                    return
+                }
+                val request = _pairRequests.value.find { it.remoteAddr == remoteAddr } ?: return
+                val session = P2PSession(
+                    sessionId = sessionId,
+                    remoteDevice = request.remoteDevice,
+                    remoteAddr = remoteAddr,
+                    remotePort = serverPort,
+                    pairCode = request.pairCode,
+                    reconnectIps = request.reconnectIps,
+                    reconnectPort = request.reconnectPort,
+                    isLocallyInitiated = false,
+                    isPaired = true,
+                    isConnected = true
+                )
+                sessions[sessionId] = session
+                persistSessions()
+                _status.value = _status.value.copy(sessions = sessions.values.toList())
+            }
+
             override fun onClientConnected(remoteAddr: String) {
                 Log.d(tag, "Client connected: $remoteAddr")
             }
 
             override fun onClientDisconnected(remoteAddr: String) {
                 Log.d(tag, "Client disconnected: $remoteAddr")
-                val removedSessionIds = sessions.values
+                val disconnectedSessions = sessions.values
                     .filter { it.remoteAddr == remoteAddr && !it.isLocallyInitiated }
                     .map { it.sessionId }
 
-                if (removedSessionIds.isEmpty()) {
+                if (disconnectedSessions.isEmpty()) {
                     return
                 }
 
-                removedSessionIds.forEach { sessionId ->
-                    sessions.remove(sessionId)
+                disconnectedSessions.forEach { sessionId ->
+                    sessions[sessionId]?.let { session ->
+                        sessions[sessionId] = session.copy(isConnected = false)
+                        maybeScheduleAutoReconnect(sessionId, sessions[sessionId]!!)
+                    }
                     clearEncryptionKey(sessionId)
                     removeActiveClient(sessionId)
-                    _transferProgress.value = _transferProgress.value.filter { it.sessionId != sessionId }
                 }
+                persistSessions()
                 _status.value = _status.value.copy(sessions = sessions.values.toList())
             }
 
@@ -148,6 +194,16 @@ class P2PManager @Inject constructor(
     fun configure(deviceName: String, port: Int) {
         this.deviceName = deviceName.ifBlank { android.os.Build.MODEL ?: "SHMTU Device" }
         this.serverPort = port
+    }
+
+    fun getNotificationSummary(): String {
+        val info = currentInfo
+        val connectedCount = sessions.values.count { it.isConnected }
+        return if (info != null) {
+            "${info.deviceName} · 端口 ${info.port} · 已连接 $connectedCount 台"
+        } else {
+            "${deviceName} · 端口 $serverPort"
+        }
     }
 
     /**
@@ -188,11 +244,12 @@ class P2PManager @Inject constructor(
         server.stop()
         serverJob?.cancel()
         serverJob = null
-        sessions.clear()
         clearAllEncryptionKeys()
         clearAllActiveClients()
         currentInfo = null
-        _status.value = P2PStatus(isRunning = false, sessions = emptyList(), info = null)
+        sessions.replaceAll { _, session -> session.copy(isConnected = false) }
+        persistSessions()
+        _status.value = P2PStatus(isRunning = false, sessions = sessions.values.toList(), info = null)
         _pairRequests.value = emptyList()
         Log.i(tag, "Server stopped")
     }
@@ -210,17 +267,6 @@ class P2PManager @Inject constructor(
         val accepted = server.acceptPair(remoteAddr, sessionId)
 
         if (accepted) {
-            val session = P2PSession(
-                sessionId = sessionId,
-                remoteDevice = request.remoteDevice,
-                remoteAddr = remoteAddr,
-                remotePort = serverPort,
-                pairCode = null,
-                isLocallyInitiated = false,
-                isPaired = true
-            )
-            sessions[sessionId] = session
-            _status.value = _status.value.copy(sessions = sessions.values.toList())
             _pairRequests.value = _pairRequests.value.filter { it.remoteAddr != remoteAddr }
             Log.i(tag, "acceptPairRequest succeeded for $remoteAddr, session=$sessionId")
             return@withContext true
@@ -259,7 +305,12 @@ class P2PManager @Inject constructor(
                 return@withContext Result.failure(connectResult.exceptionOrNull() ?: Exception("连接失败"))
             }
 
-            val pairResult = client.sendPairRequest(deviceName, pairCode)
+            val pairResult = client.sendPairRequest(
+                deviceName = deviceName,
+                pairCode = pairCode,
+                listenPort = currentInfo?.port,
+                listenIps = getLocalIPs()
+            )
             if (pairResult.isFailure) {
                 client.close()
                 return@withContext Result.failure(pairResult.exceptionOrNull() ?: Exception("配对失败"))
@@ -280,10 +331,14 @@ class P2PManager @Inject constructor(
                 remoteAddr = host,
                 remotePort = port,
                 pairCode = pairCode,
+                reconnectIps = getLocalIPs(),
+                reconnectPort = currentInfo?.port,
                 isLocallyInitiated = true,
-                isPaired = true
+                isPaired = true,
+                isConnected = true
             )
             sessions[session.sessionId] = session
+            persistSessions()
             _status.value = _status.value.copy(sessions = sessions.values.toList())
 
             // Store the active client and its encryption key for reuse
@@ -322,9 +377,6 @@ class P2PManager @Inject constructor(
             if (exportData.isEmpty()) {
                 return@withContext Result.failure(Exception("没有可发送的账单数据"))
             }
-            if (!session.canSendBills) {
-                return@withContext Result.failure(Exception("当前会话为被动接收连接，暂不支持反向发送；请由该设备主动扫描对方二维码后再发送"))
-            }
 
             // Try to reuse an existing client connection
             val existingClient = activeClients[sessionId]
@@ -334,6 +386,16 @@ class P2PManager @Inject constructor(
             if (existingClient != null) {
                 client = existingClient
                 isNewConnection = false
+            } else if (!session.isLocallyInitiated) {
+                val result = server.sendTransfer(
+                    sessionId = sessionId,
+                    data = exportData,
+                    billCount = parseBillCount(exportData)
+                )
+                if (result.isSuccess) {
+                    updateTransferProgress(sessionId, "bills_export.json", exportData.size.toLong(), exportData.size.toLong(), TransferDirection.SEND)
+                }
+                return@withContext result
             } else {
                 // No active connection — create a new one
                 client = P2PClient()
@@ -347,7 +409,12 @@ class P2PManager @Inject constructor(
                 // Re-pair with the remote
                 val pairCode = session.pairCode
                     ?: return@withContext Result.failure(Exception("当前会话缺少配对码，无法重新建立发送连接"))
-                val pairResult = client.sendPairRequest(deviceName, pairCode)
+                val pairResult = client.sendPairRequest(
+                    deviceName = deviceName,
+                    pairCode = pairCode,
+                    listenPort = currentInfo?.port,
+                    listenIps = getLocalIPs()
+                )
                 if (pairResult.isFailure) {
                     client.close()
                     return@withContext Result.failure(Exception("配对失败"))
@@ -423,8 +490,74 @@ class P2PManager @Inject constructor(
     fun disconnectSession(sessionId: String) {
         removeActiveClient(sessionId)
         clearEncryptionKey(sessionId)
-        sessions.remove(sessionId)
+        sessions[sessionId]?.let { session ->
+            sessions[sessionId] = session.copy(isConnected = false)
+        }
+        persistSessions()
         _status.value = _status.value.copy(sessions = sessions.values.toList())
+    }
+
+    suspend fun reconnectSession(sessionId: String): Result<P2PSession> = withContext(Dispatchers.IO) {
+        val session = sessions[sessionId]
+            ?: return@withContext Result.failure(Exception("会话不存在"))
+        if (session.isConnected) {
+            return@withContext Result.success(session)
+        }
+
+        val pairCode = session.pairCode
+            ?: return@withContext Result.failure(Exception("当前会话缺少配对码，无法重连"))
+
+        val reconnectTarget = resolveReconnectTarget(session)
+            ?: return@withContext Result.failure(Exception("当前会话缺少可用的重连地址"))
+
+        val client = P2PClient()
+        try {
+            val connectResult = client.connect(reconnectTarget.first, reconnectTarget.second)
+            if (connectResult.isFailure) {
+                return@withContext Result.failure(connectResult.exceptionOrNull() ?: Exception("连接失败"))
+            }
+
+            val pairResult = client.sendPairRequest(
+                deviceName = deviceName,
+                pairCode = pairCode,
+                listenPort = currentInfo?.port,
+                listenIps = getLocalIPs()
+            )
+            if (pairResult.isFailure) {
+                client.close()
+                return@withContext Result.failure(pairResult.exceptionOrNull() ?: Exception("配对失败"))
+            }
+
+            val encryptResult = client.negotiateEncryption(pairCode)
+            if (encryptResult.isFailure) {
+                client.close()
+                return@withContext Result.failure(encryptResult.exceptionOrNull() ?: Exception("加密协商失败"))
+            }
+
+            activeClients[sessionId] = client
+            client.encryptionKey?.let { key ->
+                encryptionKeys[sessionId] = key.copyOf()
+            }
+            client.startHeartbeat(scope)
+            client.startReceiving(scope) {
+                handleClientConnectionClosed(sessionId)
+            }
+
+            val updated = session.copy(
+                isConnected = true,
+                remoteAddr = reconnectTarget.first,
+                remotePort = reconnectTarget.second
+            )
+            sessions[sessionId] = updated
+            persistSessions()
+            _status.value = _status.value.copy(sessions = sessions.values.toList())
+            Result.success(updated)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            client.close()
+            Result.failure(e)
+        }
     }
 
     /**
@@ -577,9 +710,51 @@ class P2PManager @Inject constructor(
         val existingClient = activeClients[sessionId] ?: return
         if (activeClients.remove(sessionId, existingClient)) {
             clearEncryptionKey(sessionId)
-            _transferProgress.value = _transferProgress.value.filter { it.sessionId != sessionId }
+            sessions[sessionId]?.let { session ->
+                sessions[sessionId] = session.copy(isConnected = false)
+                _status.value = _status.value.copy(sessions = sessions.values.toList())
+                maybeScheduleAutoReconnect(sessionId, sessions[sessionId]!!)
+            }
+            persistSessions()
             Log.i(tag, "Active client connection closed for session=$sessionId")
         }
+    }
+
+    private fun persistSessions() {
+        sessionStore.saveSessions(sessions.values)
+    }
+
+    private fun maybeScheduleAutoReconnect(sessionId: String, session: P2PSession) {
+        if (!settingsDataStore.getP2PAutoReconnectNow()) {
+            return
+        }
+        if (!session.canReconnect) {
+            return
+        }
+        scope.launch {
+            kotlinx.coroutines.delay(3_000L)
+            val latest = sessions[sessionId] ?: return@launch
+            if (latest.isConnected) {
+                return@launch
+            }
+            val result = reconnectSession(sessionId)
+            if (result.isSuccess) {
+                Log.i(tag, "Auto reconnect succeeded for session=$sessionId")
+            } else {
+                Log.w(tag, "Auto reconnect failed for session=$sessionId: ${result.exceptionOrNull()?.message}")
+            }
+        }
+    }
+
+    private fun resolveReconnectTarget(session: P2PSession): Pair<String, Int>? {
+        if (session.isLocallyInitiated) {
+            return session.remoteAddr to session.remotePort
+        }
+
+        val reconnectPort = session.reconnectPort ?: return null
+        val selection = selectBestIp(session.reconnectIps)
+        val reconnectIp = selection.ip ?: session.reconnectIps.firstOrNull() ?: return null
+        return reconnectIp to reconnectPort
     }
 
     // ============================================================================

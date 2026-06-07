@@ -181,11 +181,13 @@ internal val p2pJson: Json = Json {
 // Wire protocol payloads — all field names match Rust serde structs
 // ============================================================================
 
-/** PairRequest: { pair_code, device_name } */
+/** PairRequest: { pair_code, device_name, listen_port?, listen_ips? } */
 @Serializable
 data class PairRequestPayload(
     @SerialName("pair_code") val pairCode: String,
-    @SerialName("device_name") val deviceName: String
+    @SerialName("device_name") val deviceName: String,
+    @SerialName("listen_port") val listenPort: Int? = null,
+    @SerialName("listen_ips") val listenIps: List<String> = emptyList()
 )
 
 /** PairAccept: { device_name, session_id } */

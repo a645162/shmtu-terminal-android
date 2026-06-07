@@ -48,6 +48,9 @@ class FeatureSettingsStore @Inject constructor(
     val autoSyncEnabled: StateFlow<Boolean> = MutableStateFlow(prefs.getBoolean("auto_sync_enabled", false))
     val autoSyncInterval: StateFlow<Int> = MutableStateFlow(prefs.getInt("auto_sync_interval", 60))
     val autoSyncRange: StateFlow<String> = MutableStateFlow(prefs.getString("auto_sync_range", "month")!!)
+    val autoSyncPersistentNotification: StateFlow<Boolean> = MutableStateFlow(
+        prefs.getBoolean("auto_sync_persistent_notification", true)
+    )
 
     fun setSyncMaxPages(n: Int) { prefs.edit().putInt("sync_max_pages", n).apply(); (syncMaxPages as MutableStateFlow).value = n }
     fun setSyncEarlyStop(n: Int) { prefs.edit().putInt("sync_early_stop", n).apply(); (syncEarlyStop as MutableStateFlow).value = n }
@@ -56,6 +59,14 @@ class FeatureSettingsStore @Inject constructor(
     fun setAutoSyncEnabled(v: Boolean) { prefs.edit().putBoolean("auto_sync_enabled", v).apply(); (autoSyncEnabled as MutableStateFlow).value = v }
     fun setAutoSyncInterval(n: Int) { prefs.edit().putInt("auto_sync_interval", n).apply(); (autoSyncInterval as MutableStateFlow).value = n }
     fun setAutoSyncRange(v: String) { prefs.edit().putString("auto_sync_range", v).apply(); (autoSyncRange as MutableStateFlow).value = v }
+    fun setAutoSyncPersistentNotification(v: Boolean) {
+        prefs.edit().putBoolean("auto_sync_persistent_notification", v).apply()
+        (autoSyncPersistentNotification as MutableStateFlow).value = v
+    }
+    fun autoSyncEnabledValue(): Boolean = (autoSyncEnabled as MutableStateFlow).value
+    fun autoSyncIntervalValue(): Int = (autoSyncInterval as MutableStateFlow).value
+    fun autoSyncPersistentNotificationValue(): Boolean =
+        (autoSyncPersistentNotification as MutableStateFlow).value
 
     // 安全
     val enableStartupProtection: StateFlow<Boolean> = MutableStateFlow(prefs.getBoolean("startup_protection", false))

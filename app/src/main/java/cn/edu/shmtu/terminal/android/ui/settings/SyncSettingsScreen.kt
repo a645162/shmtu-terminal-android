@@ -25,6 +25,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import cn.edu.shmtu.terminal.android.data.sync.PeriodicBillSyncWorker
+import cn.edu.shmtu.terminal.android.data.sync.AutoSyncStatusNotifier
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,7 +54,8 @@ data class AutoSyncStatus(
 
 @HiltViewModel
 class SyncSettingsViewModel @Inject constructor(
-    private val store: FeatureSettingsStore
+    private val store: FeatureSettingsStore,
+    private val notifier: AutoSyncStatusNotifier
 ) : ViewModel() {
 
     private val _status = MutableStateFlow(AutoSyncStatus.EMPTY)
@@ -62,14 +64,16 @@ class SyncSettingsViewModel @Inject constructor(
     val autoSyncEnabled: StateFlow<Boolean> = store.autoSyncEnabled
     val autoSyncInterval: StateFlow<Int> = store.autoSyncInterval
     val autoSyncRange: StateFlow<String> = store.autoSyncRange
+    val autoSyncPersistentNotification: StateFlow<Boolean> = store.autoSyncPersistentNotification
     val syncMaxPages: StateFlow<Int> = store.syncMaxPages
     val syncEarlyStop: StateFlow<Int> = store.syncEarlyStop
     val syncSkipGraduated: StateFlow<Boolean> = store.syncSkipGraduated
     val syncAutoMerge: StateFlow<Boolean> = store.syncAutoMerge
 
-    fun setAutoSyncEnabled(v: Boolean) = store.setAutoSyncEnabled(v)
-    fun setAutoSyncInterval(n: Int) = store.setAutoSyncInterval(n)
+    fun setAutoSyncEnabled(v: Boolean) { store.setAutoSyncEnabled(v); notifier.refresh() }
+    fun setAutoSyncInterval(n: Int) { store.setAutoSyncInterval(n); notifier.refresh() }
     fun setAutoSyncRange(v: String) = store.setAutoSyncRange(v)
+    fun setAutoSyncPersistentNotification(v: Boolean) { store.setAutoSyncPersistentNotification(v); notifier.refresh() }
     fun setSyncMaxPages(n: Int) = store.setSyncMaxPages(n)
     fun setSyncEarlyStop(n: Int) = store.setSyncEarlyStop(n)
     fun setSyncSkipGraduated(v: Boolean) = store.setSyncSkipGraduated(v)
@@ -129,6 +133,7 @@ fun SyncSettingsScreen(
     val autoSyncEnabled by viewModel.autoSyncEnabled.collectAsState()
     val autoSyncInterval by viewModel.autoSyncInterval.collectAsState()
     val autoSyncRange by viewModel.autoSyncRange.collectAsState()
+    val autoSyncPersistentNotification by viewModel.autoSyncPersistentNotification.collectAsState()
     val syncMaxPages by viewModel.syncMaxPages.collectAsState()
     val syncEarlyStop by viewModel.syncEarlyStop.collectAsState()
     val syncSkipGraduated by viewModel.syncSkipGraduated.collectAsState()
@@ -215,6 +220,12 @@ fun SyncSettingsScreen(
                 subtitle = "在后台按固定间隔自动检查并执行同步。",
                 checked = autoSyncEnabled,
                 onCheckedChange = { viewModel.setAutoSyncEnabled(it) }
+            )
+            SettingsSwitchRow(
+                title = "常驻通知",
+                subtitle = "在通知栏显示自动同步状态通知。默认开启，可手动关闭。",
+                checked = autoSyncPersistentNotification,
+                onCheckedChange = { viewModel.setAutoSyncPersistentNotification(it) }
             )
             if (autoSyncEnabled) {
                 Text("检查间隔: $autoSyncInterval 分钟", style = MaterialTheme.typography.bodyMedium)

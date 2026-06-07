@@ -1,6 +1,12 @@
 package cn.edu.shmtu.terminal.android
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -23,9 +29,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -51,9 +60,11 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun ShmtuterminalandroidApp() {
+    val context = LocalContext.current
     val settingsWrapper: SettingsViewModelWrapper = hiltViewModel()
     val themeMode by settingsWrapper.featureStore.themeMode.collectAsState()
     val p2pAutoAccept by settingsWrapper.settingsDataStore.p2pAutoAccept.collectAsState(initial = false)
+    val p2pAutoStart by settingsWrapper.settingsDataStore.p2pAutoStart.collectAsState(initial = false)
     val shellViewModel: AppShellViewModel = hiltViewModel()
     val p2pViewModel: P2PViewModel = hiltViewModel()
     val currentIdentity by shellViewModel.currentIdentity.collectAsState()
@@ -69,8 +80,36 @@ fun ShmtuterminalandroidApp() {
     val meLabel = currentIdentity?.remark?.ifBlank { currentIdentity?.username ?: "当前身份" }
         ?: "当前身份"
     val currentPairRequest = p2pUiState.pairRequests.firstOrNull()
+    val permissionPrefs = remember {
+        context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+    }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        permissionPrefs.edit().putBoolean("notification_permission_requested", true).apply()
+        permissionPrefs.edit().putBoolean("notification_permission_granted", granted).apply()
+    }
 
     ShmtuterminalandroidTheme(themeMode = themeMode) {
+        LaunchedEffect(Unit) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val alreadyGranted = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+                val requested = permissionPrefs.getBoolean("notification_permission_requested", false)
+                if (!alreadyGranted && !requested) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+        }
+
+        LaunchedEffect(p2pAutoStart) {
+            if (p2pAutoStart) {
+                p2pViewModel.startServer()
+            }
+        }
+
         LaunchedEffect(p2pAutoAccept, currentPairRequest?.remoteAddr, currentPairRequest?.timestamp) {
             if (p2pAutoAccept && currentPairRequest != null) {
                 p2pViewModel.acceptPairing(currentPairRequest.remoteAddr)

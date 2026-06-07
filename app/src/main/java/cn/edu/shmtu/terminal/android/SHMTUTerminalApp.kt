@@ -8,6 +8,8 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import cn.edu.shmtu.terminal.android.data.remote.SessionExpirationWorker
+import cn.edu.shmtu.terminal.android.data.sync.AutoSyncStatusNotifier
+import cn.edu.shmtu.terminal.android.data.p2p.P2PForegroundService
 import cn.edu.shmtu.terminal.android.data.sync.BillRulesManager
 import cn.edu.shmtu.terminal.android.data.sync.PeriodicBillSyncWorker
 import dagger.hilt.android.HiltAndroidApp
@@ -23,6 +25,9 @@ class SHMTUTerminalApp : Application() {
 
     @Inject
     lateinit var billRulesManager: BillRulesManager
+
+    @Inject
+    lateinit var autoSyncStatusNotifier: AutoSyncStatusNotifier
 
     /**
      * 全局后台协程作用域: 供应用级异步任务(如 GitHub 规则拉取)使用。
@@ -70,6 +75,20 @@ class SHMTUTerminalApp : Application() {
                 Log.i("SHMTUTerminalApp", "定时账单同步已调度: 间隔 ${intervalMin} 分钟")
             } catch (e: Exception) {
                 Log.w("SHMTUTerminalApp", "schedule periodic sync failed: ${e.message}")
+            }
+        }
+
+        autoSyncStatusNotifier.refresh()
+
+        appScope.launch {
+            try {
+                val sp = getSharedPreferences("app_settings", MODE_PRIVATE)
+                val autoStartP2P = sp.getBoolean("p2p_auto_start_server", false)
+                if (autoStartP2P) {
+                    P2PForegroundService.start(this@SHMTUTerminalApp)
+                }
+            } catch (e: Exception) {
+                Log.w("SHMTUTerminalApp", "start P2P foreground service failed: ${e.message}")
             }
         }
     }

@@ -77,7 +77,9 @@ class P2PClient {
      */
     suspend fun sendPairRequest(
         deviceName: String,
-        pairCode: String
+        pairCode: String,
+        listenPort: Int?,
+        listenIps: List<String>
     ): Result<PairAcceptPayload> = withContext(Dispatchers.IO) {
         try {
             val outStream = output ?: return@withContext Result.failure(
@@ -90,7 +92,9 @@ class P2PClient {
             // Send pair request using kotlinx.serialization
             val req = PairRequestPayload(
                 pairCode = pairCode,
-                deviceName = deviceName
+                deviceName = deviceName,
+                listenPort = listenPort,
+                listenIps = listenIps
             )
             val payload = p2pJson.encodeToString(PairRequestPayload.serializer(), req)
                 .toByteArray(Charsets.UTF_8)
