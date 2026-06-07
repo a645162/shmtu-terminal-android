@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -211,6 +212,3 @@ private fun copyToClipboard(context: Context, value: String, label: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
     cm?.setPrimaryClip(ClipData.newPlainText(label, value))
 }
-
-private fun Modifier.width(dp: androidx.compose.ui.unit.Dp): Modifier =
-    this.then(androidx.compose.foundation.layout.width(dp))
