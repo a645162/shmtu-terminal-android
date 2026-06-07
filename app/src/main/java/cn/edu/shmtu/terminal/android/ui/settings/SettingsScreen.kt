@@ -1,5 +1,6 @@
 package cn.edu.shmtu.terminal.android.ui.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -84,6 +86,11 @@ fun SettingsScreen(
         val twoPane = isSettingsTwoPane()
         var selectedKey by rememberSaveable { mutableStateOf(groups.firstOrNull()?.key) }
         var phoneDetailKey by rememberSaveable { mutableStateOf<String?>(null) }
+        val phoneListState = rememberLazyListState()
+
+        BackHandler(enabled = !twoPane && phoneDetailKey != null) {
+            phoneDetailKey = null
+        }
 
         if (twoPane) {
             Scaffold(
@@ -176,6 +183,7 @@ fun SettingsScreen(
                         }
                     ) { inner ->
                         LazyColumn(
+                            state = phoneListState,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(inner),
