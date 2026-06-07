@@ -15,14 +15,37 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * 配对请求状态机: PENDING → ACCEPTED → CONNECTED → EXPIRED/REJECTED
+ */
+enum class PairStatus { PENDING, ACCEPTED, REJECTED, EXPIRED }
+
+@Serializable
+data class PairRequestEntry(
+    val sessionId: String,
+    val deviceName: String,
+    val status: PairStatus = PairStatus.PENDING,
+    val createdAt: Long = System.currentTimeMillis()
+)
 
 /**
  * 基于 NanoHTTPD 的账单 Web 服务器
@@ -38,6 +61,7 @@ class BillWebServer @Inject constructor(
         private const val TAG = "BillWebServer"
         private const val DEFAULT_PORT = 8080
         private const val TOKEN_BYTES = 16
+        private const val PAIR_EXPIRY_MS = 5L * 60L * 1000L // 5 minutes
     }
 
     private val serverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -54,9 +78,51 @@ class BillWebServer @Inject constructor(
     @Volatile
     private var runningPort: Int = 0
 
+    // 配对请求存储（按 sessionId）
+    private val pairRequests = ConcurrentHashMap<String, PairRequestEntry>()
+
+    // 配对事件流（供前端 SSE/StateFlow 订阅）
+    private val _pairEvents = MutableSharedFlow<PairRequestEntry>(extraBufferCapacity = 16)
+    val pairEvents: kotlinx.coroutines.flow.SharedFlow<PairRequestEntry> = _pairEvents.asSharedFlow()
+
+    // 已配对设备列表
+    private val _pairedDevices = MutableStateFlow<List<PairRequestEntry>>(emptyList())
+    val pairedDevices: kotlinx.coroutines.flow.StateFlow<List<PairRequestEntry>> = _pairedDevices.asStateFlow()
+
     fun getCurrentToken(): String = currentToken
     fun isRunning(): Boolean = innerServer?.isAlive == true
     fun getPort(): Int = runningPort
+
+    /**
+     * 接受配对请求。
+     */
+    suspend fun acceptPair(sessionId: String): Boolean {
+        val entry = pairRequests[sessionId] ?: return false
+        val updated = entry.copy(status = PairStatus.ACCEPTED)
+        pairRequests[sessionId] = updated
+        _pairEvents.tryEmit(updated)
+        addToPairedDevices(updated)
+        return true
+    }
+
+    /**
+     * 拒绝配对请求。
+     */
+    suspend fun rejectPair(sessionId: String): Boolean {
+        val entry = pairRequests[sessionId] ?: return false
+        val updated = entry.copy(status = PairStatus.REJECTED)
+        pairRequests[sessionId] = updated
+        _pairEvents.tryEmit(updated)
+        return true
+    }
+
+    private fun addToPairedDevices(entry: PairRequestEntry) {
+        val list = _pairedDevices.value.toMutableList()
+        if (list.none { it.sessionId == entry.sessionId }) {
+            list.add(entry)
+            _pairedDevices.value = list
+        }
+    }
 
     fun start(port: Int = DEFAULT_PORT): Result<Unit> {
         return try {
@@ -151,6 +217,11 @@ class BillWebServer @Inject constructor(
             uri == "/api/statistics" && method == NanoHTTPD.Method.GET -> handleStatistics(session)
             uri == "/api/export.json" && method == NanoHTTPD.Method.GET -> handleExportJson()
             uri == "/api/export.csv" && method == NanoHTTPD.Method.GET -> handleExportCsv()
+            uri == "/api/pair/request" && method == NanoHTTPD.Method.POST -> handlePairRequest(session)
+            uri.startsWith("/api/pair/accept/") && method == NanoHTTPD.Method.POST -> handlePairAccept(uri)
+            uri.startsWith("/api/pair/reject/") && method == NanoHTTPD.Method.POST -> handlePairReject(uri)
+            uri == "/api/pair/requests" && method == NanoHTTPD.Method.GET -> handleListPairRequests()
+            uri == "/api/devices" && method == NanoHTTPD.Method.GET -> handleListPairedDevices()
             else -> jsonError(404, "Not Found: $uri")
         }
     }
@@ -169,6 +240,90 @@ class BillWebServer @Inject constructor(
     private fun handleAuth(): NanoHTTPD.Response {
         val data = AuthData(token = currentToken, issuedAt = java.time.Instant.now().toString())
         return jsonResponse(200, ApiResponse.success(data))
+    }
+
+    /**
+     * POST /api/pair/request
+     * Body: {"deviceName": "..."}（认证可选，匿名即可发起）
+     * 响应: {"sessionId": "...", "status": "PENDING"}
+     */
+    private fun handlePairRequest(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val body = readBody(session)
+        val deviceName = try {
+            val jsonElement = json.parseToJsonElement(body).jsonObject
+            jsonElement["deviceName"]?.jsonPrimitive?.content ?: "Unknown"
+        } catch (e: Exception) {
+            "Unknown"
+        }
+        val sessionId = java.util.UUID.randomUUID().toString()
+        val entry = PairRequestEntry(sessionId, deviceName)
+        pairRequests[sessionId] = entry
+        serverScope.launch { _pairEvents.emit(entry) }
+        Log.i(TAG, "Pair request from $deviceName: $sessionId")
+        return jsonResponse(200, ApiResponse.success(
+            mapOf("sessionId" to sessionId, "status" to entry.status.name, "deviceName" to deviceName)
+        ))
+    }
+
+    /**
+     * POST /api/pair/accept/{sessionId}
+     * 主机端调用：将配对请求标记为 ACCEPTED
+     */
+    private fun handlePairAccept(uri: String): NanoHTTPD.Response {
+        val sessionId = uri.removePrefix("/api/pair/accept/").trim('/')
+        if (sessionId.isEmpty()) return jsonError(400, "Missing sessionId")
+        val entry = pairRequests[sessionId] ?: return jsonError(404, "Pair request not found")
+        val updated = entry.copy(status = PairStatus.ACCEPTED)
+        pairRequests[sessionId] = updated
+        serverScope.launch { _pairEvents.emit(updated) }
+        addToPairedDevices(updated)
+        return jsonResponse(200, ApiResponse.success(
+            mapOf("sessionId" to sessionId, "status" to updated.status.name)
+        ))
+    }
+
+    /**
+     * POST /api/pair/reject/{sessionId}
+     */
+    private fun handlePairReject(uri: String): NanoHTTPD.Response {
+        val sessionId = uri.removePrefix("/api/pair/reject/").trim('/')
+        if (sessionId.isEmpty()) return jsonError(400, "Missing sessionId")
+        val entry = pairRequests[sessionId] ?: return jsonError(404, "Pair request not found")
+        val updated = entry.copy(status = PairStatus.REJECTED)
+        pairRequests[sessionId] = updated
+        serverScope.launch { _pairEvents.emit(updated) }
+        return jsonResponse(200, ApiResponse.success(
+            mapOf("sessionId" to sessionId, "status" to updated.status.name)
+        ))
+    }
+
+    /**
+     * GET /api/pair/requests
+     * 主机端查询所有待处理/已处理的配对请求
+     */
+    private fun handleListPairRequests(): NanoHTTPD.Response {
+        val now = System.currentTimeMillis()
+        // 清理过期
+        pairRequests.entries.removeAll { (sid, e) ->
+            (now - e.createdAt) > PAIR_EXPIRY_MS && e.status == PairStatus.PENDING
+        }
+        return jsonResponse(200, ApiResponse.success(pairRequests.values.toList()))
+    }
+
+    /**
+     * GET /api/devices
+     * 主机端查询已配对设备
+     */
+    private fun handleListPairedDevices(): NanoHTTPD.Response {
+        return jsonResponse(200, ApiResponse.success(_pairedDevices.value))
+    }
+
+    private fun readBody(session: NanoHTTPD.IHTTPSession): String {
+        val files = HashMap<String, String>()
+        try {
+            session.parseBody(files)
+        } catch (_: Exception) {}
+        return files["postData"] ?: ""
     }
 
     private fun handleHealth(): NanoHTTPD.Response {
