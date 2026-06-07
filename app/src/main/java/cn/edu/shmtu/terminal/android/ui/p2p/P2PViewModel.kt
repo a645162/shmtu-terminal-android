@@ -238,6 +238,11 @@ class P2PViewModel @Inject constructor(
         }
     }
 
+    fun retrySendBills(sessionId: String) {
+        clearSendError()
+        sendBills(sessionId)
+    }
+
     fun disconnect(sessionId: String) {
         val session = _uiState.value.status.sessions.find { it.sessionId == sessionId }
         p2pManager.disconnectSession(sessionId)

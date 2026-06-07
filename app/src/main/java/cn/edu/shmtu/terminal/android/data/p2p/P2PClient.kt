@@ -465,7 +465,15 @@ class P2PClient {
             try {
                 val inStream = input ?: return@launch
                 while (isActive) {
-                    val frame = readEncryptedFrame(inStream) ?: break
+                    val frame = try {
+                        readEncryptedFrame(inStream)
+                    } catch (e: SocketTimeoutException) {
+                        Log.d(tag, "Receive loop timed out waiting for frame, keep connection alive")
+                        continue
+                    }
+                    if (frame == null) {
+                        break
+                    }
                     val keepOpen = handleFrame(frame)
                     if (!keepOpen) {
                         break
@@ -473,8 +481,6 @@ class P2PClient {
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: SocketTimeoutException) {
-                Log.d(tag, "Receive loop timed out waiting for frame")
             } catch (e: EOFException) {
                 Log.d(tag, "Receive loop reached EOF")
             } catch (e: Exception) {

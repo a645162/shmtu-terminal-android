@@ -61,6 +61,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -121,8 +122,8 @@ fun P2PScreen(
                 }
         }
     }
-    var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("本机二维码", "手动配对", "已配对", "传输")
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    val tabs = listOf("二维码", "手动配对", "已配对", "传输")
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -198,33 +199,33 @@ fun P2PScreen(
                     Tab(
                         selected = selectedTab == index,
                         onClick = { selectedTab = index },
-                        text = { Text(title) }
+                        text = { Text(title, maxLines = 1) }
                     )
                 }
             }
 
             when (selectedTab) {
                 0 -> QRTab(
-                    status = status,
-                    qrPayloadJson = uiState.qrPayloadJson,
-                    onStartServer = { P2PForegroundService.start(context) },
-                    onStopServer = { P2PForegroundService.stop(context) }
+                    status,
+                    uiState.qrPayloadJson,
+                    { P2PForegroundService.start(context) },
+                    { P2PForegroundService.stop(context) },
+                    onNavigateToQRScan
                 )
                 1 -> ConnectTab(
                     isConnecting = uiState.isConnecting,
                     connectError = uiState.connectError,
                     connectErrorDetail = uiState.connectErrorDetail,
                     onConnect = { host, port, code -> viewModel.connectToPeer(host, port, code) },
-                    onClearError = { viewModel.clearConnectError() },
-                    onNavigateToQRScan = onNavigateToQRScan,
-                    onQRScanned = { payload -> viewModel.setScannedQRPayload(payload) }
+                    onClearError = { viewModel.clearConnectError() }
                 )
                 2 -> PairedTab(
                     sessions = status.sessions,
                     isSending = uiState.isSending,
                     sendError = uiState.sendError,
-                    activeTransfer = activeTransfer,
+                    transferList = uiState.transferProgress,
                     onSendBills = { viewModel.sendBills(it) },
+                    onRetrySendBills = { viewModel.retrySendBills(it) },
                     onReconnect = { viewModel.reconnect(it) },
                     onDisconnect = { viewModel.disconnect(it) },
                     onClearError = { viewModel.clearSendError() }
@@ -407,7 +408,8 @@ private fun QRTab(
     status: cn.edu.shmtu.terminal.android.data.p2p.P2PStatus,
     qrPayloadJson: String,
     onStartServer: () -> Unit,
-    onStopServer: () -> Unit
+    onStopServer: () -> Unit,
+    onNavigateToQRScan: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -472,6 +474,15 @@ private fun QRTab(
                     }
                 }
             }
+        }
+
+        FilledTonalButton(
+            onClick = onNavigateToQRScan,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Filled.QrCodeScanner, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("扫描对方二维码")
         }
 
         // QR code display
@@ -599,24 +610,12 @@ private fun ConnectTab(
     connectError: String?,
     connectErrorDetail: String? = null,
     onConnect: (String, Int, String) -> Unit,
-    onClearError: () -> Unit,
-    onNavigateToQRScan: () -> Unit = {},
-    onQRScanned: (QRPayload) -> Unit = {}
+    onClearError: () -> Unit
 ) {
     var host by remember { mutableStateOf("") }
     var port by remember { mutableStateOf(P2PProtocol.DEFAULT_PORT.toString()) }
     var pairCode by remember { mutableStateOf("") }
-
     val context = LocalContext.current
-
-    // Camera permission launcher for QR scan
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            onNavigateToQRScan()
-        }
-    }
 
     Column(
         modifier = Modifier
@@ -626,32 +625,13 @@ private fun ConnectTab(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "配对连接",
+            text = "手动配对",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold
         )
 
-        // QR scan button
-        FilledTonalButton(
-            onClick = {
-                // Check camera permission first
-                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                    android.content.pm.PackageManager.PERMISSION_GRANTED
-                ) {
-                    onNavigateToQRScan()
-                } else {
-                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                }
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(Icons.Filled.QrCodeScanner, contentDescription = null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("扫描二维码配对")
-        }
-
         Text(
-            text = "或手动输入对方设备的 IP 地址、端口和配对码：",
+            text = "手动输入对方设备的 IP 地址、端口和配对码：",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -835,12 +815,18 @@ private fun PairedTab(
     sessions: List<P2PSession>,
     isSending: Boolean,
     sendError: String?,
-    activeTransfer: P2PTransferProgress?,
+    transferList: List<P2PTransferProgress>,
     onSendBills: (String) -> Unit,
+    onRetrySendBills: (String) -> Unit,
     onReconnect: (String) -> Unit,
     onDisconnect: (String) -> Unit,
     onClearError: () -> Unit
 ) {
+    val activeTransfer = transferList.firstOrNull { it.status == TransferStatus.RUNNING }
+    val failedTransfersBySession = transferList
+        .filter { it.status == TransferStatus.FAILED }
+        .associateBy { it.sessionId }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -938,7 +924,9 @@ private fun PairedTab(
                     colors = CardDefaults.elevatedCardColors()
                 ) {
                     Column(
-                        modifier = Modifier.padding(24.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
@@ -951,13 +939,17 @@ private fun PairedTab(
                         Text(
                             text = "暂无已配对设备",
                             style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "请先通过二维码或手动输入配对码连接设备",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
+                            color = MaterialTheme.colorScheme.outline,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
@@ -1057,6 +1049,50 @@ private fun PairedTab(
                             }
                         }
 
+                        val failedTransfer = failedTransfersBySession[session.sessionId]
+                        if (failedTransfer != null) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                tonalElevation = 0.dp
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "最近一次传输失败",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = failedTransfer.detail ?: "传输失败",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        FilledTonalButton(
+                                            onClick = { onRetrySendBills(session.sessionId) },
+                                            enabled = session.isConnected && session.canSendBills && failedTransfer.direction == cn.edu.shmtu.terminal.android.data.p2p.TransferDirection.SEND
+                                        ) {
+                                            Text("重试发送")
+                                        }
+                                        OutlinedButton(
+                                            onClick = { onReconnect(session.sessionId) },
+                                            enabled = !session.isConnected && session.canReconnect
+                                        ) {
+                                            Text("重新连接")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                     }
                 }
             }
@@ -1071,6 +1107,11 @@ private fun PairedTab(
 private fun TransferTab(
     progressList: List<P2PTransferProgress>
 ) {
+    val activeProgress = progressList.filter { it.status == TransferStatus.RUNNING }
+    val historyProgress = progressList
+        .filter { it.status != TransferStatus.RUNNING }
+        .asReversed()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1115,86 +1156,116 @@ private fun TransferTab(
                 }
             }
         } else {
-            progressList.forEach { progress ->
-                ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.elevatedCardColors()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = progress.fileName,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(999.dp),
-                                color = if (progress.isComplete) Color(0xFF4CAF50).copy(alpha = 0.12f)
-                                else MaterialTheme.colorScheme.primaryContainer,
-                                tonalElevation = 0.dp
-                            ) {
-                                Text(
-                                text = if (progress.isComplete) "完成"
-                                    else if (progress.isFailed) "失败"
-                                    else if (progress.direction == cn.edu.shmtu.terminal.android.data.p2p.TransferDirection.SEND) "发送中"
-                                    else "接收中",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (progress.isComplete) Color(0xFF4CAF50)
-                                    else if (progress.isFailed) MaterialTheme.colorScheme.error
-                                    else MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                                )
-                            }
-                        }
-
-                        if (!progress.isComplete && !progress.isFailed) {
-                            LinearProgressIndicator(
-                                progress = { progress.progressFraction },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        } else if (progress.isFailed) {
-                            LinearProgressIndicator(
-                                progress = { progress.progressFraction.coerceAtLeast(0f) },
-                                modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        } else {
-                            LinearProgressIndicator(
-                                progress = { 1f },
-                                modifier = Modifier.fillMaxWidth(),
-                                color = Color(0xFF4CAF50)
-                            )
-                        }
-
-                        Text(
-                            text = formatProgressText(progress),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = transferStageLabel(progress),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (!progress.detail.isNullOrBlank()) {
-                            Text(
-                                text = progress.detail,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (progress.isFailed) {
-                                    MaterialTheme.colorScheme.error
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            )
-                        }
-                    }
+            if (activeProgress.isNotEmpty()) {
+                SectionTitle("当前活跃")
+                activeProgress.forEach { progress ->
+                    TransferProgressCard(progress)
                 }
+            }
+
+            if (historyProgress.isNotEmpty()) {
+                SectionTitle("历史记录")
+                historyProgress.forEach { progress ->
+                    TransferProgressCard(progress)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+@Composable
+private fun TransferProgressCard(progress: P2PTransferProgress) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = progress.fileName,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = when {
+                        progress.isComplete -> Color(0xFF4CAF50).copy(alpha = 0.12f)
+                        progress.isFailed -> MaterialTheme.colorScheme.errorContainer
+                        else -> MaterialTheme.colorScheme.primaryContainer
+                    },
+                    tonalElevation = 0.dp
+                ) {
+                    Text(
+                        text = if (progress.isComplete) "完成"
+                        else if (progress.isFailed) "失败"
+                        else if (progress.direction == cn.edu.shmtu.terminal.android.data.p2p.TransferDirection.SEND) "发送中"
+                        else "接收中",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when {
+                            progress.isComplete -> Color(0xFF4CAF50)
+                            progress.isFailed -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.onPrimaryContainer
+                        },
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    )
+                }
+            }
+
+            if (!progress.isComplete && !progress.isFailed) {
+                LinearProgressIndicator(
+                    progress = { progress.progressFraction },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else if (progress.isFailed) {
+                LinearProgressIndicator(
+                    progress = { progress.progressFraction.coerceAtLeast(0f) },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.error
+                )
+            } else {
+                LinearProgressIndicator(
+                    progress = { 1f },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0xFF4CAF50)
+                )
+            }
+
+            Text(
+                text = formatProgressText(progress),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = transferStageLabel(progress),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (!progress.detail.isNullOrBlank()) {
+                Text(
+                    text = progress.detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (progress.isFailed) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
             }
         }
     }
