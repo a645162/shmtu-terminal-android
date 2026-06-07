@@ -18,6 +18,10 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
 
+interface P2PClientCallback {
+    fun onTransferOffer(sessionId: String, transferId: String, totalSize: Long, billCount: Int): Boolean
+}
+
 /**
  * P2P TCP client that connects to a remote device, handles pairing, and sends data.
  * Wire protocol matches Rust `shmtu-p2p` crate.
@@ -38,6 +42,12 @@ class P2PClient {
     /** AES-256-GCM encryption key; null until encryption negotiation succeeds. */
     var encryptionKey: ByteArray? = null
         private set
+
+    var sessionId: String? = null
+    var clientCallback: P2PClientCallback? = null
+
+    @Volatile
+    private var receiveLoopNotifyDisconnect = true
 
     /**
      * Connect to a remote P2P server.
@@ -297,47 +307,98 @@ class P2PClient {
     suspend fun sendTransferData(
         transferId: String,
         data: ByteArray,
+        host: String,
+        port: Int,
+        pairCode: String,
         onProgress: (Long, Long) -> Unit = { _, _ -> }
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val outStream = output ?: return@withContext Result.failure(
-                IllegalStateException("Not connected")
+            val salt = P2PCrypto.generateSalt()
+            val transferKey = P2PCrypto.deriveKey(pairCode, salt)
+            val transferSocket = Socket()
+            transferSocket.connect(InetSocketAddress(host, port), 10000)
+            transferSocket.soTimeout = 30000
+            val transferInput = transferSocket.getInputStream()
+            val transferOutput = transferSocket.getOutputStream()
+
+            val currentSessionId = sessionId
+                ?: return@withContext Result.failure(IllegalStateException("Session not set"))
+            val openPayload = TransferChannelOpenPayload(
+                sessionId = currentSessionId,
+                transferId = transferId,
+                pairCode = pairCode,
+                salt = Base64.encodeToString(salt, Base64.NO_WRAP)
             )
+            val openBytes = p2pJson.encodeToString(TransferChannelOpenPayload.serializer(), openPayload)
+                .toByteArray(Charsets.UTF_8)
+            FrameCodec.writeFrame(transferOutput, P2PFrame(P2PProtocol.TYPE_TRANSFER_CHANNEL_OPEN.toByte(), openBytes))
+
+            val readyFrame = readEncryptedFrame(transferInput, transferKey)
+                ?: return@withContext Result.failure(Exception("传输通道未就绪"))
+            val ready = p2pJson.decodeFromString<TransferChannelReadyPayload>(
+                String(readyFrame.payload, Charsets.UTF_8)
+            )
+            if (ready.transferId != transferId) {
+                return@withContext Result.failure(Exception("传输通道返回的 transferId 不匹配"))
+            }
 
             val chunkSize = 32 * 1024 // 32KB chunks
             var offset = 0
             var sequence = 0
 
-            while (offset < data.size && isActive) {
-                val end = minOf(offset + chunkSize, data.size)
-                val chunk = data.copyOfRange(offset, end)
+            try {
+                while (offset < data.size && isActive) {
+                    val end = minOf(offset + chunkSize, data.size)
+                    val chunk = data.copyOfRange(offset, end)
 
-                val transferData = TransferDataPayload(
+                    val transferData = TransferDataPayload(
+                        transferId = transferId,
+                        sequence = sequence,
+                        data = Base64.encodeToString(chunk, Base64.NO_WRAP)
+                    )
+                    val payload = p2pJson.encodeToString(TransferDataPayload.serializer(), transferData)
+                        .toByteArray(Charsets.UTF_8)
+                    sendEncryptedFrame(
+                        transferOutput,
+                        P2PFrame(P2PProtocol.TYPE_TRANSFER_DATA.toByte(), payload),
+                        transferKey
+                    )
+
+                    offset = end
+                    sequence++
+                    onProgress(offset.toLong(), data.size.toLong())
+                }
+
+                val checksum = computeChecksum(data)
+                val endMsg = TransferEndPayload(
                     transferId = transferId,
-                    sequence = sequence,
-                    data = Base64.encodeToString(chunk, Base64.NO_WRAP)
+                    checksum = checksum
                 )
-                val payload = p2pJson.encodeToString(TransferDataPayload.serializer(), transferData)
+                val endPayload = p2pJson.encodeToString(TransferEndPayload.serializer(), endMsg)
                     .toByteArray(Charsets.UTF_8)
-                sendEncryptedFrame(outStream, P2PFrame(P2PProtocol.TYPE_TRANSFER_DATA.toByte(), payload))
+                sendEncryptedFrame(
+                    transferOutput,
+                    P2PFrame(P2PProtocol.TYPE_TRANSFER_END.toByte(), endPayload),
+                    transferKey
+                )
 
-                offset = end
-                sequence++
-                onProgress(offset.toLong(), data.size.toLong())
+                val resultFrame = readEncryptedFrame(transferInput, transferKey)
+                    ?: return@withContext Result.failure(Exception("未收到传输结果"))
+                val result = p2pJson.decodeFromString<TransferChannelResultPayload>(
+                    String(resultFrame.payload, Charsets.UTF_8)
+                )
+                if (!result.success) {
+                    return@withContext Result.failure(Exception(result.reason.ifBlank { "接收端校验失败" }))
+                }
+
+                Log.i(tag, "Transfer complete: ${data.size} bytes, $sequence chunks, checksum=$checksum")
+                Result.success(Unit)
+            } finally {
+                transferKey.fill(0)
+                try { transferInput.close() } catch (_: Exception) {}
+                try { transferOutput.close() } catch (_: Exception) {}
+                try { transferSocket.close() } catch (_: Exception) {}
             }
-
-            // Send TransferEnd
-            val checksum = computeChecksum(data)
-            val endMsg = TransferEndPayload(
-                transferId = transferId,
-                checksum = checksum
-            )
-            val endPayload = p2pJson.encodeToString(TransferEndPayload.serializer(), endMsg)
-                .toByteArray(Charsets.UTF_8)
-            sendEncryptedFrame(outStream, P2PFrame(P2PProtocol.TYPE_TRANSFER_END.toByte(), endPayload))
-
-            Log.i(tag, "Transfer complete: ${data.size} bytes, $sequence chunks, checksum=$checksum")
-            Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -399,6 +460,7 @@ class P2PClient {
      */
     fun startReceiving(scope: CoroutineScope, onDisconnected: (() -> Unit)? = null) {
         stopReceiving()
+        receiveLoopNotifyDisconnect = true
         receiveJob = scope.launch(Dispatchers.IO) {
             try {
                 val inStream = input ?: return@launch
@@ -418,7 +480,9 @@ class P2PClient {
             } catch (e: Exception) {
                 Log.w(tag, "Receive loop stopped", e)
             } finally {
-                onDisconnected?.invoke()
+                if (receiveLoopNotifyDisconnect) {
+                    onDisconnected?.invoke()
+                }
             }
         }
     }
@@ -431,7 +495,8 @@ class P2PClient {
         heartbeatJob = null
     }
 
-    fun stopReceiving() {
+    fun stopReceiving(notifyDisconnected: Boolean = false) {
+        receiveLoopNotifyDisconnect = notifyDisconnected
         receiveJob?.cancel()
         receiveJob = null
     }
@@ -463,6 +528,46 @@ class P2PClient {
                 Log.d(tag, "Remote sent Disconnect")
                 false
             }
+            P2PProtocol.TYPE_TRANSFER_OFFER -> {
+                val transferOffer = p2pJson.decodeFromString<TransferOfferPayload>(
+                    String(frame.payload, Charsets.UTF_8)
+                )
+                val currentSessionId = sessionId
+                val accepted = if (currentSessionId != null) {
+                    clientCallback?.onTransferOffer(
+                        currentSessionId,
+                        transferOffer.transferId,
+                        transferOffer.totalSize,
+                        transferOffer.billCount
+                    ) == true
+                } else {
+                    false
+                }
+
+                try {
+                    val outStream = output
+                    if (outStream != null) {
+                        if (accepted) {
+                            val accept = TransferAcceptPayload(transferId = transferOffer.transferId)
+                            val payload = p2pJson.encodeToString(TransferAcceptPayload.serializer(), accept)
+                                .toByteArray(Charsets.UTF_8)
+                            sendEncryptedFrame(outStream, P2PFrame(P2PProtocol.TYPE_TRANSFER_ACCEPT.toByte(), payload))
+                        } else {
+                            val reject = TransferRejectPayload(
+                                transferId = transferOffer.transferId,
+                                reason = "接收端未准备好"
+                            )
+                            val payload = p2pJson.encodeToString(TransferRejectPayload.serializer(), reject)
+                                .toByteArray(Charsets.UTF_8)
+                            sendEncryptedFrame(outStream, P2PFrame(P2PProtocol.TYPE_TRANSFER_REJECT.toByte(), payload))
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(tag, "Failed to reply transfer offer", e)
+                    return false
+                }
+                true
+            }
             else -> {
                 Log.w(tag, "Unhandled frame type: ${P2PProtocol.typeName(frame.type)}")
                 true
@@ -474,8 +579,8 @@ class P2PClient {
      * Send a frame, encrypting the payload if an encryption key is set and the
      * message type requires encryption.
      */
-    private fun sendEncryptedFrame(output: OutputStream, frame: P2PFrame) {
-        val key = encryptionKey
+    private fun sendEncryptedFrame(output: OutputStream, frame: P2PFrame, keyOverride: ByteArray? = null) {
+        val key = keyOverride ?: encryptionKey
         if (key != null && P2PCrypto.shouldEncrypt(frame.type)) {
             val encrypted = P2PCrypto.encrypt(key, frame.payload)
             FrameCodec.writeFrame(output, P2PFrame(frame.type, encrypted))
@@ -497,6 +602,21 @@ class P2PClient {
                 P2PFrame(frame.type, decrypted)
             } catch (e: Exception) {
                 Log.e(tag, "Failed to decrypt frame of type ${P2PProtocol.typeName(frame.type)}", e)
+                null
+            }
+        } else {
+            frame
+        }
+    }
+
+    private fun readEncryptedFrame(input: InputStream, keyOverride: ByteArray?): P2PFrame? {
+        val frame = FrameCodec.readFrame(input) ?: return null
+        return if (keyOverride != null && P2PCrypto.shouldEncrypt(frame.type)) {
+            try {
+                val decrypted = P2PCrypto.decrypt(keyOverride, frame.payload)
+                P2PFrame(frame.type, decrypted)
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to decrypt transfer frame of type ${P2PProtocol.typeName(frame.type)}", e)
                 null
             }
         } else {

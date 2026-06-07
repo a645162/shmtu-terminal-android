@@ -38,6 +38,9 @@ object P2PProtocol {
     const val TYPE_TRANSFER_REJECT = 0x12
     const val TYPE_TRANSFER_DATA = 0x13
     const val TYPE_TRANSFER_END = 0x14
+    const val TYPE_TRANSFER_CHANNEL_OPEN = 0x15
+    const val TYPE_TRANSFER_CHANNEL_READY = 0x16
+    const val TYPE_TRANSFER_CHANNEL_RESULT = 0x17
     const val TYPE_DISCONNECT = 0xFF
 
     fun typeName(type: Byte): String = when (type.toInt() and 0xFF) {
@@ -53,6 +56,9 @@ object P2PProtocol {
         TYPE_TRANSFER_REJECT -> "TransferReject"
         TYPE_TRANSFER_DATA -> "TransferData"
         TYPE_TRANSFER_END -> "TransferEnd"
+        TYPE_TRANSFER_CHANNEL_OPEN -> "TransferChannelOpen"
+        TYPE_TRANSFER_CHANNEL_READY -> "TransferChannelReady"
+        TYPE_TRANSFER_CHANNEL_RESULT -> "TransferChannelResult"
         TYPE_DISCONNECT -> "Disconnect"
         else -> "Unknown(0x${type.toInt().toString(16)})"
     }
@@ -241,6 +247,26 @@ data class TransferDataPayload(
 data class TransferEndPayload(
     @SerialName("transfer_id") val transferId: String,
     @SerialName("checksum") val checksum: String
+)
+
+@Serializable
+data class TransferChannelOpenPayload(
+    @SerialName("session_id") val sessionId: String,
+    @SerialName("transfer_id") val transferId: String,
+    @SerialName("pair_code") val pairCode: String,
+    @SerialName("salt") val salt: String
+)
+
+@Serializable
+data class TransferChannelReadyPayload(
+    @SerialName("transfer_id") val transferId: String
+)
+
+@Serializable
+data class TransferChannelResultPayload(
+    @SerialName("transfer_id") val transferId: String,
+    @SerialName("success") val success: Boolean,
+    @SerialName("reason") val reason: String = ""
 )
 
 /** Disconnect: { reason } */

@@ -239,7 +239,15 @@ class P2PViewModel @Inject constructor(
     }
 
     fun disconnect(sessionId: String) {
+        val session = _uiState.value.status.sessions.find { it.sessionId == sessionId }
         p2pManager.disconnectSession(sessionId)
+        _uiState.value = _uiState.value.copy(
+            lastMessage = when {
+                session == null -> null
+                session.isConnected -> "已断开 ${session.remoteDevice}"
+                else -> "已移除 ${session.remoteDevice}"
+            }
+        )
     }
 
     fun reconnect(sessionId: String) {

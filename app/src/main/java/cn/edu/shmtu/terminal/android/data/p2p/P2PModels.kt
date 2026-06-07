@@ -51,17 +51,39 @@ data class P2PTransferProgress(
     val fileName: String,
     val bytesTransferred: Long = 0,
     val totalBytes: Long = 0,
-    val direction: TransferDirection = TransferDirection.SEND
+    val direction: TransferDirection = TransferDirection.SEND,
+    val stage: TransferStage = TransferStage.PREPARING,
+    val status: TransferStatus = TransferStatus.RUNNING,
+    val detail: String? = null
 ) {
     val progressFraction: Float
         get() = if (totalBytes > 0) bytesTransferred.toFloat() / totalBytes else 0f
 
     val isComplete: Boolean
-        get() = totalBytes > 0 && bytesTransferred >= totalBytes
+        get() = status == TransferStatus.SUCCESS
+
+    val isFailed: Boolean
+        get() = status == TransferStatus.FAILED
 }
 
 enum class TransferDirection {
     SEND, RECEIVE
+}
+
+enum class TransferStage {
+    PREPARING,
+    WAITING_REMOTE_ACCEPT,
+    OPENING_CHANNEL,
+    TRANSFERRING,
+    VERIFYING,
+    COMPLETED,
+    FAILED
+}
+
+enum class TransferStatus {
+    RUNNING,
+    SUCCESS,
+    FAILED
 }
 
 data class P2PPairRequest(

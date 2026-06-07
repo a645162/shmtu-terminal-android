@@ -83,6 +83,8 @@ import cn.edu.shmtu.terminal.android.data.p2p.P2PSession
 import cn.edu.shmtu.terminal.android.data.p2p.P2PTransferProgress
 import cn.edu.shmtu.terminal.android.data.p2p.P2PProtocol
 import cn.edu.shmtu.terminal.android.data.p2p.QRPayload
+import cn.edu.shmtu.terminal.android.data.p2p.TransferStage
+import cn.edu.shmtu.terminal.android.data.p2p.TransferStatus
 import cn.edu.shmtu.terminal.android.domain.model.Identity
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
@@ -155,18 +157,8 @@ fun P2PScreen(
         )
     }
 
-    // Active transfer for the progress dialog
+    // Active transfer is rendered inline in the paired/transfer tabs. No modal dialog.
     val activeTransfer = uiState.transferProgress.firstOrNull { !it.isComplete }
-
-    if (activeTransfer != null) {
-        TransferProgressDialog(
-            fileName = activeTransfer.fileName,
-            bytesTransferred = activeTransfer.bytesTransferred,
-            totalBytes = activeTransfer.totalBytes,
-            direction = activeTransfer.direction,
-            onDismiss = {}
-        )
-    }
 
     // Show identity selection dialog when data is received via P2P
     val pendingImport = uiState.pendingImport
@@ -916,10 +908,23 @@ private fun PairedTab(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Text(
+                        text = transferStageLabel(activeTransfer),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
                         text = formatProgressText(activeTransfer),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
+                    if (!activeTransfer.detail.isNullOrBlank()) {
+                        Text(
+                            text = activeTransfer.detail,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                        )
+                    }
                 }
             }
         }
@@ -1048,7 +1053,7 @@ private fun PairedTab(
                                     contentColor = MaterialTheme.colorScheme.error
                                 )
                             ) {
-                                Text("断开")
+                                Text(if (session.isConnected) "断开" else "移除")
                             }
                         }
 
@@ -1135,21 +1140,29 @@ private fun TransferTab(
                                 tonalElevation = 0.dp
                             ) {
                                 Text(
-                                    text = if (progress.isComplete) "完成"
+                                text = if (progress.isComplete) "完成"
+                                    else if (progress.isFailed) "失败"
                                     else if (progress.direction == cn.edu.shmtu.terminal.android.data.p2p.TransferDirection.SEND) "发送中"
                                     else "接收中",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (progress.isComplete) Color(0xFF4CAF50)
+                                    else if (progress.isFailed) MaterialTheme.colorScheme.error
                                     else MaterialTheme.colorScheme.onPrimaryContainer,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                                 )
                             }
                         }
 
-                        if (!progress.isComplete) {
+                        if (!progress.isComplete && !progress.isFailed) {
                             LinearProgressIndicator(
                                 progress = { progress.progressFraction },
                                 modifier = Modifier.fillMaxWidth()
+                            )
+                        } else if (progress.isFailed) {
+                            LinearProgressIndicator(
+                                progress = { progress.progressFraction.coerceAtLeast(0f) },
+                                modifier = Modifier.fillMaxWidth(),
+                                color = MaterialTheme.colorScheme.error
                             )
                         } else {
                             LinearProgressIndicator(
@@ -1164,10 +1177,38 @@ private fun TransferTab(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Text(
+                            text = transferStageLabel(progress),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (!progress.detail.isNullOrBlank()) {
+                            Text(
+                                text = progress.detail,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (progress.isFailed) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+private fun transferStageLabel(progress: P2PTransferProgress): String {
+    return when (progress.stage) {
+        TransferStage.PREPARING -> "正在准备"
+        TransferStage.WAITING_REMOTE_ACCEPT -> "等待对方接受"
+        TransferStage.OPENING_CHANNEL -> "建立传输通道"
+        TransferStage.TRANSFERRING -> "传输中"
+        TransferStage.VERIFYING -> "正在校验"
+        TransferStage.COMPLETED -> "已完成"
+        TransferStage.FAILED -> "已失败"
     }
 }
 

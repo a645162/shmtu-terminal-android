@@ -98,7 +98,8 @@ object P2PCrypto {
             P2PProtocol.TYPE_PING,
             P2PProtocol.TYPE_PONG,
             P2PProtocol.TYPE_ENCRYPTION_NEGOTIATE,
-            P2PProtocol.TYPE_ENCRYPTION_CONFIRM
+            P2PProtocol.TYPE_ENCRYPTION_CONFIRM,
+            P2PProtocol.TYPE_TRANSFER_CHANNEL_OPEN
         )
     }
 }

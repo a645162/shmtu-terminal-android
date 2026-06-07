@@ -50,6 +50,13 @@ class P2PManager @Inject constructor(
     private val importDataUseCase: ImportDataUseCase
 ) {
 
+    data class PendingIncomingTransfer(
+        val sessionId: String,
+        val transferId: String,
+        val totalSize: Long,
+        val billCount: Int
+    )
+
     private val tag = "P2PManager"
 
     private val scope = CoroutineScope(Dispatchers.IO + Job())
@@ -74,6 +81,7 @@ class P2PManager @Inject constructor(
 
     // Active client connections — keyed by sessionId so sendBills can reuse them
     private val activeClients = ConcurrentHashMap<String, P2PClient>()
+    private val pendingIncomingTransfers = ConcurrentHashMap<String, PendingIncomingTransfer>()
 
     // Encryption keys per session — zeroed on disconnect for forward secrecy
     private val encryptionKeys = ConcurrentHashMap<String, ByteArray>()
@@ -128,25 +136,66 @@ class P2PManager @Inject constructor(
                         billCount = billCount
                     )
                 )
-                updateTransferProgress(sessionId, fileName, data.size.toLong(), data.size.toLong(), TransferDirection.RECEIVE)
+                updateTransferProgress(
+                    sessionId,
+                    fileName,
+                    data.size.toLong(),
+                    data.size.toLong(),
+                    TransferDirection.RECEIVE,
+                    stage = TransferStage.COMPLETED,
+                    status = TransferStatus.SUCCESS,
+                    detail = "接收完成，等待导入"
+                )
             }
 
-            override fun onPairAccepted(sessionId: String, remoteAddr: String) {
+            override fun onTransferProgress(
+                sessionId: String,
+                fileName: String,
+                bytesTransferred: Long,
+                totalBytes: Long
+            ) {
+                updateTransferProgress(
+                    sessionId,
+                    fileName,
+                    bytesTransferred,
+                    totalBytes,
+                    TransferDirection.RECEIVE,
+                    stage = if (bytesTransferred >= totalBytes && totalBytes > 0) TransferStage.VERIFYING else TransferStage.TRANSFERRING,
+                    status = TransferStatus.RUNNING,
+                    detail = if (bytesTransferred >= totalBytes && totalBytes > 0) "数据接收完成，正在校验" else "正在接收数据"
+                )
+            }
+
+            override fun onPairAccepted(
+                sessionId: String,
+                remoteAddr: String,
+                remoteDeviceName: String,
+                pairCode: String,
+                reconnectIps: List<String>,
+                reconnectPort: Int?
+            ) {
                 val existing = sessions[sessionId]
                 if (existing != null) {
-                    sessions[sessionId] = existing.copy(isConnected = true)
+                    sessions[sessionId] = existing.copy(
+                        remoteAddr = remoteAddr,
+                        remoteDevice = remoteDeviceName,
+                        pairCode = pairCode,
+                        reconnectIps = reconnectIps,
+                        reconnectPort = reconnectPort,
+                        isConnected = true
+                    )
                     _status.value = _status.value.copy(sessions = sessions.values.toList())
+                    persistSessions()
                     return
                 }
-                val request = _pairRequests.value.find { it.remoteAddr == remoteAddr } ?: return
                 val session = P2PSession(
                     sessionId = sessionId,
-                    remoteDevice = request.remoteDevice,
+                    remoteDevice = remoteDeviceName,
                     remoteAddr = remoteAddr,
                     remotePort = serverPort,
-                    pairCode = request.pairCode,
-                    reconnectIps = request.reconnectIps,
-                    reconnectPort = request.reconnectPort,
+                    pairCode = pairCode,
+                    reconnectIps = reconnectIps,
+                    reconnectPort = reconnectPort,
                     isLocallyInitiated = false,
                     isPaired = true,
                     isConnected = true
@@ -155,6 +204,17 @@ class P2PManager @Inject constructor(
                 persistSessions()
                 _status.value = _status.value.copy(sessions = sessions.values.toList())
             }
+
+            override fun findTrustedSession(
+                remoteAddr: String,
+                remoteDeviceName: String,
+                pairCode: String
+            ): String? = findTrustedSessionId(remoteAddr, remoteDeviceName, pairCode)
+
+            override fun takePendingIncomingTransfer(
+                sessionId: String,
+                transferId: String
+            ): PendingIncomingTransfer? = this@P2PManager.takePendingIncomingTransfer(sessionId, transferId)
 
             override fun onClientConnected(remoteAddr: String) {
                 Log.d(tag, "Client connected: $remoteAddr")
@@ -222,7 +282,7 @@ class P2PManager @Inject constructor(
         )
         currentInfo = info
 
-        _status.value = P2PStatus(isRunning = true, sessions = emptyList(), info = info)
+        _status.value = P2PStatus(isRunning = true, sessions = sessions.values.toList(), info = info)
 
         serverJob = scope.launch {
             server.start(
@@ -298,6 +358,7 @@ class P2PManager @Inject constructor(
         port: Int,
         pairCode: String
     ): Result<P2PSession> = withContext(Dispatchers.IO) {
+        ensureServerRunning()
         val client = P2PClient()
         try {
             val connectResult = client.connect(host, port)
@@ -343,6 +404,8 @@ class P2PManager @Inject constructor(
 
             // Store the active client and its encryption key for reuse
             activeClients[session.sessionId] = client
+            client.sessionId = session.sessionId
+            client.clientCallback = createClientCallback()
             client.encryptionKey?.let { key ->
                 encryptionKeys[session.sessionId] = key.copyOf()
             }
@@ -387,13 +450,39 @@ class P2PManager @Inject constructor(
                 client = existingClient
                 isNewConnection = false
             } else if (!session.isLocallyInitiated) {
+                markTransferStage(
+                    sessionId = sessionId,
+                    direction = TransferDirection.SEND,
+                    stage = TransferStage.WAITING_REMOTE_ACCEPT,
+                    totalBytes = exportData.size.toLong(),
+                    detail = "正在等待对方接受"
+                )
                 val result = server.sendTransfer(
                     sessionId = sessionId,
                     data = exportData,
-                    billCount = parseBillCount(exportData)
+                    billCount = parseBillCount(exportData),
+                    onProgress = { transferred, total ->
+                        updateTransferProgress(sessionId, "bills_export.json", transferred, total, TransferDirection.SEND)
+                    }
                 )
                 if (result.isSuccess) {
-                    updateTransferProgress(sessionId, "bills_export.json", exportData.size.toLong(), exportData.size.toLong(), TransferDirection.SEND)
+                    updateTransferProgress(
+                        sessionId,
+                        "bills_export.json",
+                        exportData.size.toLong(),
+                        exportData.size.toLong(),
+                        TransferDirection.SEND,
+                        stage = TransferStage.COMPLETED,
+                        status = TransferStatus.SUCCESS,
+                        detail = "发送完成"
+                    )
+                } else {
+                    markTransferFailed(
+                        sessionId = sessionId,
+                        direction = TransferDirection.SEND,
+                        detail = result.exceptionOrNull()?.message ?: "发送失败",
+                        totalBytes = exportData.size.toLong()
+                    )
                 }
                 return@withContext result
             } else {
@@ -429,19 +518,26 @@ class P2PManager @Inject constructor(
 
                 // Store the active client and its encryption key
                 activeClients[sessionId] = client
+                client.sessionId = sessionId
+                client.clientCallback = createClientCallback()
                 client.encryptionKey?.let { key ->
                     encryptionKeys[sessionId] = key.copyOf()
                 }
 
-                // Start heartbeat
-                client.startHeartbeat(scope)
-                client.startReceiving(scope) {
-                    handleClientConnectionClosed(sessionId)
-                }
             }
 
             // Use transferId (UUID) separate from sessionId for the Rust-aligned protocol
             val transferId = UUID.randomUUID().toString()
+            markTransferStage(
+                sessionId = sessionId,
+                direction = TransferDirection.SEND,
+                stage = TransferStage.WAITING_REMOTE_ACCEPT,
+                totalBytes = exportData.size.toLong(),
+                detail = "正在等待对方接受"
+            )
+
+            // Avoid racing on the same socket input stream while waiting for transfer accept/reject.
+            client.stopReceiving(notifyDisconnected = false)
 
             // Send transfer offer
             val offerResult = client.sendTransferOffer(
@@ -451,27 +547,83 @@ class P2PManager @Inject constructor(
             )
 
             if (offerResult.isFailure || offerResult.getOrNull() != true) {
-                if (isNewConnection) client.close()
+                if (isNewConnection) {
+                    client.close()
+                    activeClients.remove(sessionId, client)
+                    clearEncryptionKey(sessionId)
+                }
+                if (!isNewConnection) {
+                    client.startReceiving(scope) {
+                        handleClientConnectionClosed(sessionId)
+                    }
+                }
+                markTransferFailed(
+                    sessionId = sessionId,
+                    direction = TransferDirection.SEND,
+                    detail = offerResult.exceptionOrNull()?.message ?: "传输被拒绝",
+                    totalBytes = exportData.size.toLong()
+                )
                 return@withContext Result.failure(Exception("传输被拒绝"))
             }
+
+            markTransferStage(
+                sessionId = sessionId,
+                direction = TransferDirection.SEND,
+                stage = TransferStage.OPENING_CHANNEL,
+                totalBytes = exportData.size.toLong(),
+                detail = "正在建立传输通道"
+            )
 
             // Send data with progress tracking
             val sendResult = client.sendTransferData(
                 transferId = transferId,
                 data = exportData,
+                host = session.remoteAddr,
+                port = session.remotePort,
+                pairCode = session.pairCode ?: "",
                 onProgress = { transferred, total ->
-                    updateTransferProgress(sessionId, "bills_export.json", transferred, total, TransferDirection.SEND)
+                    updateTransferProgress(
+                        sessionId,
+                        "bills_export.json",
+                        transferred,
+                        total,
+                        TransferDirection.SEND,
+                        stage = if (transferred >= total && total > 0) TransferStage.VERIFYING else TransferStage.TRANSFERRING,
+                        status = TransferStatus.RUNNING,
+                        detail = if (transferred >= total && total > 0) "数据发送完成，等待对方校验" else "正在发送数据"
+                    )
                 }
             )
 
             // Only disconnect if this was a fresh connection; keep persistent connections alive
             if (isNewConnection) {
                 client.disconnect()
-                removeActiveClient(sessionId)
+                activeClients.remove(sessionId, client)
+                clearEncryptionKey(sessionId)
+            } else {
+                client.startReceiving(scope) {
+                    handleClientConnectionClosed(sessionId)
+                }
             }
 
             if (sendResult.isSuccess) {
-                updateTransferProgress(sessionId, "bills_export.json", exportData.size.toLong(), exportData.size.toLong(), TransferDirection.SEND)
+                updateTransferProgress(
+                    sessionId,
+                    "bills_export.json",
+                    exportData.size.toLong(),
+                    exportData.size.toLong(),
+                    TransferDirection.SEND,
+                    stage = TransferStage.COMPLETED,
+                    status = TransferStatus.SUCCESS,
+                    detail = "发送完成"
+                )
+            } else {
+                markTransferFailed(
+                    sessionId = sessionId,
+                    direction = TransferDirection.SEND,
+                    detail = sendResult.exceptionOrNull()?.message ?: "发送失败",
+                    totalBytes = exportData.size.toLong()
+                )
             }
 
             sendResult
@@ -488,11 +640,16 @@ class P2PManager @Inject constructor(
      * zeroizes the encryption key.
      */
     fun disconnectSession(sessionId: String) {
+        val session = sessions[sessionId] ?: return
+        if (!session.isConnected) {
+            sessions.remove(sessionId)
+            persistSessions()
+            _status.value = _status.value.copy(sessions = sessions.values.toList())
+            return
+        }
         removeActiveClient(sessionId)
         clearEncryptionKey(sessionId)
-        sessions[sessionId]?.let { session ->
-            sessions[sessionId] = session.copy(isConnected = false)
-        }
+        sessions[sessionId] = session.copy(isConnected = false)
         persistSessions()
         _status.value = _status.value.copy(sessions = sessions.values.toList())
     }
@@ -503,6 +660,8 @@ class P2PManager @Inject constructor(
         if (session.isConnected) {
             return@withContext Result.success(session)
         }
+
+        ensureServerRunning()
 
         val pairCode = session.pairCode
             ?: return@withContext Result.failure(Exception("当前会话缺少配对码，无法重连"))
@@ -535,6 +694,8 @@ class P2PManager @Inject constructor(
             }
 
             activeClients[sessionId] = client
+            client.sessionId = sessionId
+            client.clientCallback = createClientCallback()
             client.encryptionKey?.let { key ->
                 encryptionKeys[sessionId] = key.copyOf()
             }
@@ -692,6 +853,7 @@ class P2PManager @Inject constructor(
             close()
         }
         activeClients.remove(sessionId)
+        pendingIncomingTransfers.entries.removeIf { (_, pending) -> pending.sessionId == sessionId }
     }
 
     /**
@@ -710,6 +872,7 @@ class P2PManager @Inject constructor(
         val existingClient = activeClients[sessionId] ?: return
         if (activeClients.remove(sessionId, existingClient)) {
             clearEncryptionKey(sessionId)
+            pendingIncomingTransfers.entries.removeIf { (_, pending) -> pending.sessionId == sessionId }
             sessions[sessionId]?.let { session ->
                 sessions[sessionId] = session.copy(isConnected = false)
                 _status.value = _status.value.copy(sessions = sessions.values.toList())
@@ -755,6 +918,58 @@ class P2PManager @Inject constructor(
         val selection = selectBestIp(session.reconnectIps)
         val reconnectIp = selection.ip ?: session.reconnectIps.firstOrNull() ?: return null
         return reconnectIp to reconnectPort
+    }
+
+    private fun ensureServerRunning() {
+        if (!_status.value.isRunning || currentInfo == null) {
+            startServer()
+        }
+    }
+
+    private fun createClientCallback(): P2PClientCallback = object : P2PClientCallback {
+        override fun onTransferOffer(sessionId: String, transferId: String, totalSize: Long, billCount: Int): Boolean {
+            pendingIncomingTransfers["$sessionId:$transferId"] = PendingIncomingTransfer(
+                sessionId = sessionId,
+                transferId = transferId,
+                totalSize = totalSize,
+                billCount = billCount
+            )
+            markTransferStage(
+                sessionId = sessionId,
+                direction = TransferDirection.RECEIVE,
+                stage = TransferStage.OPENING_CHANNEL,
+                totalBytes = totalSize,
+                detail = "对方已开始发送，等待传输通道建立"
+            )
+            return true
+        }
+    }
+
+    fun takePendingIncomingTransfer(sessionId: String, transferId: String): PendingIncomingTransfer? {
+        return pendingIncomingTransfers.remove("$sessionId:$transferId")
+    }
+
+    private fun findTrustedSessionId(
+        remoteAddr: String,
+        remoteDeviceName: String,
+        pairCode: String
+    ): String? {
+        return sessions.values
+            .asSequence()
+            .filter { session ->
+                session.isPaired &&
+                    !session.pairCode.isNullOrBlank() &&
+                    session.pairCode.equals(pairCode, ignoreCase = true) &&
+                    session.remoteDevice == remoteDeviceName
+            }
+            .maxByOrNull { session ->
+                when {
+                    session.remoteAddr == remoteAddr -> 3
+                    session.reconnectIps.contains(remoteAddr) -> 2
+                    else -> 1
+                }
+            }
+            ?.sessionId
     }
 
     // ============================================================================
@@ -864,7 +1079,18 @@ class P2PManager @Inject constructor(
         fileName: String,
         bytesTransferred: Long,
         totalBytes: Long,
-        direction: TransferDirection
+        direction: TransferDirection,
+        stage: TransferStage = if (bytesTransferred >= totalBytes && totalBytes > 0) {
+            TransferStage.COMPLETED
+        } else {
+            TransferStage.TRANSFERRING
+        },
+        status: TransferStatus = if (bytesTransferred >= totalBytes && totalBytes > 0) {
+            TransferStatus.SUCCESS
+        } else {
+            TransferStatus.RUNNING
+        },
+        detail: String? = null
     ) {
         val current = _transferProgress.value.toMutableList()
         val existingIndex = current.indexOfFirst { it.sessionId == sessionId }
@@ -873,7 +1099,10 @@ class P2PManager @Inject constructor(
             fileName = fileName,
             bytesTransferred = bytesTransferred,
             totalBytes = totalBytes,
-            direction = direction
+            direction = direction,
+            stage = stage,
+            status = status,
+            detail = detail
         )
         if (existingIndex >= 0) {
             current[existingIndex] = progress
@@ -881,6 +1110,51 @@ class P2PManager @Inject constructor(
             current.add(progress)
         }
         _transferProgress.value = current
+    }
+
+    private fun markTransferStage(
+        sessionId: String,
+        fileName: String = "bills_export.json",
+        direction: TransferDirection,
+        stage: TransferStage,
+        bytesTransferred: Long = 0L,
+        totalBytes: Long = 0L,
+        detail: String? = null
+    ) {
+        updateTransferProgress(
+            sessionId = sessionId,
+            fileName = fileName,
+            bytesTransferred = bytesTransferred,
+            totalBytes = totalBytes,
+            direction = direction,
+            stage = stage,
+            status = TransferStatus.RUNNING,
+            detail = detail
+        )
+    }
+
+    private fun markTransferFailed(
+        sessionId: String,
+        fileName: String = "bills_export.json",
+        direction: TransferDirection,
+        detail: String,
+        bytesTransferred: Long = 0L,
+        totalBytes: Long = 0L
+    ) {
+        updateTransferProgress(
+            sessionId = sessionId,
+            fileName = fileName,
+            bytesTransferred = bytesTransferred,
+            totalBytes = totalBytes,
+            direction = direction,
+            stage = TransferStage.FAILED,
+            status = TransferStatus.FAILED,
+            detail = detail
+        )
+    }
+
+    private fun removeTransferProgress(sessionId: String) {
+        _transferProgress.value = _transferProgress.value.filterNot { it.sessionId == sessionId }
     }
 }
 

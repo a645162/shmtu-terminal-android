@@ -30,8 +30,22 @@ interface P2PServerCallback {
         reconnectIps: List<String>,
         reconnectPort: Int?
     )
+    fun onTransferProgress(sessionId: String, fileName: String, bytesTransferred: Long, totalBytes: Long) {}
     fun onTransferReceived(sessionId: String, fileName: String, data: ByteArray, billCount: Int)
-    fun onPairAccepted(sessionId: String, remoteAddr: String)
+    fun onPairAccepted(
+        sessionId: String,
+        remoteAddr: String,
+        remoteDeviceName: String,
+        pairCode: String,
+        reconnectIps: List<String>,
+        reconnectPort: Int?
+    )
+    fun findTrustedSession(
+        remoteAddr: String,
+        remoteDeviceName: String,
+        pairCode: String
+    ): String? = null
+    fun takePendingIncomingTransfer(sessionId: String, transferId: String): P2PManager.PendingIncomingTransfer? = null
     fun onClientConnected(remoteAddr: String)
     fun onClientDisconnected(remoteAddr: String)
     fun onError(message: String)
@@ -59,6 +73,7 @@ class P2PServer(private val parentScope: CoroutineScope) {
     // Track paired sessions (remoteAddr -> true) to enforce pairing before transfer
     private val pairedRemotes = ConcurrentHashMap<String, Boolean>()
     private val acceptedSessions = ConcurrentHashMap<String, AcceptedSession>()
+    private val pendingTransfers = ConcurrentHashMap<String, PendingTransfer>()
 
     fun setCallback(cb: P2PServerCallback) {
         callback = cb
@@ -126,8 +141,16 @@ class P2PServer(private val parentScope: CoroutineScope) {
             Log.w(tag, "acceptPair ignored, no pending request for $remoteAddr")
             return false
         }
+        return acceptPairInternal(pending, sessionId, removePending = true)
+    }
+
+    private fun acceptPairInternal(
+        pending: PendingPairRequest,
+        sessionId: String,
+        removePending: Boolean
+    ): Boolean {
         try {
-            Log.i(tag, "Sending PairAccept to $remoteAddr, session=$sessionId")
+            Log.i(tag, "Sending PairAccept to ${pending.remoteAddr}, session=$sessionId")
             val accept = PairAcceptPayload(
                 deviceName = pending.deviceName,
                 sessionId = sessionId
@@ -135,20 +158,31 @@ class P2PServer(private val parentScope: CoroutineScope) {
             val payload = p2pJson.encodeToString(PairAcceptPayload.serializer(), accept)
                 .toByteArray(Charsets.UTF_8)
             writeFrameLocked(pending.outputStream, pending.writeLock, P2PFrame(P2PProtocol.TYPE_PAIR_ACCEPT.toByte(), payload))
-            pendingPairRequests.remove(remoteAddr)
-            pairedRemotes[remoteAddr] = true
+            if (removePending) {
+                pendingPairRequests.remove(pending.remoteAddr)
+            }
+            pairedRemotes[pending.remoteAddr] = true
             pending.isPaired.set(true)
             pending.sessionId = sessionId
             acceptedSessions[sessionId] = AcceptedSession(
                 sessionId = sessionId,
-                remoteAddr = remoteAddr,
+                remoteAddr = pending.remoteAddr,
+                remotePort = pending.reconnectPort ?: P2PProtocol.DEFAULT_PORT,
                 outputStream = pending.outputStream,
                 writeLock = pending.writeLock,
                 encryptionKeyRef = pending.encryptionKeyRef,
-                clientSocket = pending.clientSocket
+                clientSocket = pending.clientSocket,
+                pairCode = pending.pairCode
             )
-            callback?.onPairAccepted(sessionId, remoteAddr)
-            Log.i(tag, "Pair accepted for $remoteAddr, session=$sessionId")
+            callback?.onPairAccepted(
+                sessionId = sessionId,
+                remoteAddr = pending.remoteAddr,
+                remoteDeviceName = pending.remoteDeviceName,
+                pairCode = pending.pairCode,
+                reconnectIps = pending.reconnectIps,
+                reconnectPort = pending.reconnectPort
+            )
+            Log.i(tag, "Pair accepted for ${pending.remoteAddr}, session=$sessionId")
             return true
         } catch (e: Exception) {
             Log.e(tag, "Failed to send pair accept", e)
@@ -184,7 +218,8 @@ class P2PServer(private val parentScope: CoroutineScope) {
         sessionId: String,
         data: ByteArray,
         billCount: Int,
-        fileName: String = "bills_export.json"
+        fileName: String = "bills_export.json",
+        onProgress: (Long, Long) -> Unit = { _, _ -> }
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val session = acceptedSessions[sessionId]
             ?: return@withContext Result.failure(Exception("服务端会话不存在或已断开"))
@@ -211,7 +246,8 @@ class P2PServer(private val parentScope: CoroutineScope) {
                 return@withContext Result.failure(Exception("对方拒绝接收"))
             }
 
-            sendTransferData(session, transferId, data)
+            onProgress(0L, data.size.toLong())
+            sendTransferViaDedicatedChannel(session, transferId, data, billCount, onProgress)
             Log.i(tag, "Server-side transfer complete: session=$sessionId file=$fileName bytes=${data.size}")
             Result.success(Unit)
         } catch (e: CancellationException) {
@@ -307,12 +343,38 @@ class P2PServer(private val parentScope: CoroutineScope) {
                         )
                         Log.d(tag, "Pair request from $remoteAddr: device=${req.deviceName} code=****")
 
+                        val trustedSessionId = callback?.findTrustedSession(
+                            remoteAddr = remoteAddr,
+                            remoteDeviceName = req.deviceName,
+                            pairCode = req.pairCode
+                        )
+                        if (!trustedSessionId.isNullOrBlank()) {
+                            val trustedRequest = PendingPairRequest(
+                                remoteAddr = remoteAddr,
+                                deviceName = ourDeviceName,
+                                remoteDeviceName = req.deviceName,
+                                pairCode = req.pairCode,
+                                reconnectIps = req.listenIps,
+                                reconnectPort = req.listenPort,
+                                outputStream = outStream,
+                                clientSocket = socket,
+                                writeLock = writeLock,
+                                isPaired = isPairConfirmed,
+                                encryptionKeyRef = encryptionKeyRef
+                            )
+                            if (acceptPairInternal(trustedRequest, trustedSessionId, removePending = false)) {
+                                isPaired = true
+                                continue
+                            }
+                        }
+
                         if (req.pairCode.equals(expectedPairCode, ignoreCase = true)) {
                             // Valid pair code - notify callback for user confirmation
                             val pendingRequest = PendingPairRequest(
                                 remoteAddr = remoteAddr,
                                 deviceName = ourDeviceName,
                                 remoteDeviceName = req.deviceName,
+                                pairCode = req.pairCode,
                                 reconnectIps = req.listenIps,
                                 reconnectPort = req.listenPort,
                                 outputStream = outStream,
@@ -402,62 +464,15 @@ class P2PServer(private val parentScope: CoroutineScope) {
 
                         // Accept the transfer
                         sendTransferAccept(outStream, writeLock, offer.transferId, encryptionKey)
-
-                        // Receive data frames
-                        val dataBuffer = java.io.ByteArrayOutputStream()
-                        var receivedBytes = 0L
-
-                        while (isActive) {
-                            val dataFrame = FrameCodec.readFrame(inStream) ?: break
-                            val decryptedPayload: ByteArray? = when (dataFrame.type.toInt() and 0xFF) {
-                                P2PProtocol.TYPE_PING -> {
-                                    try {
-                                        writeFrameLocked(outStream, writeLock, P2PFrame(P2PProtocol.TYPE_PONG.toByte(), ByteArray(0)))
-                                    } catch (_: Exception) {}
-                                    null
-                                }
-
-                                P2PProtocol.TYPE_PONG -> {
-                                    Log.d(tag, "Received PONG during transfer from $remoteAddr")
-                                    null
-                                }
-
-                                P2PProtocol.TYPE_TRANSFER_DATA -> {
-                                    val decrypted = decryptIfNeeded(dataFrame, encryptionKey)
-                                    val chunk = p2pJson.decodeFromString<TransferDataPayload>(
-                                        String(decrypted, Charsets.UTF_8)
-                                    )
-                                    val chunkBytes = Base64.decode(chunk.data, Base64.NO_WRAP)
-                                    dataBuffer.write(chunkBytes)
-                                    receivedBytes += chunkBytes.size
-                                    null
-                                }
-
-                                P2PProtocol.TYPE_TRANSFER_END -> {
-                                    val decrypted = decryptIfNeeded(dataFrame, encryptionKey)
-                                    val endMsg = p2pJson.decodeFromString<TransferEndPayload>(
-                                        String(decrypted, Charsets.UTF_8)
-                                    )
-                                    Log.i(tag, "Transfer end: $receivedBytes bytes, checksum=${endMsg.checksum}")
-                                    callback?.onTransferReceived(
-                                        endMsg.transferId,
-                                        "bills_export.json",
-                                        dataBuffer.toByteArray(),
-                                        offer.billCount
-                                    )
-                                    dataBuffer.reset()
-                                    null // signal done
-                                }
-
-                                P2PProtocol.TYPE_DISCONNECT -> {
-                                    break
-                                }
-
-                                else -> null
-                            }
-
-                            // TransferEnd reached — exit inner loop
-                            if (dataFrame.type.toInt() and 0xFF == P2PProtocol.TYPE_TRANSFER_END) break
+                        val acceptedSession = acceptedSessions.values.firstOrNull { it.clientSocket == socket }
+                        val acceptedSessionId = acceptedSession?.sessionId
+                        if (acceptedSessionId != null) {
+                            pendingTransfers[pendingTransferKey(acceptedSessionId, offer.transferId)] = PendingTransfer(
+                                sessionId = acceptedSessionId,
+                                transferId = offer.transferId,
+                                totalSize = offer.totalSize,
+                                billCount = offer.billCount
+                            )
                         }
                     }
 
@@ -482,7 +497,17 @@ class P2PServer(private val parentScope: CoroutineScope) {
                     }
 
                     else -> {
-                        Log.w(tag, "Unknown frame type: ${P2PProtocol.typeName(frame.type)}")
+                        if ((frame.type.toInt() and 0xFF) == P2PProtocol.TYPE_TRANSFER_CHANNEL_OPEN) {
+                            handleTransferChannel(
+                                firstFrame = frame,
+                                inputStream = inStream,
+                                outputStream = outStream,
+                                writeLock = writeLock,
+                                remoteAddr = remoteAddr
+                            )
+                        } else {
+                            Log.w(tag, "Unknown frame type: ${P2PProtocol.typeName(frame.type)}")
+                        }
                     }
                 }
             }
@@ -591,44 +616,173 @@ class P2PServer(private val parentScope: CoroutineScope) {
         }
     }
 
-    private fun sendTransferData(session: AcceptedSession, transferId: String, data: ByteArray) {
-        val encryptionKey = session.encryptionKeyRef.get()
+    private fun sendTransferViaDedicatedChannel(
+        session: AcceptedSession,
+        transferId: String,
+        data: ByteArray,
+        billCount: Int,
+        onProgress: (Long, Long) -> Unit
+    ) {
+        val pairCode = session.pairCode ?: throw IllegalStateException("缺少配对码")
+        val salt = P2PCrypto.generateSalt()
+        val transferKey = P2PCrypto.deriveKey(pairCode, salt)
+        val transferSocket = Socket(session.remoteAddr, session.remotePort)
+        transferSocket.soTimeout = 30000
+        val transferInput = transferSocket.getInputStream()
+        val transferOutput = transferSocket.getOutputStream()
+        val openPayload = TransferChannelOpenPayload(
+            sessionId = session.sessionId,
+            transferId = transferId,
+            pairCode = pairCode,
+            salt = Base64.encodeToString(salt, Base64.NO_WRAP)
+        )
+        val openBytes = p2pJson.encodeToString(TransferChannelOpenPayload.serializer(), openPayload)
+            .toByteArray(Charsets.UTF_8)
+        FrameCodec.writeFrame(transferOutput, P2PFrame(P2PProtocol.TYPE_TRANSFER_CHANNEL_OPEN.toByte(), openBytes))
+        val readyFrame = readEncryptedFrame(transferInput, transferKey)
+            ?: throw IllegalStateException("传输通道未就绪")
+        val ready = p2pJson.decodeFromString<TransferChannelReadyPayload>(String(readyFrame.payload, Charsets.UTF_8))
+        if (ready.transferId != transferId) {
+            throw IllegalStateException("传输通道返回的 transferId 不匹配")
+        }
+
         val chunkSize = 32 * 1024
         var offset = 0
         var sequence = 0
+        val total = data.size.toLong()
 
-        while (offset < data.size) {
-            val end = minOf(offset + chunkSize, data.size)
-            val chunk = data.copyOfRange(offset, end)
-            val transferData = TransferDataPayload(
+        try {
+            while (offset < data.size) {
+                val end = minOf(offset + chunkSize, data.size)
+                val chunk = data.copyOfRange(offset, end)
+                val transferData = TransferDataPayload(
+                    transferId = transferId,
+                    sequence = sequence,
+                    data = Base64.encodeToString(chunk, Base64.NO_WRAP)
+                )
+                val payload = p2pJson.encodeToString(TransferDataPayload.serializer(), transferData)
+                    .toByteArray(Charsets.UTF_8)
+                sendEncryptedFrame(
+                    transferOutput,
+                    ReentrantLock(),
+                    P2PFrame(P2PProtocol.TYPE_TRANSFER_DATA.toByte(), payload),
+                    transferKey
+                )
+                offset = end
+                sequence++
+                onProgress(offset.toLong(), total)
+            }
+
+            val endPayload = TransferEndPayload(
                 transferId = transferId,
-                sequence = sequence,
-                data = Base64.encodeToString(chunk, Base64.NO_WRAP)
+                checksum = P2PClient.computeChecksum(data)
             )
-            val payload = p2pJson.encodeToString(TransferDataPayload.serializer(), transferData)
+            val endBytes = p2pJson.encodeToString(TransferEndPayload.serializer(), endPayload)
                 .toByteArray(Charsets.UTF_8)
             sendEncryptedFrame(
-                session.outputStream,
-                session.writeLock,
-                P2PFrame(P2PProtocol.TYPE_TRANSFER_DATA.toByte(), payload),
-                encryptionKey
+                transferOutput,
+                ReentrantLock(),
+                P2PFrame(P2PProtocol.TYPE_TRANSFER_END.toByte(), endBytes),
+                transferKey
             )
-            offset = end
-            sequence++
+            val resultFrame = readEncryptedFrame(transferInput, transferKey)
+                ?: throw IllegalStateException("未收到传输结果")
+            val result = p2pJson.decodeFromString<TransferChannelResultPayload>(String(resultFrame.payload, Charsets.UTF_8))
+            if (!result.success) {
+                throw IllegalStateException(result.reason.ifBlank { "接收端校验失败" })
+            }
+            onProgress(total, total)
+        } finally {
+            transferKey.fill(0)
+            try { transferInput.close() } catch (_: Exception) {}
+            try { transferOutput.close() } catch (_: Exception) {}
+            try { transferSocket.close() } catch (_: Exception) {}
         }
+    }
 
-        val endPayload = TransferEndPayload(
-            transferId = transferId,
-            checksum = P2PClient.computeChecksum(data)
-        )
-        val endBytes = p2pJson.encodeToString(TransferEndPayload.serializer(), endPayload)
-            .toByteArray(Charsets.UTF_8)
-        sendEncryptedFrame(
-            session.outputStream,
-            session.writeLock,
-            P2PFrame(P2PProtocol.TYPE_TRANSFER_END.toByte(), endBytes),
-            encryptionKey
-        )
+    private fun handleTransferChannel(
+        firstFrame: P2PFrame,
+        inputStream: InputStream,
+        outputStream: OutputStream,
+        writeLock: ReentrantLock,
+        remoteAddr: String
+    ) {
+        val open = p2pJson.decodeFromString<TransferChannelOpenPayload>(String(firstFrame.payload, Charsets.UTF_8))
+        val pending = pendingTransfers.remove(pendingTransferKey(open.sessionId, open.transferId))
+            ?: callback?.takePendingIncomingTransfer(open.sessionId, open.transferId)?.let {
+                PendingTransfer(
+                    sessionId = it.sessionId,
+                    transferId = it.transferId,
+                    totalSize = it.totalSize,
+                    billCount = it.billCount
+                )
+            }
+            ?: throw IllegalStateException("没有待接收的传输任务")
+        val salt = Base64.decode(open.salt, Base64.NO_WRAP)
+        val transferKey = P2PCrypto.deriveKey(open.pairCode, salt)
+        try {
+            val ready = TransferChannelReadyPayload(transferId = open.transferId)
+            val readyBytes = p2pJson.encodeToString(TransferChannelReadyPayload.serializer(), ready)
+                .toByteArray(Charsets.UTF_8)
+            sendEncryptedFrame(
+                outputStream,
+                writeLock,
+                P2PFrame(P2PProtocol.TYPE_TRANSFER_CHANNEL_READY.toByte(), readyBytes),
+                transferKey
+            )
+
+            val dataBuffer = java.io.ByteArrayOutputStream()
+            var receivedBytes = 0L
+            while (true) {
+                val frame = readEncryptedFrame(inputStream, transferKey) ?: break
+                when (frame.type.toInt() and 0xFF) {
+                    P2PProtocol.TYPE_TRANSFER_DATA -> {
+                        val chunk = p2pJson.decodeFromString<TransferDataPayload>(String(frame.payload, Charsets.UTF_8))
+                        val chunkBytes = Base64.decode(chunk.data, Base64.NO_WRAP)
+                        dataBuffer.write(chunkBytes)
+                        receivedBytes += chunkBytes.size
+                        callback?.onTransferProgress(
+                            sessionId = pending.sessionId,
+                            fileName = "bills_export.json",
+                            bytesTransferred = receivedBytes,
+                            totalBytes = pending.totalSize
+                        )
+                    }
+                    P2PProtocol.TYPE_TRANSFER_END -> {
+                        val end = p2pJson.decodeFromString<TransferEndPayload>(String(frame.payload, Charsets.UTF_8))
+                        val bytes = dataBuffer.toByteArray()
+                        val checksum = P2PClient.computeChecksum(bytes)
+                        val success = checksum == end.checksum
+                        if (success) {
+                            callback?.onTransferReceived(
+                                pending.sessionId,
+                                "bills_export.json",
+                                bytes,
+                                pending.billCount
+                            )
+                        }
+                        val result = TransferChannelResultPayload(
+                            transferId = open.transferId,
+                            success = success,
+                            reason = if (success) "" else "Checksum mismatch: expected=${end.checksum}, actual=$checksum"
+                        )
+                        val resultBytes = p2pJson.encodeToString(TransferChannelResultPayload.serializer(), result)
+                            .toByteArray(Charsets.UTF_8)
+                        sendEncryptedFrame(
+                            outputStream,
+                            writeLock,
+                            P2PFrame(P2PProtocol.TYPE_TRANSFER_CHANNEL_RESULT.toByte(), resultBytes),
+                            transferKey
+                        )
+                        return
+                    }
+                    else -> throw IllegalStateException("传输通道消息类型错误: ${P2PProtocol.typeName(frame.type)}")
+                }
+            }
+            throw IllegalStateException("传输通道意外关闭: $remoteAddr")
+        } finally {
+            transferKey.fill(0)
+        }
     }
 
     /**
@@ -666,12 +820,22 @@ class P2PServer(private val parentScope: CoroutineScope) {
         return frame.payload
     }
 
+    private fun readEncryptedFrame(input: InputStream, encryptionKey: ByteArray?): P2PFrame? {
+        val frame = FrameCodec.readFrame(input) ?: return null
+        return if (encryptionKey != null && P2PCrypto.shouldEncrypt(frame.type)) {
+            P2PFrame(frame.type, P2PCrypto.decrypt(encryptionKey, frame.payload))
+        } else {
+            frame
+        }
+    }
+
     fun stop() {
         isRunning = false
         try { serverSocket?.close() } catch (_: Exception) {}
         serverSocket = null
         pendingPairRequests.clear()
         pairedRemotes.clear()
+        pendingTransfers.clear()
         Log.i(tag, "Server stopped")
     }
 
@@ -679,6 +843,7 @@ class P2PServer(private val parentScope: CoroutineScope) {
         val remoteAddr: String,
         val deviceName: String,
         val remoteDeviceName: String,
+        val pairCode: String,
         val reconnectIps: List<String>,
         val reconnectPort: Int?,
         val outputStream: OutputStream,
@@ -692,10 +857,21 @@ class P2PServer(private val parentScope: CoroutineScope) {
     private data class AcceptedSession(
         val sessionId: String,
         val remoteAddr: String,
+        val remotePort: Int,
         val outputStream: OutputStream,
         val writeLock: ReentrantLock,
         val encryptionKeyRef: java.util.concurrent.atomic.AtomicReference<ByteArray?>,
         val clientSocket: Socket,
+        val pairCode: String? = null,
         val responseQueue: java.util.concurrent.LinkedBlockingQueue<P2PFrame> = java.util.concurrent.LinkedBlockingQueue()
     )
+
+    private data class PendingTransfer(
+        val sessionId: String,
+        val transferId: String,
+        val totalSize: Long,
+        val billCount: Int
+    )
+
+    private fun pendingTransferKey(sessionId: String, transferId: String): String = "$sessionId:$transferId"
 }
