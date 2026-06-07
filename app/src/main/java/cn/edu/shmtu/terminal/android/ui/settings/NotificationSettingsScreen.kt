@@ -65,15 +65,15 @@ fun NotificationSettingsScreen(
             )
             SwitchRow(
                 title = "点对点传输",
-                description = "P2P 文件接收完成通知",
-                checked = config.p2pTransferEnabled,
-                onCheckedChange = { v -> viewModel.update { it.copy(p2pTransferEnabled = v) } }
+                description = "文件传输完成通知",
+                checked = config.transferCompleteEnabled,
+                onCheckedChange = { v -> viewModel.update { it.copy(transferCompleteEnabled = v) } }
             )
             SwitchRow(
                 title = "配对请求",
                 description = "收到新设备配对请求时通知",
-                checked = config.p2pPairRequestEnabled,
-                onCheckedChange = { v -> viewModel.update { it.copy(p2pPairRequestEnabled = v) } }
+                checked = config.persistentStatusEnabled,
+                onCheckedChange = { v -> viewModel.update { it.copy(persistentStatusEnabled = v) } }
             )
             SwitchRow(
                 title = "常驻状态",

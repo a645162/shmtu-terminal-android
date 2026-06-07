@@ -27,8 +27,7 @@ interface Notifier {
 enum class NotificationType {
     SYNC_COMPLETE,
     NEW_BILLS_FOUND,
-    P2P_TRANSFER,
-    P2P_PAIR_REQUEST,
+    TRANSFER_COMPLETE,
     PERSISTENT_STATUS,
     FOREGROUND_SERVICE
 }

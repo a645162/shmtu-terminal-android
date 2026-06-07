@@ -19,8 +19,6 @@ import cn.edu.shmtu.terminal.android.ui.bill.BillListScreen
 import cn.edu.shmtu.terminal.android.ui.features.FeatureHubScreen
 import cn.edu.shmtu.terminal.android.ui.home.HomeScreen
 import cn.edu.shmtu.terminal.android.ui.me.MeScreen
-import cn.edu.shmtu.terminal.android.ui.p2p.P2PScreen
-import cn.edu.shmtu.terminal.android.ui.p2p.QRScanScreen
 import cn.edu.shmtu.terminal.android.ui.statistics.BillStatisticsScreen
 import cn.edu.shmtu.terminal.android.ui.settings.AboutScreen
 import cn.edu.shmtu.terminal.android.ui.settings.AppearanceSettingsScreen
@@ -68,7 +66,7 @@ fun AppNavigation(
                 FeatureHubScreen(
                     onNavigateToBillStatistics = { navController.navigate("bill_statistics") },
                     onNavigateToDataTransfer = { navController.navigate("data_transfer") },
-                    onNavigateToP2P = { navController.navigate("p2p") }
+                    onNavigateToRemote = { navController.navigate("remote") }
                 )
             }
             composable(TopLevelDestination.ME.route) {
@@ -133,29 +131,9 @@ fun AppNavigation(
                     onBack = { navController.popBackStack() }
                 )
             }
-            composable("p2p") {
-                P2PScreen(
-                    onBack = { navController.popBackStack() },
-                    onNavigateToQRScan = { navController.navigate("p2p_qr_scan") },
-                    navController = navController
-                )
-            }
-            composable("p2p_qr_scan") {
-                QRScanScreen(
-                    onQRScanned = { payload ->
-                        val payloadJson = cn.edu.shmtu.terminal.android.data.p2p.p2pJson
-                            .encodeToString(
-                                cn.edu.shmtu.terminal.android.data.p2p.QRPayload.serializer(),
-                                payload
-                            )
-                        android.util.Log.d("P2PNav", "QRScan result stored, length=${payloadJson.length}")
-                        navController.previousBackStackEntry
-                            ?.savedStateHandle
-                            ?.set("p2p_qr_scan_result", payloadJson)
-                        navController.popBackStack()
-                    },
-                    onBack = { navController.popBackStack() }
-                )
+            composable("remote") {
+                // TODO RESTful: 远程访问界面
+                androidx.compose.material3.Text("远程访问 (RESTful 改造中)")
             }
             composable("identity_manager") {
                 IdentityListScreen(

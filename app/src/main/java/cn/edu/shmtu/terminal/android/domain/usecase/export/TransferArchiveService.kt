@@ -275,7 +275,7 @@ class TransferArchiveService @Inject constructor(
         for (i in 0 until billsJson.length()) {
             val billJson = billsJson.optJSONObject(i) ?: continue
             val sourceUserId = billJson.optString("source_user_id", "")
-            val mappedAccountId = accountMapping[sourceUserId] ?: P2P_ACCOUNT_ID
+            val mappedAccountId = accountMapping[sourceUserId] ?: REMOTE_ACCOUNT_ID
             entities += BillEntity(
                 accountId = mappedAccountId,
                 accountLabel = billJson.optString("account_label", sourceUserId.ifBlank { "导入" }),
@@ -401,7 +401,7 @@ class TransferArchiveService @Inject constructor(
     }
 
     private companion object {
-        const val P2P_ACCOUNT_ID = -1L
+        const val REMOTE_ACCOUNT_ID = -1L
         val ENCRYPTED_MAGIC = byteArrayOf('S'.code.toByte(), 'H'.code.toByte(), 'A'.code.toByte(), 'R'.code.toByte())
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val PBKDF2_ALGORITHM = "PBKDF2WithHmacSHA256"

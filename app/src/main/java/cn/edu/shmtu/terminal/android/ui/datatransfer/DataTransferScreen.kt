@@ -161,7 +161,7 @@ private fun ExportTab(
             PasswordTextField(
                 value = archivePassword,
                 onValueChange = { archivePassword = it },
-                label = { Text("留空则不加密；P2P 会自动使用配对码加密") },
+                label = { Text("留空则不加密") },
                 modifier = Modifier.fillMaxWidth()
             )
         }

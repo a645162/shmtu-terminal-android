@@ -6,8 +6,7 @@ import kotlinx.serialization.Serializable
 data class NotificationConfig(
     val syncCompleteEnabled: Boolean = true,
     val newBillsFoundEnabled: Boolean = true,
-    val p2pTransferEnabled: Boolean = true,
-    val p2pPairRequestEnabled: Boolean = true,
+    val transferCompleteEnabled: Boolean = true,
     val persistentStatusEnabled: Boolean = true,
 
     val useHeadsUp: Boolean = true,

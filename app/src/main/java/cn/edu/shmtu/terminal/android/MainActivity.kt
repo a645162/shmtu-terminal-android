@@ -41,8 +41,6 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.ui.navigation.AppNavigation
 import cn.edu.shmtu.terminal.android.ui.navigation.AppShellViewModel
 import cn.edu.shmtu.terminal.android.ui.navigation.TopLevelDestination
-import cn.edu.shmtu.terminal.android.ui.p2p.P2PViewModel
-import cn.edu.shmtu.terminal.android.ui.p2p.PairRequestDialog
 import cn.edu.shmtu.terminal.android.ui.settings.SettingsViewModelWrapper
 import cn.edu.shmtu.terminal.android.ui.theme.ShmtuterminalandroidTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -63,12 +61,8 @@ fun ShmtuterminalandroidApp() {
     val context = LocalContext.current
     val settingsWrapper: SettingsViewModelWrapper = hiltViewModel()
     val themeMode by settingsWrapper.featureStore.themeMode.collectAsState()
-    val p2pAutoAccept by settingsWrapper.settingsDataStore.p2pAutoAccept.collectAsState(initial = false)
-    val p2pAutoStart by settingsWrapper.settingsDataStore.p2pAutoStart.collectAsState(initial = false)
     val shellViewModel: AppShellViewModel = hiltViewModel()
-    val p2pViewModel: P2PViewModel = hiltViewModel()
     val currentIdentity by shellViewModel.currentIdentity.collectAsState()
-    val p2pUiState by p2pViewModel.uiState.collectAsState()
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -79,7 +73,7 @@ fun ShmtuterminalandroidApp() {
     val wideLayout = configuration.screenWidthDp >= 900
     val meLabel = currentIdentity?.remark?.ifBlank { currentIdentity?.username ?: "当前身份" }
         ?: "当前身份"
-    val currentPairRequest = p2pUiState.pairRequests.firstOrNull()
+
     val permissionPrefs = remember {
         context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
     }
@@ -102,32 +96,6 @@ fun ShmtuterminalandroidApp() {
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
-        }
-
-        LaunchedEffect(p2pAutoStart) {
-            if (p2pAutoStart) {
-                p2pViewModel.startServer()
-            }
-        }
-
-        LaunchedEffect(p2pAutoAccept, currentPairRequest?.remoteAddr, currentPairRequest?.timestamp) {
-            if (p2pAutoAccept && currentPairRequest != null) {
-                p2pViewModel.acceptPairing(currentPairRequest.remoteAddr)
-            }
-        }
-
-        if (!p2pAutoAccept && currentPairRequest != null) {
-            PairRequestDialog(
-                deviceName = currentPairRequest.remoteDevice,
-                pairCode = currentPairRequest.pairCode,
-                remoteAddr = currentPairRequest.remoteAddr,
-                onAccept = {
-                    p2pViewModel.acceptPairing(currentPairRequest.remoteAddr)
-                },
-                onReject = {
-                    p2pViewModel.rejectPairing(currentPairRequest.remoteAddr)
-                }
-            )
         }
 
         if (wideLayout) {
@@ -160,7 +128,7 @@ fun ShmtuterminalandroidApp() {
                         )
                     }
                 }
-    
+
                 Surface(
                     modifier = Modifier
                         .fillMaxSize()
@@ -209,7 +177,7 @@ fun ShmtuterminalandroidApp() {
                         )
                     }
                 }
-    
+
                 NavigationBar {
                     topLevelDestinations.forEach { destination ->
                         val label = if (destination == TopLevelDestination.ME) meLabel else destination.label

@@ -415,7 +415,6 @@ private fun DetailFor(
         "update" -> UpdateSettingsScreen(onBack = onBack, embedded = embedded)
         "debug" -> DebugSettingsScreen(onBack = onBack, embedded = embedded)
         "ocr" -> OcrSettingsScreen(onBack = onBack, embedded = embedded)
-        "p2p" -> P2PSettingsScreen(onBack = onBack, embedded = embedded, settingsDataStore = settingsDataStore)
         "webserver" -> WebServerSettingsScreen(onBack = onBack, embedded = embedded, webServerSettings = webServerSettings)
         "notification" -> NotificationSettingsScreen(onBack = onBack, embedded = embedded)
         "about" -> AboutScreen(onBack = onBack, embedded = embedded)
@@ -494,7 +493,7 @@ private fun settingsGroups(): List<SettingsGroup> {
             accent = listOf(Color(0xFF6750A4), Color(0xFFB69DF8))
         ),
         SettingsGroup(
-            key = "p2p",
+            key = "remote",
             title = "点对点互传",
             subtitle = "设备名称、端口与自动启动",
             description = "配置局域网点对点传输参数。",
