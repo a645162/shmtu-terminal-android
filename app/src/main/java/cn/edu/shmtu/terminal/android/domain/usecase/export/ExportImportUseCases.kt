@@ -1,271 +1,170 @@
 package cn.edu.shmtu.terminal.android.domain.usecase.export
 
-import cn.edu.shmtu.terminal.android.data.local.db.BillDatabaseManager
-import cn.edu.shmtu.terminal.android.data.local.db.entity.BillEntity
-import cn.edu.shmtu.terminal.android.domain.model.*
+import android.util.Log
+import cn.edu.shmtu.terminal.android.domain.model.ExportFormat
+import cn.edu.shmtu.terminal.android.domain.model.ExportParams
 import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
-import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
 import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.UUID
+import java.security.MessageDigest
+import kotlin.math.abs
 import javax.inject.Inject
 
 /**
- * 导出数据用例 - 对齐 Rust 版 export_data
- * 支持 CSV / JSON / 钱迹格式
+ * 安卓端数据导出:
+ * - CSV / 钱迹: 维持原用途
+ * - JSON: 改为 ZIP 数据包,可选口令加密,内含身份/账号/账单
  */
 class ExportDataUseCase @Inject constructor(
-    private val billRepository: BillRepository,
-    private val identityRepository: IdentityRepository
+    private val legacyExportUseCase: LegacyBillExportUseCase,
+    private val transferArchiveService: TransferArchiveService
 ) {
-    suspend operator fun invoke(params: ExportParams): Result<String> {
+    suspend operator fun invoke(params: ExportParams, password: String? = null): Result<String> {
         return try {
             when (params.format) {
-                ExportFormat.CSV -> exportCsv(params)
-                ExportFormat.JSON -> exportJson(params)
-                ExportFormat.QIANJI -> exportQianji(params)
+                ExportFormat.CSV -> legacyExportUseCase.exportCsv(params)
+                ExportFormat.QIANJI -> legacyExportUseCase.exportQianji(params)
+                ExportFormat.JSON -> exportArchive(params, password)
             }
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    /**
-     * CSV 导出 - 对齐 Rust 版 csv 格式
-     * UTF-8 BOM + 列: 日期时间, 交易名称, 交易号, 对方账户, 金额, 支付方式, 状态
-     */
-    private suspend fun exportCsv(params: ExportParams): Result<String> {
-        val bills = getBills(params)
+    private suspend fun exportArchive(params: ExportParams, password: String?): Result<String> {
         val file = File(params.filePath)
+        file.parentFile?.mkdirs()
 
+        val identityIds = setOf(params.identityId)
+        val payload = transferArchiveService.buildEncryptedArchiveBytes(password, identityIds)
+        FileOutputStream(file).use { it.write(payload.bytes) }
+        return Result.success(file.absolutePath)
+    }
+}
+
+/**
+ * 安卓端数据导入:
+ * JSON 入口保持不变,但实际读取的是 ZIP/加密 ZIP 包。
+ */
+class ImportDataUseCase @Inject constructor(
+    private val transferArchiveService: TransferArchiveService
+) {
+    private val tag = "ImportDataUseCase"
+
+    suspend operator fun invoke(filePath: String, password: String? = null): Result<Int> {
+        return try {
+            val file = File(filePath)
+            if (!file.exists()) return Result.failure(Exception("文件不存在: $filePath"))
+            importFromBytesDetailed(file.readBytes(), password).map { it.billCount }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun importFromBytes(data: ByteArray, password: String? = null): Result<Int> {
+        return importFromBytesDetailed(data, password).map { it.billCount }
+    }
+
+    suspend fun importFromBytesDetailed(
+        data: ByteArray,
+        password: String? = null
+    ): Result<ArchiveImportReport> {
+        return try {
+            val digest = shortSha256(data)
+            val result = transferArchiveService.importArchiveBytes(data, password)
+            Log.i(
+                tag,
+                "archive import success digest=$digest identities=${result.identityCount} accounts=${result.accountCount} bills=${result.billCount}"
+            )
+            Result.success(
+                ArchiveImportReport(
+                    identityCount = result.identityCount,
+                    accountCount = result.accountCount,
+                    billCount = result.billCount,
+                    summary = "已导入 ${result.identityCount} 个身份、${result.accountCount} 个账号、${result.billCount} 条账单",
+                    detail = "digest=$digest\nidentities=${result.identityCount}\naccounts=${result.accountCount}\nbills=${result.billCount}"
+                )
+            )
+        } catch (e: Exception) {
+            Log.e(tag, "archive import failed bytes=${data.size}", e)
+            Result.failure(e)
+        }
+    }
+
+    private fun shortSha256(data: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(data)
+        return digest.joinToString("") { "%02x".format(it) }.take(16)
+    }
+}
+
+data class ArchiveImportReport(
+    val identityCount: Int,
+    val accountCount: Int,
+    val billCount: Int,
+    val summary: String,
+    val detail: String
+)
+
+/**
+ * 保留旧的 CSV / 钱迹导出能力。
+ */
+class LegacyBillExportUseCase @Inject constructor(
+    private val legacyExportDelegate: LegacyBillExportDelegate
+) {
+    suspend fun exportCsv(params: ExportParams): Result<String> = legacyExportDelegate.exportCsv(params)
+    suspend fun exportQianji(params: ExportParams): Result<String> = legacyExportDelegate.exportQianji(params)
+}
+
+class LegacyBillExportDelegate @Inject constructor(
+    private val billRepository: BillRepository
+) {
+    suspend fun exportCsv(params: ExportParams): Result<String> {
+        val bills = billRepository.getBillsForIdentity(params.identityId).first()
+        val file = File(params.filePath)
+        file.parentFile?.mkdirs()
         FileOutputStream(file).use { fos ->
-            // UTF-8 BOM
             fos.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
-
-            // Header
             fos.write("日期时间,交易名称,交易号,对方账户,金额,支付方式,状态\n".toByteArray(Charsets.UTF_8))
-
-            // Data rows
-            for (bill in bills) {
-                val line = "${bill.dateTimeStrFormat},${bill.type},${bill.transactionNo},${bill.targetUser},${bill.money},${bill.method},${bill.status}\n"
-                fos.write(line.toByteArray(Charsets.UTF_8))
+            bills.forEach { bill ->
+                fos.write(
+                    "${bill.dateTimeStrFormat},${bill.type},${bill.transactionNo},${bill.targetUser},${bill.money},${bill.method},${bill.status}\n"
+                        .toByteArray(Charsets.UTF_8)
+                )
             }
         }
-
         return Result.success(file.absolutePath)
     }
 
-    /**
-     * JSON 导出 - 对齐 Rust 版 JsonExport 格式
-     * { export_time, identity_name, source, bills[] }
-     */
-    private suspend fun exportJson(params: ExportParams): Result<String> {
-        val bills = getBills(params)
-        val identity = identityRepository.getIdentityById(params.identityId)
+    suspend fun exportQianji(params: ExportParams): Result<String> {
+        val bills = billRepository.getBillsForIdentity(params.identityId).first()
         val file = File(params.filePath)
+        file.parentFile?.mkdirs()
 
-        val root = JSONObject().apply {
-            put("export_time", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()))
-            put("identity_name", identity?.remark ?: "")
-            put("source", params.sourceType)
-            val billsArray = JSONArray()
-            for (bill in bills) {
-                billsArray.put(JSONObject().apply {
-                    put("date_time_formatted", bill.dateTimeStrFormat)
-                    put("item_type", bill.type)
-                    put("number", bill.transactionNo)
-                    put("target_user", bill.targetUser)
-                    put("money_str", bill.money)
-                    put("money", bill.money.toDoubleOrNull())
-                    put("method", bill.method)
-                    put("status_str", bill.status)
-                    put("is_combined", false)
-                })
-            }
-            put("bills", billsArray)
-        }
-
-        file.writeText(root.toString(2), Charsets.UTF_8)
-        return Result.success(file.absolutePath)
-    }
-
-    /**
-     * 钱迹格式导出 - 对齐 Rust 版 QianjiItem
-     * type(0=支出/1=收入), money, category, account, remark, time(unix)
-     */
-    private suspend fun exportQianji(params: ExportParams): Result<String> {
-        val bills = getBills(params)
-        val file = File(params.filePath)
-
-        val items = bills.map { bill ->
+        val jsonArray = JSONArray()
+        bills.forEach { bill ->
             val moneyVal = bill.money.toDoubleOrNull() ?: 0.0
-            val isIncome = INCOME_KEYWORDS.any { bill.type.contains(it) }
+            val isIncome = listOf("充值", "冲正", "退款", "返还", "补偿").any { bill.type.contains(it) }
             val category = when {
                 isIncome -> "其他收入"
                 bill.type.contains("食堂") || bill.type.contains("餐厅") -> "餐饮"
                 else -> "其他支出"
             }
-
-            QianjiItem(
-                type = if (isIncome) 1 else 0,
-                money = kotlin.math.abs(moneyVal),
-                category = category,
-                account = "校园卡",
-                remark = bill.targetUser,
-                time = System.currentTimeMillis() // simplified; would need proper date parsing
+            jsonArray.put(
+                JSONObject().apply {
+                    put("type", if (isIncome) 1 else 0)
+                    put("money", abs(moneyVal))
+                    put("category", category)
+                    put("account", "校园卡")
+                    put("remark", bill.targetUser)
+                    put("time", System.currentTimeMillis())
+                }
             )
-        }
-
-        val jsonArray = JSONArray()
-        for (item in items) {
-            jsonArray.put(JSONObject().apply {
-                put("type", item.type)
-                put("money", item.money)
-                put("category", item.category)
-                put("account", item.account)
-                put("remark", item.remark)
-                put("time", item.time)
-            })
         }
 
         file.writeText(jsonArray.toString(2), Charsets.UTF_8)
         return Result.success(file.absolutePath)
-    }
-
-    private suspend fun getBills(params: ExportParams): List<BillItem> {
-        return billRepository.getBillsForIdentity(params.identityId).first()
-    }
-
-    companion object {
-        private val INCOME_KEYWORDS = listOf("充值", "冲正", "退款", "返还", "补偿")
-    }
-}
-
-/**
- * 导入数据用例 - 对齐 Rust 版 import_data
- * 仅支持 JSON 格式
- */
-class ImportDataUseCase @Inject constructor(
-    private val billRepository: BillRepository,
-    private val identityRepository: IdentityRepository,
-    private val billDbManager: BillDatabaseManager
-) {
-    /**
-     * 从 JSON 文件导入账单
-     * @param filePath JSON 文件路径
-     * @param identityId 目标身份 ID
-     * @return 导入的账单数量
-     */
-    suspend operator fun invoke(filePath: String, identityId: Long): Result<Int> {
-        return try {
-            val file = File(filePath)
-            if (!file.exists()) return Result.failure(Exception("文件不存在: $filePath"))
-
-            val content = file.readText(Charsets.UTF_8)
-            val root = JSONObject(content)
-            val billsArray = root.optJSONArray("bills")
-                ?: return Result.failure(Exception("无效的 JSON 格式"))
-
-            if (billsArray.length() == 0) return Result.success(0)
-
-            // Verify the target identity exists
-            val identity = identityRepository.getIdentityById(identityId)
-                ?: return Result.failure(Exception("目标身份不存在: $identityId"))
-
-            val db = billDbManager.getIdentityDatabase(identityId)
-            val dao = db.billDao()
-
-            // Find the first account under this identity for accountId, or use P2P sentinel
-            val accounts = billRepository.getBillsForIdentity(identityId).first()
-            // Use -1 as P2P sentinel accountId (not tied to any real account)
-            val accountId = P2P_ACCOUNT_ID
-
-            // Map JSON items to BillEntity and batch insert
-            val entities = (0 until billsArray.length()).mapNotNull { i ->
-                val billJson = billsArray.optJSONObject(i) ?: return@mapNotNull null
-                jsonBillToEntity(billJson, accountId)
-            }
-
-            if (entities.isEmpty()) return Result.success(0)
-
-            // Batch insert with OnConflictStrategy.IGNORE for dedup by transactionNo
-            val results = dao.insertAll(entities)
-            val insertedCount = results.count { it != -1L }
-
-            Result.success(insertedCount)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    /**
-     * Import bills from raw JSON byte data (used by P2P transfer).
-     * @param data UTF-8 encoded JSON bytes
-     * @param identityId Target identity ID
-     * @return Number of bills inserted
-     */
-    suspend fun importFromBytes(data: ByteArray, identityId: Long): Result<Int> {
-        return try {
-            val jsonStr = String(data, Charsets.UTF_8)
-            val root = JSONObject(jsonStr)
-            val billsArray = root.optJSONArray("bills")
-                ?: return Result.failure(Exception("无效的 JSON 格式"))
-
-            if (billsArray.length() == 0) return Result.success(0)
-
-            val identity = identityRepository.getIdentityById(identityId)
-                ?: return Result.failure(Exception("目标身份不存在: $identityId"))
-
-            val db = billDbManager.getIdentityDatabase(identityId)
-            val dao = db.billDao()
-
-            val entities = (0 until billsArray.length()).mapNotNull { i ->
-                val billJson = billsArray.optJSONObject(i) ?: return@mapNotNull null
-                jsonBillToEntity(billJson, P2P_ACCOUNT_ID)
-            }
-
-            if (entities.isEmpty()) return Result.success(0)
-
-            val results = dao.insertAll(entities)
-            val insertedCount = results.count { it != -1L }
-
-            Result.success(insertedCount)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    private fun jsonBillToEntity(billJson: JSONObject, accountId: Long): BillEntity {
-        val dateTimeFormatted = billJson.optString("date_time_formatted", "")
-        return BillEntity(
-            accountId = accountId,
-            accountLabel = billJson.optString("account_label", "P2P导入"),
-            dateStr = dateTimeFormatted.substringBefore(" "),
-            timeStr = dateTimeFormatted.substringAfter(" ", ""),
-            dateTimeStrFormat = dateTimeFormatted,
-            type = billJson.optString("item_type", ""),
-            transactionNo = billJson.optString("number", "").ifBlank {
-                "p2p_${UUID.randomUUID()}"
-            },
-            targetUser = billJson.optString("target_user", ""),
-            money = billJson.optString("money_str", "0"),
-            method = billJson.optString("method", ""),
-            status = billJson.optString("status_str", "SUCCESS"),
-            position = billJson.optString("position", "").ifEmpty { null },
-            room = billJson.optString("room", "").ifEmpty { null },
-            category = billJson.optString("category", "").ifEmpty { null },
-            building = billJson.optString("building", "").ifEmpty { null }
-        )
-    }
-
-    companion object {
-        /** Sentinel accountId for P2P-imported bills (not tied to any real account). */
-        const val P2P_ACCOUNT_ID = -1L
     }
 }

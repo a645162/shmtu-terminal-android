@@ -46,13 +46,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -86,7 +87,6 @@ import cn.edu.shmtu.terminal.android.data.p2p.P2PProtocol
 import cn.edu.shmtu.terminal.android.data.p2p.QRPayload
 import cn.edu.shmtu.terminal.android.data.p2p.TransferStage
 import cn.edu.shmtu.terminal.android.data.p2p.TransferStatus
-import cn.edu.shmtu.terminal.android.domain.model.Identity
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
@@ -126,10 +126,17 @@ fun P2PScreen(
     val tabs = listOf("二维码", "手动配对", "已配对", "传输")
 
     val snackbarHostState = remember { SnackbarHostState() }
+    var showImportDetailDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(uiState.lastMessage) {
+    LaunchedEffect(uiState.lastMessage, uiState.importDetail) {
         uiState.lastMessage?.let {
-            snackbarHostState.showSnackbar(it)
+            val result = snackbarHostState.showSnackbar(
+                message = it,
+                actionLabel = if (uiState.importDetail != null) "查看详情" else null
+            )
+            if (result == SnackbarResult.ActionPerformed && uiState.importDetail != null) {
+                showImportDetailDialog = true
+            }
             viewModel.clearMessage()
         }
     }
@@ -161,17 +168,14 @@ fun P2PScreen(
     // Active transfer is rendered inline in the paired/transfer tabs. No modal dialog.
     val activeTransfer = uiState.transferProgress.firstOrNull { !it.isComplete }
 
-    // Show identity selection dialog when data is received via P2P
-    val pendingImport = uiState.pendingImport
-    if (pendingImport != null && uiState.identities.isNotEmpty()) {
-        IdentitySelectionDialog(
-            identities = uiState.identities,
-            billCount = pendingImport.billCount,
-            onSelect = { identityId ->
-                viewModel.importBillsToIdentity(pendingImport, identityId)
-            },
+    val importDetail = uiState.importDetail
+    if (showImportDetailDialog && importDetail != null) {
+        ImportDetailDialog(
+            summary = uiState.importDetailSummary ?: "导入详情",
+            detail = importDetail,
             onDismiss = {
-                viewModel.dismissImportDialog()
+                showImportDetailDialog = false
+                viewModel.clearImportDetail()
             }
         )
     }
@@ -336,65 +340,61 @@ private fun QRScanConfirmDialog(
     )
 }
 
-/**
- * Dialog for selecting which identity to import received bills into.
- */
 @Composable
-private fun IdentitySelectionDialog(
-    identities: List<Identity>,
-    billCount: Int,
-    onSelect: (Long) -> Unit,
+private fun ImportDetailDialog(
+    summary: String,
+    detail: String,
     onDismiss: () -> Unit
 ) {
-    var selectedIdentityId by remember { mutableStateOf(identities.firstOrNull()?.id) }
+    val context = LocalContext.current
 
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("选择导入目标") },
+        title = { Text("导入详情") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "收到 $billCount 条账单，请选择导入到哪个身份：",
-                    style = MaterialTheme.typography.bodyMedium
+                    text = summary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-                identities.forEach { identity ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 360.dp)
+                            .padding(12.dp)
                     ) {
-                        RadioButton(
-                            selected = selectedIdentityId == identity.id,
-                            onClick = { selectedIdentityId = identity.id }
-                        )
-                        Column {
+                        item {
                             Text(
-                                text = identity.remark.ifBlank { identity.username },
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
+                                text = detail,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            if (identity.remark.isNotBlank()) {
-                                Text(
-                                    text = identity.username,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
                         }
                     }
                 }
             }
         },
         confirmButton = {
-            Button(
-                onClick = { selectedIdentityId?.let { onSelect(it) } },
-                enabled = selectedIdentityId != null
-            ) {
-                Text("导入")
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
             }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss) {
-                Text("取消")
+            OutlinedButton(
+                onClick = {
+                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("P2P导入详情", detail))
+                    android.widget.Toast.makeText(context, "导入详情已复制", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            ) {
+                Text("复制详情")
             }
         }
     )

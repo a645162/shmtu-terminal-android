@@ -37,6 +37,11 @@ interface AccountDao {
     @Query("UPDATE accounts SET label = :label, userId = :userId WHERE id = :id")
     suspend fun updateAccount(id: Long, label: String, userId: String)
 
+    @Query(
+        "UPDATE accounts SET accountType = :accountType, displayOrder = :displayOrder, createdAt = :createdAt WHERE id = :id"
+    )
+    suspend fun updateAccountMetadata(id: Long, accountType: String, displayOrder: Int, createdAt: Long)
+
     @Query("SELECT identityId, COUNT(*) as count FROM accounts GROUP BY identityId")
     fun getAccountCounts(): Flow<List<AccountCount>>
 

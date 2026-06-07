@@ -35,11 +35,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.domain.model.ExportFormat
 import cn.edu.shmtu.terminal.android.domain.model.Identity
+import cn.edu.shmtu.terminal.android.ui.component.PasswordTextField
 
 /**
  * 数据传输页面 - 对齐 Rust 版 DataTransferDialog
@@ -58,13 +58,13 @@ fun DataTransferScreen(
     val tabs = listOf("导出", "导入", "快照")
 
     // 导出：CreateDocument launcher，让用户选择保存位置
-    var pendingExportParams by remember { mutableStateOf<Triple<Long, ExportFormat, String>?>(null) }
+    var pendingExportParams by remember { mutableStateOf<ExportRequest?>(null) }
     val createDocumentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json")
+        contract = ActivityResultContracts.CreateDocument("*/*")
     ) { uri: Uri? ->
         val params = pendingExportParams
         if (uri != null && params != null) {
-            viewModel.exportDataToUri(params.first, params.second, params.third, uri)
+            viewModel.exportDataToUri(params.identityId, params.format, uri, params.password)
         }
         pendingExportParams = null
     }
@@ -95,20 +95,20 @@ fun DataTransferScreen(
                 0 -> ExportTab(
                     identities = identities,
                     exportState = exportState,
-                    onExport = { identityId, format, sourceType ->
+                    onExport = { identityId, format, password ->
                         val ext = when (format) {
                             ExportFormat.CSV -> "csv"
-                            ExportFormat.JSON -> "json"
+                            ExportFormat.JSON -> "zip"
                             ExportFormat.QIANJI -> "json"
                         }
-                        val fileName = "bills_${System.currentTimeMillis()}.$ext"
-                        pendingExportParams = Triple(identityId, format, sourceType)
+                        val fileName = "shmtu_transfer_${System.currentTimeMillis()}.$ext"
+                        pendingExportParams = ExportRequest(identityId, format, password)
                         createDocumentLauncher.launch(fileName)
                     }
                 )
                 1 -> ImportTab(
                     importState = importState,
-                    onImport = { uri -> viewModel.importData(uri) }
+                    onImport = { uri, password -> viewModel.importData(uri, password) }
                 )
                 2 -> SnapshotTab(viewModel = viewModel)
             }
@@ -120,17 +120,17 @@ fun DataTransferScreen(
  * 导出标签页 - 对齐 Rust 版 export_ui
  * 格式选择: CSV / JSON / 钱迹格式
  * 身份选择器
- * 数据来源: 身份合并数据 / 账号原始数据
+ * ZIP 数据包始终包含身份、账号与账单
  */
 @Composable
 private fun ExportTab(
     identities: List<Identity>,
     exportState: ExportState,
-    onExport: (Long, ExportFormat, String) -> Unit
+    onExport: (Long, ExportFormat, String?) -> Unit
 ) {
     var selectedFormat by remember { mutableStateOf(ExportFormat.JSON) }
     var selectedIdentityId by remember { mutableStateOf<Long?>(null) }
-    var sourceType by remember { mutableStateOf("identity") }
+    var archivePassword by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier.padding(16.dp),
@@ -147,12 +147,22 @@ private fun ExportTab(
             FilterChip(
                 selected = selectedFormat == ExportFormat.JSON,
                 onClick = { selectedFormat = ExportFormat.JSON },
-                label = { Text("JSON") }
+                label = { Text("ZIP 数据包") }
             )
             FilterChip(
                 selected = selectedFormat == ExportFormat.QIANJI,
                 onClick = { selectedFormat = ExportFormat.QIANJI },
                 label = { Text("钱迹格式") }
+            )
+        }
+
+        if (selectedFormat == ExportFormat.JSON) {
+            Text("加密口令", style = MaterialTheme.typography.titleMedium)
+            PasswordTextField(
+                value = archivePassword,
+                onValueChange = { archivePassword = it },
+                label = { Text("留空则不加密；P2P 会自动使用配对码加密") },
+                modifier = Modifier.fillMaxWidth()
             )
         }
 
@@ -170,25 +180,20 @@ private fun ExportTab(
             }
         }
 
-        // 数据来源 - 对齐 Rust 版 source_type_selector
-        Text("数据来源", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = sourceType == "identity",
-                onClick = { sourceType = "identity" },
-                label = { Text("身份合并数据") }
-            )
-            FilterChip(
-                selected = sourceType == "account",
-                onClick = { sourceType = "account" },
-                label = { Text("账号原始数据") }
+        if (selectedFormat == ExportFormat.JSON) {
+            Text(
+                "ZIP 数据包会同时导出该身份下的身份信息、账号信息和账单数据",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
         // 导出按钮
         Button(
             onClick = {
-                selectedIdentityId?.let { onExport(it, selectedFormat, sourceType) }
+                selectedIdentityId?.let {
+                    onExport(it, selectedFormat, archivePassword.ifBlank { null })
+                }
             },
             enabled = selectedIdentityId != null && exportState !is ExportState.Exporting,
             modifier = Modifier.fillMaxWidth()
@@ -219,10 +224,10 @@ private fun ExportTab(
 @Composable
 private fun ImportTab(
     importState: ImportState,
-    onImport: (Uri) -> Unit
+    onImport: (Uri, String?) -> Unit
 ) {
-    val context = LocalContext.current
     var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
+    var password by remember { mutableStateOf("") }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -234,24 +239,31 @@ private fun ImportTab(
         modifier = Modifier.padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("导入 JSON 数据", style = MaterialTheme.typography.titleMedium)
+        Text("导入 ZIP 数据包", style = MaterialTheme.typography.titleMedium)
         Text(
-            "仅支持从本应用导出的 JSON 格式文件",
+            "支持导入本应用导出的 ZIP 数据包；如已加密，请输入口令",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
+        PasswordTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("加密口令（未加密可留空）") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
         // 文件选择
         OutlinedButton(
-            onClick = { filePickerLauncher.launch(arrayOf("application/json")) },
+            onClick = { filePickerLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (selectedFileUri != null) "已选择文件" else "选择 JSON 文件")
+            Text(if (selectedFileUri != null) "已选择文件" else "选择 ZIP 文件")
         }
 
         // 导入按钮
         Button(
-            onClick = { selectedFileUri?.let { onImport(it) } },
+            onClick = { selectedFileUri?.let { onImport(it, password.ifBlank { null }) } },
             enabled = selectedFileUri != null && importState !is ImportState.Importing,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -261,7 +273,7 @@ private fun ImportTab(
         when (importState) {
             is ImportState.Importing -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             is ImportState.Success -> Text(
-                "导入成功: ${importState.count} 条记录",
+                importState.message,
                 color = MaterialTheme.colorScheme.primary
             )
             is ImportState.Error -> Text(
@@ -272,6 +284,12 @@ private fun ImportTab(
         }
     }
 }
+
+private data class ExportRequest(
+    val identityId: Long,
+    val format: ExportFormat,
+    val password: String? = null
+)
 
 /**
  * 快照管理标签页 - 对齐 Rust 版 snapshot_management

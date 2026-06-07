@@ -10,7 +10,6 @@ import cn.edu.shmtu.terminal.android.data.p2p.P2PSession
 import cn.edu.shmtu.terminal.android.data.p2p.P2PStatus
 import cn.edu.shmtu.terminal.android.data.p2p.P2PTransferProgress
 import cn.edu.shmtu.terminal.android.data.p2p.QRPayload
-import cn.edu.shmtu.terminal.android.domain.model.Identity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,9 +29,8 @@ data class P2PUiState(
     val sendErrorDetail: String? = null,
     val isSending: Boolean = false,
     val lastMessage: String? = null,
-    // Identity selection for P2P import
-    val pendingImport: P2PPendingImport? = null,
-    val identities: List<Identity> = emptyList(),
+    val importDetailSummary: String? = null,
+    val importDetail: String? = null,
     // QR scan result
     val scannedQRPayload: QRPayload? = null,
     // Whether the scanned QR's IP is on the same subnet
@@ -75,25 +73,10 @@ class P2PViewModel @Inject constructor(
         // Collect pending import events from P2PManager
         viewModelScope.launch {
             p2pManager.pendingImport.collect { pending ->
-                val identities = p2pManager.getIdentitiesForImport()
-                if (identities.isEmpty()) {
-                    _uiState.value = _uiState.value.copy(
-                        lastMessage = "没有可用的身份，无法导入账单"
-                    )
-                } else if (identities.size == 1) {
-                    // Only one identity — import directly without dialog
-                    _uiState.value = _uiState.value.copy(
-                        lastMessage = "已收到 ${pending.billCount} 条账单，正在导入"
-                    )
-                    importBillsToIdentity(pending, identities.first().id)
-                } else {
-                    // Multiple identities — show selection dialog
-                    _uiState.value = _uiState.value.copy(
-                        pendingImport = pending,
-                        identities = identities,
-                        lastMessage = "已收到 ${pending.billCount} 条账单，请选择导入身份"
-                    )
-                }
+                _uiState.value = _uiState.value.copy(
+                    lastMessage = "已收到 ${pending.itemCount} 条数据，正在恢复身份/账号/账单"
+                )
+                importArchive(pending)
             }
         }
     }
@@ -268,32 +251,40 @@ class P2PViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Import received bills into the selected identity.
-     */
-    fun importBillsToIdentity(pendingImport: P2PPendingImport, identityId: Long) {
+    private fun importArchive(pendingImport: P2PPendingImport) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(pendingImport = null)
-            val result = p2pManager.importBills(pendingImport.data, identityId)
+            _uiState.value = _uiState.value.copy(
+                importDetailSummary = null,
+                importDetail = null
+            )
+            val result = p2pManager.importBills(pendingImport.sessionId, pendingImport.data)
+            val report = result.getOrNull()
             _uiState.value = _uiState.value.copy(
                 lastMessage = if (result.isSuccess) {
-                    "已导入 ${result.getOrDefault(0)} 条账单"
+                    report?.summary
                 } else {
                     "导入失败: ${result.exceptionOrNull()?.message}"
+                },
+                importDetailSummary = if (result.isSuccess) {
+                    report?.summary
+                } else {
+                    "导入失败"
+                },
+                importDetail = if (result.isSuccess) {
+                    report?.detail
+                } else {
+                    result.exceptionOrNull()?.stackTraceToString() ?: result.exceptionOrNull()?.message
                 }
             )
         }
     }
 
-    /**
-     * Dismiss the identity selection dialog without importing.
-     */
-    fun dismissImportDialog() {
-        _uiState.value = _uiState.value.copy(pendingImport = null)
-    }
-
     fun clearMessage() {
         _uiState.value = _uiState.value.copy(lastMessage = null)
+    }
+
+    fun clearImportDetail() {
+        _uiState.value = _uiState.value.copy(importDetailSummary = null, importDetail = null)
     }
 
     fun clearConnectError() {

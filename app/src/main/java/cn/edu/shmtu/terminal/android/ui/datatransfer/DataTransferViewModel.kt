@@ -40,7 +40,7 @@ sealed class ExportState {
 sealed class ImportState {
     data object Idle : ImportState()
     data object Importing : ImportState()
-    data class Success(val count: Int) : ImportState()
+    data class Success(val count: Int, val message: String) : ImportState()
     data class Error(val message: String) : ImportState()
 }
 
@@ -70,12 +70,12 @@ class DataTransferViewModel @Inject constructor(
         loadSnapshots()
     }
 
-    fun exportData(identityId: Long, format: ExportFormat, sourceType: String) {
+    fun exportData(identityId: Long, format: ExportFormat, password: String? = null) {
         viewModelScope.launch {
             _exportState.value = ExportState.Exporting
             val ext = when (format) {
                 ExportFormat.CSV -> "csv"
-                ExportFormat.JSON -> "json"
+                ExportFormat.JSON -> "zip"
                 ExportFormat.QIANJI -> "json"
             }
             val fileName = "export_${System.currentTimeMillis()}.$ext"
@@ -85,9 +85,8 @@ class DataTransferViewModel @Inject constructor(
             val result = exportDataUseCase(ExportParams(
                 identityId = identityId,
                 format = format,
-                sourceType = sourceType,
                 filePath = filePath
-            ))
+            ), password)
             _exportState.value = result.fold(
                 onSuccess = { ExportState.Success(filePath) },
                 onFailure = { ExportState.Error(it.message ?: "导出失败") }
@@ -99,13 +98,13 @@ class DataTransferViewModel @Inject constructor(
      * 导出数据到指定 URI（SAF CreateDocument 选择的保存位置）
      * 先在内部生成文件，再复制到用户选择的位置
      */
-    fun exportDataToUri(identityId: Long, format: ExportFormat, sourceType: String, destUri: Uri) {
+    fun exportDataToUri(identityId: Long, format: ExportFormat, destUri: Uri, password: String? = null) {
         viewModelScope.launch {
             _exportState.value = ExportState.Exporting
             try {
                 val ext = when (format) {
                     ExportFormat.CSV -> "csv"
-                    ExportFormat.JSON -> "json"
+                    ExportFormat.JSON -> "zip"
                     ExportFormat.QIANJI -> "json"
                 }
                 val fileName = "export_${System.currentTimeMillis()}.$ext"
@@ -115,9 +114,8 @@ class DataTransferViewModel @Inject constructor(
                 val result = exportDataUseCase(ExportParams(
                     identityId = identityId,
                     format = format,
-                    sourceType = sourceType,
                     filePath = filePath
-                ))
+                ), password)
 
                 result.fold(
                     onSuccess = {
@@ -135,23 +133,17 @@ class DataTransferViewModel @Inject constructor(
         }
     }
 
-    fun importData(uri: Uri) {
+    fun importData(uri: Uri, password: String? = null) {
         viewModelScope.launch {
             _importState.value = ImportState.Importing
             try {
-                val tempFile = File(context.cacheDir, "import_temp.json")
+                val tempFile = File(context.cacheDir, "import_temp.bin")
                 context.contentResolver.openInputStream(uri)?.use { input ->
                     tempFile.outputStream().use { output -> input.copyTo(output) }
                 }
-                // Find the first identity for import target
-                val identities = identityRepository.getAllIdentities().let {
-                    // Get first identity id
-                    val list = it.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList()).value
-                    list.firstOrNull()?.id ?: 0L
-                }
-                val result = importDataUseCase(tempFile.absolutePath, identities)
+                val result = importDataUseCase(tempFile.absolutePath, password)
                 _importState.value = result.fold(
-                    onSuccess = { ImportState.Success(it) },
+                    onSuccess = { ImportState.Success(it, "导入成功: $it 条账单") },
                     onFailure = { ImportState.Error(it.message ?: "导入失败") }
                 )
                 tempFile.delete()

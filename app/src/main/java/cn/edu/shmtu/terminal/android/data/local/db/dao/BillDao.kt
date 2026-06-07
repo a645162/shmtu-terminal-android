@@ -65,6 +65,9 @@ interface BillDao {
     @Query("SELECT COUNT(*) FROM bills WHERE accountId = :accountId")
     suspend fun getCountByAccountId(accountId: Long): Int
 
+    @Query("SELECT transactionNo FROM bills WHERE accountId = :accountId AND transactionNo IN (:transactionNos)")
+    suspend fun findExistingTransactionNos(accountId: Long, transactionNos: List<String>): List<String>
+
     /**
      * 取出所有账单的轻量行(仅 id / type / targetUser),供"重算历史账单"功能使用。
      * 配合 [updateBillClassify] 一起工作,避免加载整张表的所有字段。

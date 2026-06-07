@@ -218,7 +218,7 @@ class P2PServer(private val parentScope: CoroutineScope) {
         sessionId: String,
         data: ByteArray,
         billCount: Int,
-        fileName: String = "bills_export.json",
+        fileName: String = "shmtu_transfer.zip",
         onProgress: (Long, Long) -> Unit = { _, _ -> }
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val session = acceptedSessions[sessionId]
@@ -714,7 +714,7 @@ class P2PServer(private val parentScope: CoroutineScope) {
                     sessionId = it.sessionId,
                     transferId = it.transferId,
                     totalSize = it.totalSize,
-                    billCount = it.billCount
+                    billCount = it.itemCount
                 )
             }
             ?: throw IllegalStateException("没有待接收的传输任务")
@@ -743,7 +743,7 @@ class P2PServer(private val parentScope: CoroutineScope) {
                         receivedBytes += chunkBytes.size
                         callback?.onTransferProgress(
                             sessionId = pending.sessionId,
-                            fileName = "bills_export.json",
+                            fileName = "shmtu_transfer.zip",
                             bytesTransferred = receivedBytes,
                             totalBytes = pending.totalSize
                         )
@@ -756,7 +756,7 @@ class P2PServer(private val parentScope: CoroutineScope) {
                         if (success) {
                             callback?.onTransferReceived(
                                 pending.sessionId,
-                                "bills_export.json",
+                                "shmtu_transfer.zip",
                                 bytes,
                                 pending.billCount
                             )

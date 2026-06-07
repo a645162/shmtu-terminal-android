@@ -4,9 +4,9 @@ import android.content.Context
 import android.util.Log
 import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
 import cn.edu.shmtu.terminal.android.data.local.db.BillDatabaseManager
-import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
-import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
 import cn.edu.shmtu.terminal.android.domain.usecase.export.ImportDataUseCase
+import cn.edu.shmtu.terminal.android.domain.usecase.export.ArchiveImportReport
+import cn.edu.shmtu.terminal.android.domain.usecase.export.TransferArchiveService
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +28,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.InetAddress
 import java.net.NetworkInterface
+import java.security.MessageDigest
 import java.util.Collections
 import java.util.Enumeration
 import java.util.UUID
@@ -44,17 +45,15 @@ class P2PManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val settingsDataStore: SettingsDataStore,
     private val sessionStore: P2PSessionStore,
-    private val billRepository: BillRepository,
-    private val billDbManager: BillDatabaseManager,
-    private val identityRepository: IdentityRepository,
-    private val importDataUseCase: ImportDataUseCase
+    private val importDataUseCase: ImportDataUseCase,
+    private val transferArchiveService: TransferArchiveService
 ) {
 
     data class PendingIncomingTransfer(
         val sessionId: String,
         val transferId: String,
         val totalSize: Long,
-        val billCount: Int
+        val itemCount: Int
     )
 
     private val tag = "P2PManager"
@@ -125,15 +124,18 @@ class P2PManager @Inject constructor(
                 data: ByteArray,
                 billCount: Int
             ) {
-                Log.i(tag, "Transfer received: session=$sessionId file=$fileName bytes=${data.size} bills=$billCount")
-                // Emit pending import event so UI can choose target identity
-                // Copy the data to prevent mutation of the received buffer
+                val payloadDigest = shortSha256(data)
+                val parsedBillCount = parseBillCount(data)
+                Log.i(
+                    tag,
+                    "Transfer received: session=$sessionId file=$fileName bytes=${data.size} bills=$billCount parsedBills=$parsedBillCount digest=$payloadDigest"
+                )
                 _pendingImport.tryEmit(
                     P2PPendingImport(
                         sessionId = sessionId,
                         fileName = fileName,
                         data = data.copyOf(),
-                        billCount = billCount
+                        itemCount = billCount
                     )
                 )
                 updateTransferProgress(
@@ -428,7 +430,7 @@ class P2PManager @Inject constructor(
     }
 
     /**
-     * Send bills to a paired peer identified by session ID.
+     * Send the encrypted ZIP archive to a paired peer identified by session ID.
      * Reuses an active client connection if available; otherwise creates a new one.
      */
     suspend fun sendBills(sessionId: String): Result<Unit> = withContext(Dispatchers.IO) {
@@ -436,7 +438,10 @@ class P2PManager @Inject constructor(
             ?: return@withContext Result.failure(Exception("会话不存在"))
 
         try {
-            val exportData = exportAllBills()
+            val pairCode = session.pairCode
+                ?: return@withContext Result.failure(Exception("当前会话缺少配对码"))
+            val archive = exportAllBills(pairCode)
+            val exportData = archive.bytes
             if (exportData.isEmpty()) {
                 return@withContext Result.failure(Exception("没有可发送的账单数据"))
             }
@@ -460,15 +465,15 @@ class P2PManager @Inject constructor(
                 val result = server.sendTransfer(
                     sessionId = sessionId,
                     data = exportData,
-                    billCount = parseBillCount(exportData),
+                    billCount = archive.billCount,
                     onProgress = { transferred, total ->
-                        updateTransferProgress(sessionId, "bills_export.json", transferred, total, TransferDirection.SEND)
+                        updateTransferProgress(sessionId, TRANSFER_FILE_NAME, transferred, total, TransferDirection.SEND)
                     }
                 )
                 if (result.isSuccess) {
                     updateTransferProgress(
                         sessionId,
-                        "bills_export.json",
+                        TRANSFER_FILE_NAME,
                         exportData.size.toLong(),
                         exportData.size.toLong(),
                         TransferDirection.SEND,
@@ -496,8 +501,6 @@ class P2PManager @Inject constructor(
                 }
 
                 // Re-pair with the remote
-                val pairCode = session.pairCode
-                    ?: return@withContext Result.failure(Exception("当前会话缺少配对码，无法重新建立发送连接"))
                 val pairResult = client.sendPairRequest(
                     deviceName = deviceName,
                     pairCode = pairCode,
@@ -543,7 +546,7 @@ class P2PManager @Inject constructor(
             val offerResult = client.sendTransferOffer(
                 transferId = transferId,
                 totalSize = exportData.size.toLong(),
-                billCount = parseBillCount(exportData)
+                billCount = archive.billCount
             )
 
             if (offerResult.isFailure || offerResult.getOrNull() != true) {
@@ -580,11 +583,11 @@ class P2PManager @Inject constructor(
                 data = exportData,
                 host = session.remoteAddr,
                 port = session.remotePort,
-                pairCode = session.pairCode ?: "",
+                pairCode = pairCode,
                 onProgress = { transferred, total ->
                     updateTransferProgress(
                         sessionId,
-                        "bills_export.json",
+                        TRANSFER_FILE_NAME,
                         transferred,
                         total,
                         TransferDirection.SEND,
@@ -609,7 +612,7 @@ class P2PManager @Inject constructor(
             if (sendResult.isSuccess) {
                 updateTransferProgress(
                     sessionId,
-                    "bills_export.json",
+                    TRANSFER_FILE_NAME,
                     exportData.size.toLong(),
                     exportData.size.toLong(),
                     TransferDirection.SEND,
@@ -722,11 +725,28 @@ class P2PManager @Inject constructor(
     }
 
     /**
-     * Import received bills into the specified identity's database.
+     * Import a received ZIP archive using the paired session's pair code.
      */
-    suspend fun importBills(data: ByteArray, targetIdentityId: Long): Result<Int> {
+    suspend fun importBills(sessionId: String, data: ByteArray): Result<ArchiveImportReport> {
         return try {
-            val result = importDataUseCase.importFromBytes(data, targetIdentityId)
+            val payloadDigest = shortSha256(data)
+            val parsedBillCount = parseBillCount(data)
+            val session = sessions[sessionId]
+                ?: return Result.failure(Exception("会话不存在"))
+            val pairCode = session.pairCode
+                ?: return Result.failure(Exception("当前会话缺少配对码"))
+            Log.i(
+                tag,
+                "Import requested: session=$sessionId bytes=${data.size} parsedItems=$parsedBillCount digest=$payloadDigest"
+            )
+            val result = importDataUseCase.importFromBytesDetailed(data, pairCode)
+            if (result.isSuccess) {
+                val report = result.getOrNull()
+                Log.i(
+                    tag,
+                    "Import finished: session=$sessionId digest=$payloadDigest bills=${report?.billCount} summary=${report?.summary}"
+                )
+            }
             result
         } catch (e: CancellationException) {
             throw e
@@ -735,11 +755,6 @@ class P2PManager @Inject constructor(
             Result.failure(e)
         }
     }
-
-    /**
-     * Get all identities available as import targets.
-     */
-    suspend fun getIdentitiesForImport() = identityRepository.getAllIdentities().first()
 
     /**
      * Get local IPv4 addresses by enumerating network interfaces.
@@ -932,7 +947,7 @@ class P2PManager @Inject constructor(
                 sessionId = sessionId,
                 transferId = transferId,
                 totalSize = totalSize,
-                billCount = billCount
+                itemCount = billCount
             )
             markTransferStage(
                 sessionId = sessionId,
@@ -977,89 +992,53 @@ class P2PManager @Inject constructor(
     // ============================================================================
 
     /**
-     * Export all bills from Room DB to a JSON byte array matching the protocol format.
+     * Export all identities/accounts/bills to an encrypted transfer archive.
      */
-    private suspend fun exportAllBills(): ByteArray {
-        // Build the export JSON using kotlinx.serialization JsonArray
-        val billsList = mutableListOf<String>()
-        var totalBillCount = 0
-
-        try {
-            val identities = identityRepository.getAllIdentities().first()
-            for (identity in identities) {
-                val bills = billRepository.getBillsForIdentity(identity.id).first()
-                for (bill in bills) {
-                    // Build each bill as a JSON object string
-                    val billJson = buildBillJson(
-                        dateTimeFormatted = bill.dateTimeStrFormat,
-                        itemType = bill.type,
-                        number = bill.transactionNo,
-                        targetUser = bill.targetUser,
-                        moneyStr = bill.money,
-                        money = bill.money.toDoubleOrNull(),
-                        method = bill.method,
-                        statusStr = bill.status,
-                        category = bill.category ?: "",
-                        building = bill.building ?: "",
-                        room = bill.room ?: "",
-                        position = bill.position ?: "",
-                        accountLabel = bill.accountLabel
-                    )
-                    billsList.add(billJson)
-                    totalBillCount++
-                }
-            }
+    private suspend fun exportAllBills(pairCode: String): TransferArchiveService.ArchivePayload {
+        return try {
+            transferArchiveService.buildEncryptedArchiveBytes(pairCode, null)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(tag, "Export bills failed", e)
+            Log.e(tag, "Export archive failed", e)
+            TransferArchiveService.ArchivePayload(
+                bytes = ByteArray(0),
+                identityCount = 0,
+                accountCount = 0,
+                billCount = 0,
+                encrypted = true
+            )
         }
-
-        val exportTime = java.text.SimpleDateFormat(
-            "yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()
-        ).format(java.util.Date())
-
-        val json = """{"export_time":"$exportTime","bill_count":$totalBillCount,"bills":[${billsList.joinToString(",")}],"source":"p2p_transfer"}"""
-        return json.toByteArray(Charsets.UTF_8)
-    }
-
-    private fun buildBillJson(
-        dateTimeFormatted: String,
-        itemType: String,
-        number: String,
-        targetUser: String,
-        moneyStr: String,
-        money: Double?,
-        method: String,
-        statusStr: String,
-        category: String,
-        building: String,
-        room: String,
-        position: String,
-        accountLabel: String
-    ): String {
-        val moneyValue = money?.let { "\"$it\"" } ?: "null"
-        // Escape special characters in strings for safe JSON embedding
-        return """{"date_time_formatted":${escapeJson(dateTimeFormatted)},"item_type":${escapeJson(itemType)},"number":${escapeJson(number)},"target_user":${escapeJson(targetUser)},"money_str":${escapeJson(moneyStr)},"money":$moneyValue,"method":${escapeJson(method)},"status_str":${escapeJson(statusStr)},"category":${escapeJson(category)},"building":${escapeJson(building)},"room":${escapeJson(room)},"position":${escapeJson(position)},"account_label":${escapeJson(accountLabel)},"is_combined":false}"""
-    }
-
-    private fun escapeJson(value: String): String {
-        val escaped = value
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-        return "\"$escaped\""
     }
 
     private fun parseBillCount(data: ByteArray): Int {
         return try {
-            val json = kotlinx.serialization.json.Json.parseToJsonElement(String(data, Charsets.UTF_8))
-            json.jsonObject["bill_count"]?.jsonPrimitive?.intOrNull ?: 0
+            if (transferArchiveService.isEncryptedArchive(data)) {
+                0
+            } else {
+                val zip = java.util.zip.ZipInputStream(data.inputStream())
+                zip.use { zis ->
+                    generateSequence { zis.nextEntry }
+                        .firstOrNull { it.name == "manifest.json" }
+                        ?.let {
+                            val root = org.json.JSONObject(zis.readBytes().toString(Charsets.UTF_8))
+                            val identities = root.optJSONArray("identities") ?: return@let 0
+                            var total = 0
+                            for (i in 0 until identities.length()) {
+                                total += identities.optJSONObject(i)?.optJSONArray("bills")?.length() ?: 0
+                            }
+                            total
+                        } ?: 0
+                }
+            }
         } catch (_: Exception) {
             0
         }
+    }
+
+    private fun shortSha256(data: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(data)
+        return digest.joinToString("") { "%02x".format(it) }.take(16)
     }
 
     // Lifecycle management
@@ -1114,7 +1093,7 @@ class P2PManager @Inject constructor(
 
     private fun markTransferStage(
         sessionId: String,
-        fileName: String = "bills_export.json",
+        fileName: String = TRANSFER_FILE_NAME,
         direction: TransferDirection,
         stage: TransferStage,
         bytesTransferred: Long = 0L,
@@ -1135,7 +1114,7 @@ class P2PManager @Inject constructor(
 
     private fun markTransferFailed(
         sessionId: String,
-        fileName: String = "bills_export.json",
+        fileName: String = TRANSFER_FILE_NAME,
         direction: TransferDirection,
         detail: String,
         bytesTransferred: Long = 0L,
@@ -1165,5 +1144,7 @@ data class P2PPendingImport(
     val sessionId: String,
     val fileName: String,
     val data: ByteArray,
-    val billCount: Int
+    val itemCount: Int
 )
+
+private const val TRANSFER_FILE_NAME = "shmtu_transfer.zip"
