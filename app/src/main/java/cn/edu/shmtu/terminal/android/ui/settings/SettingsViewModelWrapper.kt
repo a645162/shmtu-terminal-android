@@ -4,16 +4,18 @@ import androidx.lifecycle.ViewModel
 import cn.edu.shmtu.terminal.android.data.dedupe.BillDedupeRepository
 import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
 import cn.edu.shmtu.terminal.android.data.sync.BillRulesManager
+import cn.edu.shmtu.terminal.android.data.webserver.SettingsDataStoreWebExt
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 
 /**
- * SettingsScreen 依赖 wrapper - 用 Hilt 注入 FeatureSettingsStore / BillRulesManager / BillDedupeRepository / SettingsDataStore。
+ * SettingsScreen 依赖 wrapper - 用 Hilt 注入 FeatureSettingsStore / BillRulesManager / BillDedupeRepository / SettingsDataStore / SettingsDataStoreWebExt。
  */
 @HiltViewModel
 class SettingsViewModelWrapper @Inject constructor(
     val featureStore: FeatureSettingsStore,
     val rulesManager: BillRulesManager,
     val dedupeRepository: BillDedupeRepository,
-    val settingsDataStore: SettingsDataStore
+    val settingsDataStore: SettingsDataStore,
+    val webServerSettings: SettingsDataStoreWebExt
 ) : ViewModel()

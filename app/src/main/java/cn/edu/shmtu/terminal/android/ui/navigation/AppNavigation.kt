@@ -29,6 +29,7 @@ import cn.edu.shmtu.terminal.android.ui.settings.DataSettingsScreen
 import cn.edu.shmtu.terminal.android.ui.settings.DebugSettingsScreen
 import cn.edu.shmtu.terminal.android.ui.settings.HomeChartSettingsScreen
 import cn.edu.shmtu.terminal.android.ui.settings.LocalFeatureStore
+import cn.edu.shmtu.terminal.android.ui.settings.NotificationSettingsScreen
 import cn.edu.shmtu.terminal.android.ui.settings.OcrSettingsScreen
 import cn.edu.shmtu.terminal.android.ui.settings.SecuritySettingsScreen
 import cn.edu.shmtu.terminal.android.ui.settings.SettingsScreen
@@ -84,9 +85,11 @@ fun AppNavigation(
                     rulesManager = wrapper.rulesManager,
                     dedupeRepository = wrapper.dedupeRepository,
                     settingsDataStore = wrapper.settingsDataStore,
+                    webServerSettings = wrapper.webServerSettings,
                     onBack = { navController.popBackStack() },
                     onNavigateToAbout = { navController.navigate("about") },
-                    onNavigateToOcrSettings = { navController.navigate("ocr_settings") }
+                    onNavigateToOcrSettings = { navController.navigate("ocr_settings") },
+                    onNavigateToNotificationSettings = { navController.navigate("notification_settings") }
                 )
             }
             composable("settings/appearance") { AppearanceSettingsScreen(onBack = { navController.popBackStack() }) }
@@ -95,6 +98,11 @@ fun AppNavigation(
             composable("settings/sync") { SyncSettingsScreen(onBack = { navController.popBackStack() }) }
             composable("settings/update") { UpdateSettingsScreen(onBack = { navController.popBackStack() }) }
             composable("settings/debug") { DebugSettingsScreen(onBack = { navController.popBackStack() }) }
+            composable("notification_settings") {
+                NotificationSettingsScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
             composable("bill_statistics") {
                 BillStatisticsScreen(
                     onBack = { navController.popBackStack() }
@@ -135,7 +143,6 @@ fun AppNavigation(
             composable("p2p_qr_scan") {
                 QRScanScreen(
                     onQRScanned = { payload ->
-                        // Store result as JSON string to avoid Parcelable/Serializable requirement
                         val payloadJson = cn.edu.shmtu.terminal.android.data.p2p.p2pJson
                             .encodeToString(
                                 cn.edu.shmtu.terminal.android.data.p2p.QRPayload.serializer(),

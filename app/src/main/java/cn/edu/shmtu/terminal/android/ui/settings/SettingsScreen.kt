@@ -36,6 +36,8 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
@@ -67,6 +69,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import cn.edu.shmtu.terminal.android.data.dedupe.BillDedupeRepository
+import cn.edu.shmtu.terminal.android.data.webserver.SettingsDataStoreWebExt
 import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
 import cn.edu.shmtu.terminal.android.data.sync.BillRulesManager
 
@@ -77,9 +80,11 @@ fun SettingsScreen(
     rulesManager: BillRulesManager,
     dedupeRepository: BillDedupeRepository,
     settingsDataStore: SettingsDataStore,
+    webServerSettings: SettingsDataStoreWebExt,
     onBack: () -> Unit,
     onNavigateToAbout: () -> Unit,
-    onNavigateToOcrSettings: () -> Unit
+    onNavigateToOcrSettings: () -> Unit,
+    onNavigateToNotificationSettings: () -> Unit
 ) {
     CompositionLocalProvider(LocalFeatureStore provides featureStore) {
         val groups = remember { settingsGroups() }
@@ -143,8 +148,10 @@ fun SettingsScreen(
                                 rulesManager = rulesManager,
                                 dedupeRepository = dedupeRepository,
                                 settingsDataStore = settingsDataStore,
+                                webServerSettings = webServerSettings,
                                 onNavigateToAbout = onNavigateToAbout,
-                                onNavigateToOcrSettings = onNavigateToOcrSettings
+                                onNavigateToOcrSettings = onNavigateToOcrSettings,
+                                onNavigateToNotificationSettings = onNavigateToNotificationSettings
                             )
                         }
                     }
@@ -166,8 +173,10 @@ fun SettingsScreen(
                         rulesManager = rulesManager,
                         dedupeRepository = dedupeRepository,
                         settingsDataStore = settingsDataStore,
+                                webServerSettings = webServerSettings,
                         onNavigateToAbout = onNavigateToAbout,
-                        onNavigateToOcrSettings = onNavigateToOcrSettings
+                        onNavigateToOcrSettings = onNavigateToOcrSettings,
+                        onNavigateToNotificationSettings = onNavigateToNotificationSettings
                     )
                 } else {
                     Scaffold(
@@ -389,8 +398,10 @@ private fun DetailFor(
     rulesManager: BillRulesManager,
     dedupeRepository: BillDedupeRepository,
     settingsDataStore: SettingsDataStore,
+    webServerSettings: SettingsDataStoreWebExt,
     onNavigateToAbout: () -> Unit,
-    onNavigateToOcrSettings: () -> Unit
+    onNavigateToOcrSettings: () -> Unit,
+    onNavigateToNotificationSettings: () -> Unit
 ) {
     when (key) {
         "appearance" -> AppearanceSettingsScreen(onBack = onBack, embedded = embedded)
@@ -405,6 +416,8 @@ private fun DetailFor(
         "debug" -> DebugSettingsScreen(onBack = onBack, embedded = embedded)
         "ocr" -> OcrSettingsScreen(onBack = onBack, embedded = embedded)
         "p2p" -> P2PSettingsScreen(onBack = onBack, embedded = embedded, settingsDataStore = settingsDataStore)
+        "webserver" -> WebServerSettingsScreen(onBack = onBack, embedded = embedded, webServerSettings = webServerSettings)
+        "notification" -> NotificationSettingsScreen(onBack = onBack, embedded = embedded)
         "about" -> AboutScreen(onBack = onBack, embedded = embedded)
         else -> SettingsDetailBody {
             Box(
@@ -473,12 +486,12 @@ private fun settingsGroups(): List<SettingsGroup> {
             accent = listOf(Color(0xFF2F6FCE), Color(0xFF87AFFF))
         ),
         SettingsGroup(
-            key = "data",
-            title = "数据",
-            subtitle = "去重与维护操作",
-            description = "对身份级和账号级账单进行维护处理。",
-            icon = Icons.Filled.Storage,
-            accent = listOf(Color(0xFF6A55E6), Color(0xFFB49CFF))
+            key = "notification",
+            title = "通知",
+            subtitle = "通知类型、样式与 Webhook 转发",
+            description = "管理应用通知、阈值和飞书/企业微信机器人转发。",
+            icon = Icons.Filled.Notifications,
+            accent = listOf(Color(0xFF6750A4), Color(0xFFB69DF8))
         ),
         SettingsGroup(
             key = "p2p",
@@ -487,6 +500,22 @@ private fun settingsGroups(): List<SettingsGroup> {
             description = "配置局域网点对点传输参数。",
             icon = Icons.Filled.SwapHoriz,
             accent = listOf(Color(0xFFE65100), Color(0xFFFF9E40))
+        ),
+        SettingsGroup(
+            key = "webserver",
+            title = "远程访问",
+            subtitle = "Web 服务与端口配置",
+            description = "在局域网内通过浏览器访问账单数据。",
+            icon = Icons.Filled.Public,
+            accent = listOf(Color(0xFF1565C0), Color(0xFF5BA1FF))
+        ),
+        SettingsGroup(
+            key = "data",
+            title = "数据",
+            subtitle = "去重与维护操作",
+            description = "对身份级和账号级账单进行维护处理。",
+            icon = Icons.Filled.Storage,
+            accent = listOf(Color(0xFF6A55E6), Color(0xFFB49CFF))
         ),
         SettingsGroup(
             key = "classification",

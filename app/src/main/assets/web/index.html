@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SHMTU 账单浏览器</title>
+<style>
+:root {
+  --bg: #f5f7fb;
+  --surface: #ffffff;
+  --surface-alt: #f0f3fa;
+  --primary: #3e7bfa;
+  --primary-hover: #2c63d6;
+  --text: #1c1f26;
+  --text-muted: #6b7280;
+  --border: #e4e7ee;
+  --danger: #dc3545;
+  --success: #16a34a;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115;
+    --surface: #1a1d24;
+    --surface-alt: #232730;
+    --primary: #5b8df9;
+    --primary-hover: #7aa5ff;
+    --text: #e6e8ed;
+    --text-muted: #9ca3af;
+    --border: #2c313a;
+    --shadow: 0 1px 3px rgba(0,0,0,0.4);
+  }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  padding: 16px;
+}
+header {
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+header h1 { font-size: 1.4rem; font-weight: 600; }
+.info-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+.info-row .pill {
+  background: var(--surface-alt);
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 0.85rem;
+  color: var(--text);
+  user-select: all;
+}
+.token-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-alt);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+button {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.15s;
+}
+button:hover { background: var(--primary-hover); }
+button.secondary { background: var(--surface-alt); color: var(--text); }
+button.secondary:hover { background: var(--border); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.layout { display: grid; grid-template-columns: 240px 1fr; gap: 16px; }
+@media (max-width: 720px) { .layout { grid-template-columns: 1fr; } }
+.sidebar {
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: var(--shadow);
+  height: fit-content;
+}
+.sidebar h3 { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.identity-item {
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 4px;
+  transition: background 0.15s;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.identity-item:hover { background: var(--surface-alt); }
+.identity-item.active { background: var(--primary); color: white; }
+.identity-item.active .count { background: rgba(255,255,255,0.25); color: white; }
+.count {
+  font-size: 0.75rem;
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.main {
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+  min-height: 400px;
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+.filters input, .filters select {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  outline: none;
+}
+.filters input:focus, .filters select:focus { border-color: var(--primary); }
+.summary {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.summary-card {
+  flex: 1;
+  min-width: 140px;
+  background: var(--surface-alt);
+  border-radius: 8px;
+  padding: 12px;
+}
+.summary-card .label { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px; }
+.summary-card .value { font-size: 1.3rem; font-weight: 600; }
+.summary-card .value.income { color: var(--success); }
+.summary-card .value.expense { color: var(--danger); }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+th {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+tbody tr:hover { background: var(--surface-alt); }
+.money { font-family: ui-monospace, monospace; text-align: right; }
+.money.income { color: var(--success); }
+.money.expense { color: var(--danger); }
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.pagination .controls { display: flex; gap: 8px; }
+.empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+}
+.error-banner {
+  background: var(--danger);
+  color: white;
+  padding: 10px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+}
+.toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: var(--bg);
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 1000;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SHMTU 账单浏览器</h1>
+  <div class="info-row" id="infoRow">
+    <span>设备: <span class="pill" id="deviceName">--</span></span>
+    <span>IP: <span class="pill" id="ipAddress">--</span></span>
+    <span>端口: <span class="pill" id="port">--</span></span>
+  </div>
+  <div class="token-box">
+    <span>Token:</span>
+    <span id="tokenValue" style="flex:1;">--</span>
+    <button onclick="copyToken()" class="secondary">复制</button>
+  </div>
+</header>
+<div class="layout">
+  <aside class="sidebar">
+    <h3>身份</h3>
+    <div id="identityList">加载中...</div>
+  </aside>
+  <main class="main">
+    <div id="errorContainer"></div>
+    <div class="filters">
+      <input type="date" id="dateStart" placeholder="开始日期">
+      <input type="date" id="dateEnd" placeholder="结束日期">
+      <input type="text" id="keyword" placeholder="关键词" style="min-width:160px;">
+      <button onclick="applyFilters()">应用</button>
+      <button class="secondary" onclick="resetFilters()">重置</button>
+      <button class="secondary" onclick="exportJson()">导出 JSON</button>
+      <button class="secondary" onclick="exportCsv()">导出 CSV</button>
+    </div>
+    <div class="summary" id="summary"></div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>日期</th>
+            <th>类型</th>
+            <th>商户</th>
+            <th>位置</th>
+            <th>分类</th>
+            <th>金额</th>
+            <th>状态</th>
+          </tr>
+        </thead>
+        <tbody id="billTableBody">
+          <tr><td colspan="7" class="empty">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pagination">
+      <span id="pageInfo">第 0-0 条 / 共 0 条</span>
+      <div class="controls">
+        <button onclick="prevPage()" class="secondary" id="prevBtn">上一页</button>
+        <span id="pageNum">1</span>
+        <button onclick="nextPage()" class="secondary" id="nextBtn">下一页</button>
+      </div>
+    </div>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// 离线 fallback: alpine.js + pico.css 不可用时本页所有交互仍可工作(纯 vanilla JS)
+(function() {
+  const API_BASE = window.location.origin;
+  const TOKEN = new URLSearchParams(window.location.search).get('token') || '';
+  const headers = { 'Authorization': 'Bearer ' + TOKEN };
+  let currentPage = 1;
+  let pageSize = 50;
+  let currentIdentityId = null;
+  let totalBills = 0;
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 1800);
+  }
+
+  function showError(msg) {
+    const container = document.getElementById('errorContainer');
+    container.innerHTML = '<div class="error-banner">' + msg + '</div>';
+    setTimeout(() => container.innerHTML = '', 4000);
+  }
+
+  function getFilters() {
+    return {
+      dateStart: document.getElementById('dateStart').value || '',
+      dateEnd: document.getElementById('dateEnd').value || '',
+      keyword: document.getElementById('keyword').value || ''
+    };
+  }
+
+  function applyFilters() {
+    currentPage = 1;
+    loadBills();
+  }
+
+  function resetFilters() {
+    document.getElementById('dateStart').value = '';
+    document.getElementById('dateEnd').value = '';
+    document.getElementById('keyword').value = '';
+    currentPage = 1;
+    loadBills();
+  }
+
+  function prevPage() {
+    if (currentPage > 1) { currentPage--; loadBills(); }
+  }
+
+  function nextPage() {
+    if (currentPage * pageSize < totalBills) { currentPage++; loadBills(); }
+  }
+
+  function copyToken() {
+    const token = document.getElementById('tokenValue').textContent;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(token).then(() => showToast('Token 已复制'));
+    } else {
+      const t = document.createElement('textarea');
+      t.value = token;
+      document.body.appendChild(t);
+      t.select();
+      try { document.execCommand('copy'); showToast('Token 已复制'); } catch(e) { showToast('复制失败'); }
+      document.body.removeChild(t);
+    }
+  }
+
+  function exportJson() {
+    window.open(API_BASE + '/api/export.json?token=' + TOKEN, '_blank');
+  }
+
+  function exportCsv() {
+    window.open(API_BASE + '/api/export.csv?token=' + TOKEN, '_blank');
+  }
+
+  async function apiGet(path) {
+    const res = await fetch(API_BASE + path, { headers });
+    if (!res.ok) {
+      throw new Error('API ' + res.status + ': ' + (await res.text()).slice(0, 120));
+    }
+    return res.json();
+  }
+
+  async function loadInfo() {
+    try {
+      const data = await apiGet('/api/info?token=' + TOKEN);
+      document.getElementById('deviceName').textContent = data.data.deviceName;
+      document.getElementById('ipAddress').textContent = data.data.ipAddress;
+      document.getElementById('port').textContent = data.data.port;
+      document.getElementById('tokenValue').textContent = data.data.token;
+    } catch (e) {
+      showError('加载服务信息失败: ' + e.message);
+    }
+  }
+
+  async function loadIdentities() {
+    try {
+      const data = await apiGet('/api/identities?token=' + TOKEN);
+      const list = data.data || [];
+      const container = document.getElementById('identityList');
+      if (list.length === 0) {
+        container.innerHTML = '<div class="empty">暂无身份</div>';
+        return;
+      }
+      container.innerHTML = '';
+      const allItem = document.createElement('div');
+      allItem.className = 'identity-item active';
+      allItem.innerHTML = '<span>全部</span><span class="count">--</span>';
+      allItem.onclick = () => selectIdentity(null, allItem);
+      container.appendChild(allItem);
+      list.forEach(id => {
+        const item = document.createElement('div');
+        item.className = 'identity-item';
+        const displayName = id.remark || id.username || '身份 ' + id.id;
+        item.innerHTML = '<span>' + displayName + '</span><span class="count">' + (id.accountCount || 0) + '</span>';
+        item.onclick = () => selectIdentity(id.id, item);
+        container.appendChild(item);
+      });
+    } catch (e) {
+      showError('加载身份失败: ' + e.message);
+    }
+  }
+
+  function selectIdentity(id, elem) {
+    document.querySelectorAll('.identity-item').forEach(el => el.classList.remove('active'));
+    if (elem) elem.classList.add('active');
+    currentIdentityId = id;
+    currentPage = 1;
+    loadBills();
+  }
+
+  async function loadBills() {
+    const f = getFilters();
+    const params = new URLSearchParams();
+    if (currentIdentityId) params.set('identityId', currentIdentityId);
+    if (f.dateStart) params.set('dateStart', f.dateStart);
+    if (f.dateEnd) params.set('dateEnd', f.dateEnd);
+    if (f.keyword) params.set('keyword', f.keyword);
+    params.set('page', currentPage);
+    params.set('pageSize', pageSize);
+    params.set('token', TOKEN);
+    try {
+      const data = await apiGet('/api/bills?' + params.toString());
+      const paged = data.data;
+      const items = paged.items || [];
+      totalBills = paged.total;
+      const tbody = document.getElementById('billTableBody');
+      if (items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">无数据</td></tr>';
+      } else {
+        tbody.innerHTML = items.map(b => {
+          const moneyClass = parseFloat(b.money) >= 0 ? 'income' : 'expense';
+          return '<tr>' +
+            '<td>' + (b.dateTime || '') + '</td>' +
+            '<td>' + (b.type || '') + '</td>' +
+            '<td>' + (b.targetUser || '') + '</td>' +
+            '<td>' + (b.position || b.building || '') + '</td>' +
+            '<td>' + (b.category || '') + '</td>' +
+            '<td class="money ' + moneyClass + '">' + (b.money || '0') + '</td>' +
+            '<td>' + (b.status || '') + '</td>' +
+            '</tr>';
+        }).join('');
+      }
+      const start = totalBills === 0 ? 0 : (paged.page - 1) * paged.pageSize + 1;
+      const end = Math.min(start + items.length - 1, totalBills);
+      document.getElementById('pageInfo').textContent = '第 ' + start + '-' + end + ' 条 / 共 ' + totalBills + ' 条';
+      document.getElementById('pageNum').textContent = paged.page;
+      document.getElementById('prevBtn').disabled = paged.page <= 1;
+      document.getElementById('nextBtn').disabled = end >= totalBills;
+      loadSummary(f);
+    } catch (e) {
+      showError('加载账单失败: ' + e.message);
+    }
+  }
+
+  async function loadSummary(f) {
+    try {
+      const params = new URLSearchParams();
+      if (currentIdentityId) params.set('identityId', currentIdentityId);
+      if (f.dateStart) params.set('dateStart', f.dateStart);
+      if (f.dateEnd) params.set('dateEnd', f.dateEnd);
+      params.set('token', TOKEN);
+      const data = await apiGet('/api/statistics?' + params.toString());
+      const s = data.data;
+      const summary = document.getElementById('summary');
+      summary.innerHTML =
+        '<div class="summary-card"><div class="label">总支出</div><div class="value expense">¥' + (s.totalExpense || 0).toFixed(2) + '</div></div>' +
+        '<div class="summary-card"><div class="label">总收入</div><div class="value income">¥' + (s.totalIncome || 0).toFixed(2) + '</div></div>' +
+        '<div class="summary-card"><div class="label">日均</div><div class="value">¥' + (s.dailyAverage || 0).toFixed(2) + '</div></div>' +
+        '<div class="summary-card"><div class="label">交易笔数</div><div class="value">' + (s.transactionCount || 0) + '</div></div>';
+    } catch (e) {
+      // summary 可选,失败不打扰
+    }
+  }
+
+  // 启动
+  loadInfo();
+  loadIdentities();
+  loadBills();
+})();
+</script>
+</body>
+</html>

@@ -40,6 +40,13 @@
             android:name=".data.p2p.P2PForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service
+            android:name=".data.webserver.WebServerService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <receiver
+            android:name=".data.webserver.WebServerActionReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

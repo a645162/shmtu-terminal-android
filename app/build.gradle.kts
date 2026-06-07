@@ -97,6 +97,9 @@ dependencies {
 
     // OkHttp — BillRulesManager 从 GitHub 拉取规则文件
     implementation(libs.okhttp)
+    // NanoHTTPD - embedded Web server for remote bill browsing
+    implementation(libs.nanohttpd)
+    implementation(libs.nanohttpd.websocket)
 
     // ZXing — QR code generation and scanning for P2P
     implementation(libs.zxing.core)
