@@ -75,7 +75,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.data.p2p.P2PInfo
 import cn.edu.shmtu.terminal.android.data.p2p.P2PSession
 import cn.edu.shmtu.terminal.android.data.p2p.P2PTransferProgress
@@ -783,7 +783,7 @@ private fun ConnectTab(
                             ) {
                                 item {
                                     Text(
-                                        text = connectErrorDetail!!,
+                                        text = connectErrorDetail,
                                         style = MaterialTheme.typography.bodySmall.copy(
                                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
                                         )

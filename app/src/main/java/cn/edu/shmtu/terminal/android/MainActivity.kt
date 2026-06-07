@@ -27,7 +27,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.ui.navigation.AppNavigation
 import cn.edu.shmtu.terminal.android.ui.navigation.AppShellViewModel
 import cn.edu.shmtu.terminal.android.ui.navigation.TopLevelDestination

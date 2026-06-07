@@ -47,7 +47,7 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.toClipEntry
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.domain.model.displayTitle
 import cn.edu.shmtu.terminal.android.domain.model.resolvedPlace
 import cn.edu.shmtu.terminal.android.ui.settings.LocalFeatureStore

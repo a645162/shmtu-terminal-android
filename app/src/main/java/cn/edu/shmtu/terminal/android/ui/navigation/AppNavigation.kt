@@ -7,7 +7,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.ui.account.AddAccountScreen
 import cn.edu.shmtu.terminal.android.ui.account.IdentityDetailScreen
 import cn.edu.shmtu.terminal.android.ui.account.IdentityListScreen
