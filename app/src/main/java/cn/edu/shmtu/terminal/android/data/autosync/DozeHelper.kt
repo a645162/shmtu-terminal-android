@@ -103,7 +103,7 @@ object DozeHelper {
         }
         return component?.let {
             Intent().apply {
-                component = it
+                this.component = it
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
         }
