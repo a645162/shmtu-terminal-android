@@ -409,11 +409,17 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
         tvDownloadStatus.text = "下载状态：准备从 $sourceName 获取模型"
 
         modelDownloader.download(source, this, object : ModelDownloader.DownloadProgressListener {
-            override fun onProgress(fileIndex: Int, totalFiles: Int, currentFileProgress: Int) {
+            override fun onProgress(
+                fileIndex: Int,
+                totalFiles: Int,
+                currentFileName: String,
+                currentFileProgress: Int,
+                overallProgress: Int
+            ) {
                 runOnUiThread {
-                    tvDownloadStatus.text = "下载状态：第 $fileIndex / $totalFiles 个文件"
-                    progressBarOverall.max = totalFiles * 100
-                    progressBarOverall.progress = (fileIndex - 1) * 100 + currentFileProgress
+                    tvDownloadStatus.text = "下载状态：第 $fileIndex / $totalFiles 个文件 ($currentFileName)"
+                    progressBarOverall.max = 100
+                    progressBarOverall.progress = overallProgress
                     progressBarCurrent.progress = currentFileProgress
                 }
             }

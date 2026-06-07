@@ -39,9 +39,6 @@ class WebServerService : Service() {
     @Inject
     lateinit var webServerSettings: SettingsDataStoreWebExt
 
-    @Inject
-    lateinit var webServerActionReceiverProvider: dagger.Lazy<WebServerActionReceiver>
-
     override fun onCreate() {
         super.onCreate()
         createChannel()

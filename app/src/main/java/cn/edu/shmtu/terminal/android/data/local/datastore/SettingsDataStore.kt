@@ -24,6 +24,13 @@ class SettingsDataStore @Inject constructor(
     private val _sessionCheckIntervalFlow = MutableStateFlow(getSessionCheckInterval())
     private val _currentIdentityIdFlow = MutableStateFlow(getCurrentIdentityId())
 
+    // P2P settings flows
+    private val _p2pAutoStartFlow = MutableStateFlow(getP2PAutoStart())
+    private val _p2pDeviceNameFlow = MutableStateFlow(getP2PDeviceName())
+    private val _p2pPortFlow = MutableStateFlow(getP2PPort())
+    private val _p2pAutoAcceptFlow = MutableStateFlow(getP2PAutoAccept())
+    private val _p2pAutoReconnectFlow = MutableStateFlow(getP2PAutoReconnect())
+
     // WEB settings flows
     private val _webAutoStartFlow = MutableStateFlow(getWEBAutoStart())
     private val _webDeviceNameFlow = MutableStateFlow(getWEBDeviceName())
@@ -40,6 +47,13 @@ class SettingsDataStore @Inject constructor(
     val sessionCheckInterval: Flow<Int> = _sessionCheckIntervalFlow.asStateFlow()
     val currentIdentityId: Flow<Long?> = _currentIdentityIdFlow.asStateFlow()
 
+    // P2P settings
+    val p2pAutoStart: Flow<Boolean> = _p2pAutoStartFlow.asStateFlow()
+    val p2pDeviceName: Flow<String> = _p2pDeviceNameFlow.asStateFlow()
+    val p2pPort: Flow<Int> = _p2pPortFlow.asStateFlow()
+    val p2pAutoAccept: Flow<Boolean> = _p2pAutoAcceptFlow.asStateFlow()
+    val p2pAutoReconnect: Flow<Boolean> = _p2pAutoReconnectFlow.asStateFlow()
+
     // WEB settings
     val webAutoStart: Flow<Boolean> = _webAutoStartFlow.asStateFlow()
     val webDeviceName: Flow<String> = _webDeviceNameFlow.asStateFlow()
@@ -52,6 +66,8 @@ class SettingsDataStore @Inject constructor(
 
     fun notificationConfigValue(): NotificationConfig = _notificationConfigFlow.value
 
+    fun p2pDeviceNameFlowValue(): String = _p2pDeviceNameFlow.value
+    fun p2pPortFlowValue(): Int = _p2pPortFlow.value
     fun webDeviceNameFlowValue(): String = _webDeviceNameFlow.value
     fun webPortFlowValue(): Int = _webPortFlow.value
 
@@ -89,6 +105,34 @@ class SettingsDataStore @Inject constructor(
         _currentIdentityIdFlow.value = identityId
     }
 
+    // P2P settings setters
+    fun setP2PAutoStart(value: Boolean) {
+        prefs.edit().putBoolean(KEY_P2P_AUTO_START, value).apply()
+        _p2pAutoStartFlow.value = value
+    }
+
+    fun setP2PDeviceName(name: String) {
+        prefs.edit().putString(KEY_P2P_DEVICE_NAME, name).apply()
+        _p2pDeviceNameFlow.value = name
+    }
+
+    fun setP2PPort(port: Int) {
+        prefs.edit().putInt(KEY_P2P_PORT, port).apply()
+        _p2pPortFlow.value = port
+    }
+
+    fun setP2PAutoAccept(value: Boolean) {
+        prefs.edit().putBoolean(KEY_P2P_AUTO_ACCEPT, value).apply()
+        _p2pAutoAcceptFlow.value = value
+    }
+
+    fun setP2PAutoReconnect(value: Boolean) {
+        prefs.edit().putBoolean(KEY_P2P_AUTO_RECONNECT, value).apply()
+        _p2pAutoReconnectFlow.value = value
+    }
+
+    fun getP2PAutoReconnectNow(): Boolean = _p2pAutoReconnectFlow.value
+
     // WEB settings setters
     fun setWEBAutoStart(value: Boolean) {
         prefs.edit().putBoolean(KEY_WEB_AUTO_START, value).apply()
@@ -122,8 +166,8 @@ class SettingsDataStore @Inject constructor(
         val editor = prefs.edit()
         editor.putBoolean(KEY_NOTIF_SYNC_COMPLETE, config.syncCompleteEnabled)
         editor.putBoolean(KEY_NOTIF_NEW_BILLS, config.newBillsFoundEnabled)
-        editor.putBoolean(KEY_NOTIF_WEB_TRANSFER, config.transferCompleteEnabled)
-        editor.putBoolean(KEY_NOTIF_WEB_PAIR, config.persistentStatusEnabled)
+        editor.putBoolean(KEY_NOTIF_P2P_TRANSFER, config.p2pTransferEnabled)
+        editor.putBoolean(KEY_NOTIF_P2P_PAIR, config.p2pPairRequestEnabled)
         editor.putBoolean(KEY_NOTIF_PERSISTENT, config.persistentStatusEnabled)
         editor.putBoolean(KEY_NOTIF_HEADS_UP, config.useHeadsUp)
         editor.putBoolean(KEY_NOTIF_SILENT_NIGHT, config.silentOnNight)
@@ -142,8 +186,9 @@ class SettingsDataStore @Inject constructor(
         return NotificationConfig(
             syncCompleteEnabled = prefs.getBoolean(KEY_NOTIF_SYNC_COMPLETE, true),
             newBillsFoundEnabled = prefs.getBoolean(KEY_NOTIF_NEW_BILLS, true),
-            transferCompleteEnabled = prefs.getBoolean(KEY_NOTIF_WEB_TRANSFER, true),
-            persistentStatusEnabled = prefs.getBoolean(KEY_NOTIF_WEB_PAIR, true),
+            p2pTransferEnabled = prefs.getBoolean(KEY_NOTIF_P2P_TRANSFER, true),
+            p2pPairRequestEnabled = prefs.getBoolean(KEY_NOTIF_P2P_PAIR, true),
+            persistentStatusEnabled = prefs.getBoolean(KEY_NOTIF_PERSISTENT, true),
             useHeadsUp = prefs.getBoolean(KEY_NOTIF_HEADS_UP, true),
             silentOnNight = prefs.getBoolean(KEY_NOTIF_SILENT_NIGHT, false),
             nightStartHour = prefs.getInt(KEY_NOTIF_NIGHT_START, 22),
@@ -184,6 +229,22 @@ class SettingsDataStore @Inject constructor(
             null
         }
 
+    private fun getP2PAutoStart(): Boolean =
+        prefs.getBoolean(KEY_P2P_AUTO_START, false)
+
+    private fun getP2PDeviceName(): String =
+        prefs.getString(KEY_P2P_DEVICE_NAME, android.os.Build.MODEL ?: "SHMTU Device")
+            ?: (android.os.Build.MODEL ?: "SHMTU Device")
+
+    private fun getP2PPort(): Int =
+        prefs.getInt(KEY_P2P_PORT, 19827)
+
+    private fun getP2PAutoAccept(): Boolean =
+        prefs.getBoolean(KEY_P2P_AUTO_ACCEPT, false)
+
+    private fun getP2PAutoReconnect(): Boolean =
+        prefs.getBoolean(KEY_P2P_AUTO_RECONNECT, false)
+
     private fun getWEBAutoStart(): Boolean =
         prefs.getBoolean(KEY_WEB_AUTO_START, false)
 
@@ -206,6 +267,12 @@ class SettingsDataStore @Inject constructor(
         private const val KEY_OCR_SERVER_URL = "ocr_server_url"
         private const val KEY_SESSION_CHECK_INTERVAL = "session_check_interval"
         private const val KEY_CURRENT_IDENTITY_ID = "current_identity_id"
+        // P2P settings keys
+        private const val KEY_P2P_AUTO_START = "p2p_auto_start_server"
+        private const val KEY_P2P_DEVICE_NAME = "p2p_device_name"
+        private const val KEY_P2P_PORT = "p2p_port"
+        private const val KEY_P2P_AUTO_ACCEPT = "p2p_auto_accept"
+        private const val KEY_P2P_AUTO_RECONNECT = "p2p_auto_reconnect"
         // WEB settings keys
         private const val KEY_WEB_AUTO_START = "web_auto_start_server"
         private const val KEY_WEB_DEVICE_NAME = "web_device_name"
@@ -215,8 +282,8 @@ class SettingsDataStore @Inject constructor(
         // Notification config keys
         private const val KEY_NOTIF_SYNC_COMPLETE = "notif_sync_complete"
         private const val KEY_NOTIF_NEW_BILLS = "notif_new_bills"
-        private const val KEY_NOTIF_WEB_TRANSFER = "notif_web_transfer"
-        private const val KEY_NOTIF_WEB_PAIR = "notif_web_pair"
+        private const val KEY_NOTIF_P2P_TRANSFER = "notif_p2p_transfer"
+        private const val KEY_NOTIF_P2P_PAIR = "notif_p2p_pair"
         private const val KEY_NOTIF_PERSISTENT = "notif_persistent"
         private const val KEY_NOTIF_HEADS_UP = "notif_heads_up"
         private const val KEY_NOTIF_SILENT_NIGHT = "notif_silent_night"

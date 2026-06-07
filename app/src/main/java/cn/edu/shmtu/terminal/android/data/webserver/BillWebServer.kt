@@ -318,6 +318,7 @@ class BillWebServer @Inject constructor(
         return jsonResponse(200, ApiResponse.success(_pairedDevices.value))
     }
 
+
     private fun readBody(session: NanoHTTPD.IHTTPSession): String {
         val files = HashMap<String, String>()
         try {
@@ -616,3 +617,4 @@ class BillWebServer @Inject constructor(
         building = building
     )
 }
+

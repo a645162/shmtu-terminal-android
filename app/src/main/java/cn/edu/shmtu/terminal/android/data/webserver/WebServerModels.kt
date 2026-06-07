@@ -106,3 +106,4 @@ data class AuthData(
     val token: String,
     val issuedAt: String
 )
+

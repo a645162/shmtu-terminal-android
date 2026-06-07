@@ -7,11 +7,12 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import cn.edu.shmtu.terminal.android.data.p2p.P2PForegroundService
 import cn.edu.shmtu.terminal.android.data.remote.SessionExpirationWorker
 import cn.edu.shmtu.terminal.android.data.sync.AutoSyncStatusNotifier
-import cn.edu.shmtu.terminal.android.data.webserver.WebServerService
 import cn.edu.shmtu.terminal.android.data.sync.BillRulesManager
 import cn.edu.shmtu.terminal.android.data.sync.PeriodicBillSyncWorker
+import cn.edu.shmtu.terminal.android.data.webserver.WebServerService
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -83,12 +84,16 @@ class SHMTUTerminalApp : Application() {
         appScope.launch {
             try {
                 val sp = getSharedPreferences("app_settings", MODE_PRIVATE)
+                val autoStartP2P = sp.getBoolean("p2p_auto_start_server", false)
+                if (autoStartP2P) {
+                    P2PForegroundService.start(this@SHMTUTerminalApp)
+                }
                 val autoStartWeb = sp.getBoolean("remote_auto_start_web", false)
                 if (autoStartWeb) {
                     WebServerService.start(this@SHMTUTerminalApp)
                 }
             } catch (e: Exception) {
-                Log.w("SHMTUTerminalApp", "start Web foreground service failed: ${e.message}")
+                Log.w("SHMTUTerminalApp", "start foreground service failed: ${e.message}")
             }
         }
     }
