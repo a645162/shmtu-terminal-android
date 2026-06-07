@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -64,6 +65,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import cn.edu.shmtu.terminal.android.data.dedupe.BillDedupeRepository
+import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
 import cn.edu.shmtu.terminal.android.data.sync.BillRulesManager
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,6 +74,7 @@ fun SettingsScreen(
     featureStore: FeatureSettingsStore,
     rulesManager: BillRulesManager,
     dedupeRepository: BillDedupeRepository,
+    settingsDataStore: SettingsDataStore,
     onBack: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onNavigateToOcrSettings: () -> Unit
@@ -132,6 +135,7 @@ fun SettingsScreen(
                                 onBack = onBack,
                                 rulesManager = rulesManager,
                                 dedupeRepository = dedupeRepository,
+                                settingsDataStore = settingsDataStore,
                                 onNavigateToAbout = onNavigateToAbout,
                                 onNavigateToOcrSettings = onNavigateToOcrSettings
                             )
@@ -154,6 +158,7 @@ fun SettingsScreen(
                         onBack = { phoneDetailKey = null },
                         rulesManager = rulesManager,
                         dedupeRepository = dedupeRepository,
+                        settingsDataStore = settingsDataStore,
                         onNavigateToAbout = onNavigateToAbout,
                         onNavigateToOcrSettings = onNavigateToOcrSettings
                     )
@@ -375,6 +380,7 @@ private fun DetailFor(
     onBack: () -> Unit,
     rulesManager: BillRulesManager,
     dedupeRepository: BillDedupeRepository,
+    settingsDataStore: SettingsDataStore,
     onNavigateToAbout: () -> Unit,
     onNavigateToOcrSettings: () -> Unit
 ) {
@@ -390,6 +396,7 @@ private fun DetailFor(
         "update" -> UpdateSettingsScreen(onBack = onBack, embedded = embedded)
         "debug" -> DebugSettingsScreen(onBack = onBack, embedded = embedded)
         "ocr" -> OcrSettingsScreen(onBack = onBack, embedded = embedded)
+        "p2p" -> P2PSettingsScreen(onBack = onBack, embedded = embedded, settingsDataStore = settingsDataStore)
         "about" -> AboutScreen(onBack = onBack, embedded = embedded)
         else -> SettingsDetailBody {
             Box(
@@ -464,6 +471,14 @@ private fun settingsGroups(): List<SettingsGroup> {
             description = "对身份级和账号级账单进行维护处理。",
             icon = Icons.Filled.Storage,
             accent = listOf(Color(0xFF6A55E6), Color(0xFFB49CFF))
+        ),
+        SettingsGroup(
+            key = "p2p",
+            title = "点对点互传",
+            subtitle = "设备名称、端口与自动启动",
+            description = "配置局域网点对点传输参数。",
+            icon = Icons.Filled.SwapHoriz,
+            accent = listOf(Color(0xFFE65100), Color(0xFFFF9E40))
         ),
         SettingsGroup(
             key = "classification",

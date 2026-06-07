@@ -22,11 +22,21 @@ class SettingsDataStore @Inject constructor(
     private val _sessionCheckIntervalFlow = MutableStateFlow(getSessionCheckInterval())
     private val _currentIdentityIdFlow = MutableStateFlow(getCurrentIdentityId())
 
+    // P2P settings flows
+    private val _p2pAutoStartFlow = MutableStateFlow(getP2PAutoStart())
+    private val _p2pDeviceNameFlow = MutableStateFlow(getP2PDeviceName())
+    private val _p2pPortFlow = MutableStateFlow(getP2PPort())
+
     val captchaMode: Flow<CaptchaMode> = _captchaModeFlow.asStateFlow()
     val useLocalOcr: Flow<Boolean> = _useLocalOcrFlow.asStateFlow()
     val ocrServerUrl: Flow<String> = _ocrServerUrlFlow.asStateFlow()
     val sessionCheckInterval: Flow<Int> = _sessionCheckIntervalFlow.asStateFlow()
     val currentIdentityId: Flow<Long?> = _currentIdentityIdFlow.asStateFlow()
+
+    // P2P settings
+    val p2pAutoStart: Flow<Boolean> = _p2pAutoStartFlow.asStateFlow()
+    val p2pDeviceName: Flow<String> = _p2pDeviceNameFlow.asStateFlow()
+    val p2pPort: Flow<Int> = _p2pPortFlow.asStateFlow()
 
     fun setCaptchaMode(mode: CaptchaMode) {
         prefs.edit().putString(KEY_CAPTCHA_MODE, when (mode) {
@@ -62,6 +72,22 @@ class SettingsDataStore @Inject constructor(
         _currentIdentityIdFlow.value = identityId
     }
 
+    // P2P settings setters
+    fun setP2PAutoStart(value: Boolean) {
+        prefs.edit().putBoolean(KEY_P2P_AUTO_START, value).apply()
+        _p2pAutoStartFlow.value = value
+    }
+
+    fun setP2PDeviceName(name: String) {
+        prefs.edit().putString(KEY_P2P_DEVICE_NAME, name).apply()
+        _p2pDeviceNameFlow.value = name
+    }
+
+    fun setP2PPort(port: Int) {
+        prefs.edit().putInt(KEY_P2P_PORT, port).apply()
+        _p2pPortFlow.value = port
+    }
+
     private fun getSessionCheckInterval(): Int =
         prefs.getInt(KEY_SESSION_CHECK_INTERVAL, 10)
 
@@ -85,12 +111,26 @@ class SettingsDataStore @Inject constructor(
             null
         }
 
+    private fun getP2PAutoStart(): Boolean =
+        prefs.getBoolean(KEY_P2P_AUTO_START, false)
+
+    private fun getP2PDeviceName(): String =
+        prefs.getString(KEY_P2P_DEVICE_NAME, android.os.Build.MODEL ?: "SHMTU Device")
+            ?: (android.os.Build.MODEL ?: "SHMTU Device")
+
+    private fun getP2PPort(): Int =
+        prefs.getInt(KEY_P2P_PORT, 19827)
+
     companion object {
         private const val KEY_CAPTCHA_MODE = "captcha_mode"
         private const val KEY_USE_LOCAL_OCR = "use_local_ocr"
         private const val KEY_OCR_SERVER_URL = "ocr_server_url"
         private const val KEY_SESSION_CHECK_INTERVAL = "session_check_interval"
         private const val KEY_CURRENT_IDENTITY_ID = "current_identity_id"
+        // P2P settings keys
+        private const val KEY_P2P_AUTO_START = "p2p_auto_start_server"
+        private const val KEY_P2P_DEVICE_NAME = "p2p_device_name"
+        private const val KEY_P2P_PORT = "p2p_port"
     }
 }
 

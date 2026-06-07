@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.kotlinx.serialization)
 }
 
 val jdkVersion: JavaVersion = rootProject.extra["jdkVersion"] as JavaVersion
@@ -87,6 +88,20 @@ dependencies {
 
     // OkHttp — BillRulesManager 从 GitHub 拉取规则文件
     implementation(libs.okhttp)
+
+    // ZXing — QR code generation and scanning for P2P
+    implementation(libs.zxing.core)
+    implementation(libs.zxing.android.embedded)
+
+    // CameraX + ML Kit Barcode Scanning — P2P QR code scanning
+    implementation(libs.camera.core)
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
+    implementation(libs.mlkit.barcode.scanning)
+
+    // kotlinx.serialization — P2P protocol type-safe serialization
+    implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

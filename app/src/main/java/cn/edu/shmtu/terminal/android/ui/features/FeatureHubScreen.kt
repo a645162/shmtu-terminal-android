@@ -31,6 +31,7 @@ import androidx.compose.material.icons.outlined.ImportExport
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Shower
 import androidx.compose.material.icons.outlined.Stadium
+import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -62,6 +63,7 @@ private data class FeatureItem(
 private val features = listOf(
     FeatureItem("账单统计", "多维度账单分析、趋势和异常提醒", Icons.Outlined.BarChart, true, Color(0xFF1E88E5), "bill_statistics"),
     FeatureItem("数据传输", "导入导出、快照和跨端迁移", Icons.Outlined.ImportExport, true, Color(0xFF00897B), "data_transfer"),
+    FeatureItem("点对点互传", "局域网点对点账单传输", Icons.Outlined.SwapHoriz, true, Color(0xFFE65100), "p2p"),
     FeatureItem("热水查询", "宿舍热水温度与水位，账号入口进入", Icons.Outlined.Shower, false, Color(0xFF00ACC1)),
     FeatureItem("电费查询", "电费余额与宿舍用电走势", Icons.Outlined.Bolt, false, Color(0xFFFB8C00)),
     FeatureItem("课表查询", "课表总览与课程提醒", Icons.Outlined.CalendarMonth, false, Color(0xFF8E24AA)),
@@ -74,7 +76,8 @@ private val features = listOf(
 @Composable
 fun FeatureHubScreen(
     onNavigateToBillStatistics: () -> Unit,
-    onNavigateToDataTransfer: () -> Unit = {}
+    onNavigateToDataTransfer: () -> Unit = {},
+    onNavigateToP2P: () -> Unit = {}
 ) {
     val configuration = LocalConfiguration.current
     val phoneCompact = configuration.screenWidthDp < 600
@@ -118,6 +121,7 @@ fun FeatureHubScreen(
                                     when (feature.route) {
                                         "bill_statistics" -> onNavigateToBillStatistics()
                                         "data_transfer" -> onNavigateToDataTransfer()
+                                        "p2p" -> onNavigateToP2P()
                                     }
                                 }
                             }
@@ -153,6 +157,7 @@ fun FeatureHubScreen(
                                 when (feature.route) {
                                     "bill_statistics" -> onNavigateToBillStatistics()
                                     "data_transfer" -> onNavigateToDataTransfer()
+                                    "p2p" -> onNavigateToP2P()
                                 }
                             }
                         }
@@ -197,7 +202,7 @@ private fun FeatureHeroCard(compact: Boolean) {
                     color = Color.White.copy(alpha = 0.82f)
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    HeroPill("2 个已上线")
+                    HeroPill("3 个已上线")
                     HeroPill("6 个规划中")
                 }
             }

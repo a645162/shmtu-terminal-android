@@ -1,8 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true">
+    <!-- Default: no cleartext, system CAs only -->
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
+
+    <!-- Campus domains that only serve HTTP -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">shmtu.edu.cn</domain>
+        <domain includeSubdomains="true">epay.shmtu.edu.cn</domain>
+        <domain includeSubdomains="true">hqzx.shmtu.edu.cn</domain>
+    </domain-config>
+
+    <!-- P2P LAN connections (local network devices) -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">192.168.0.0</domain>
+        <domain includeSubdomains="false">10.0.0.0</domain>
+        <domain includeSubdomains="false">172.16.0.0</domain>
+    </domain-config>
 </network-security-config>

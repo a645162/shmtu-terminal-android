@@ -1,5 +1,7 @@
 package cn.edu.shmtu.terminal.android.domain.usecase.export
 
+import cn.edu.shmtu.terminal.android.data.local.db.BillDatabaseManager
+import cn.edu.shmtu.terminal.android.data.local.db.entity.BillEntity
 import cn.edu.shmtu.terminal.android.domain.model.*
 import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
@@ -11,6 +13,7 @@ import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import javax.inject.Inject
 
 /**
@@ -150,7 +153,8 @@ class ExportDataUseCase @Inject constructor(
  */
 class ImportDataUseCase @Inject constructor(
     private val billRepository: BillRepository,
-    private val identityRepository: IdentityRepository
+    private val identityRepository: IdentityRepository,
+    private val billDbManager: BillDatabaseManager
 ) {
     /**
      * 从 JSON 文件导入账单
@@ -165,13 +169,103 @@ class ImportDataUseCase @Inject constructor(
 
             val content = file.readText(Charsets.UTF_8)
             val root = JSONObject(content)
-            val billsArray = root.optJSONArray("bills") ?: return Result.failure(Exception("无效的 JSON 格式"))
+            val billsArray = root.optJSONArray("bills")
+                ?: return Result.failure(Exception("无效的 JSON 格式"))
 
-            // TODO: 将 JsonBillItem 转为 BillEntity 并插入数据库
-            // 当前返回解析的条目数
-            return Result.success(billsArray.length())
+            if (billsArray.length() == 0) return Result.success(0)
+
+            // Verify the target identity exists
+            val identity = identityRepository.getIdentityById(identityId)
+                ?: return Result.failure(Exception("目标身份不存在: $identityId"))
+
+            val db = billDbManager.getIdentityDatabase(identityId)
+            val dao = db.billDao()
+
+            // Find the first account under this identity for accountId, or use P2P sentinel
+            val accounts = billRepository.getBillsForIdentity(identityId).first()
+            // Use -1 as P2P sentinel accountId (not tied to any real account)
+            val accountId = P2P_ACCOUNT_ID
+
+            // Map JSON items to BillEntity and batch insert
+            val entities = (0 until billsArray.length()).mapNotNull { i ->
+                val billJson = billsArray.optJSONObject(i) ?: return@mapNotNull null
+                jsonBillToEntity(billJson, accountId)
+            }
+
+            if (entities.isEmpty()) return Result.success(0)
+
+            // Batch insert with OnConflictStrategy.IGNORE for dedup by transactionNo
+            val results = dao.insertAll(entities)
+            val insertedCount = results.count { it != -1L }
+
+            Result.success(insertedCount)
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    /**
+     * Import bills from raw JSON byte data (used by P2P transfer).
+     * @param data UTF-8 encoded JSON bytes
+     * @param identityId Target identity ID
+     * @return Number of bills inserted
+     */
+    suspend fun importFromBytes(data: ByteArray, identityId: Long): Result<Int> {
+        return try {
+            val jsonStr = String(data, Charsets.UTF_8)
+            val root = JSONObject(jsonStr)
+            val billsArray = root.optJSONArray("bills")
+                ?: return Result.failure(Exception("无效的 JSON 格式"))
+
+            if (billsArray.length() == 0) return Result.success(0)
+
+            val identity = identityRepository.getIdentityById(identityId)
+                ?: return Result.failure(Exception("目标身份不存在: $identityId"))
+
+            val db = billDbManager.getIdentityDatabase(identityId)
+            val dao = db.billDao()
+
+            val entities = (0 until billsArray.length()).mapNotNull { i ->
+                val billJson = billsArray.optJSONObject(i) ?: return@mapNotNull null
+                jsonBillToEntity(billJson, P2P_ACCOUNT_ID)
+            }
+
+            if (entities.isEmpty()) return Result.success(0)
+
+            val results = dao.insertAll(entities)
+            val insertedCount = results.count { it != -1L }
+
+            Result.success(insertedCount)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun jsonBillToEntity(billJson: JSONObject, accountId: Long): BillEntity {
+        val dateTimeFormatted = billJson.optString("date_time_formatted", "")
+        return BillEntity(
+            accountId = accountId,
+            accountLabel = billJson.optString("account_label", "P2P导入"),
+            dateStr = dateTimeFormatted.substringBefore(" "),
+            timeStr = dateTimeFormatted.substringAfter(" ", ""),
+            dateTimeStrFormat = dateTimeFormatted,
+            type = billJson.optString("item_type", ""),
+            transactionNo = billJson.optString("number", "").ifBlank {
+                "p2p_${UUID.randomUUID()}"
+            },
+            targetUser = billJson.optString("target_user", ""),
+            money = billJson.optString("money_str", "0"),
+            method = billJson.optString("method", ""),
+            status = billJson.optString("status_str", "SUCCESS"),
+            position = billJson.optString("position", "").ifEmpty { null },
+            room = billJson.optString("room", "").ifEmpty { null },
+            category = billJson.optString("category", "").ifEmpty { null },
+            building = billJson.optString("building", "").ifEmpty { null }
+        )
+    }
+
+    companion object {
+        /** Sentinel accountId for P2P-imported bills (not tied to any real account). */
+        const val P2P_ACCOUNT_ID = -1L
     }
 }
