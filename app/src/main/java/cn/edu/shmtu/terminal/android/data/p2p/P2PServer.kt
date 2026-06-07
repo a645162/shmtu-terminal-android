@@ -15,6 +15,9 @@ import java.io.OutputStream
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * Callback interface for P2P server events.
@@ -37,6 +40,7 @@ interface P2PServerCallback {
 class P2PServer(private val parentScope: CoroutineScope) {
 
     private val tag = "P2PServer"
+    private val pendingPairTimeoutMs = 60_000L
 
     private var serverSocket: ServerSocket? = null
     private var isRunning = false
@@ -109,22 +113,27 @@ class P2PServer(private val parentScope: CoroutineScope) {
      * Accept a pending pair request from the given remote address.
      */
     fun acceptPair(remoteAddr: String, sessionId: String): Boolean {
-        val pending = pendingPairRequests[remoteAddr] ?: return false
+        val pending = pendingPairRequests[remoteAddr]
+        if (pending == null) {
+            Log.w(tag, "acceptPair ignored, no pending request for $remoteAddr")
+            return false
+        }
         try {
+            Log.i(tag, "Sending PairAccept to $remoteAddr, session=$sessionId")
             val accept = PairAcceptPayload(
                 deviceName = pending.deviceName,
                 sessionId = sessionId
             )
             val payload = p2pJson.encodeToString(PairAcceptPayload.serializer(), accept)
                 .toByteArray(Charsets.UTF_8)
-            FrameCodec.writeFrame(pending.outputStream, P2PFrame(P2PProtocol.TYPE_PAIR_ACCEPT.toByte(), payload))
+            writeFrameLocked(pending.outputStream, pending.writeLock, P2PFrame(P2PProtocol.TYPE_PAIR_ACCEPT.toByte(), payload))
             pendingPairRequests.remove(remoteAddr)
             pairedRemotes[remoteAddr] = true
+            pending.isPaired.set(true)
             Log.i(tag, "Pair accepted for $remoteAddr, session=$sessionId")
             return true
         } catch (e: Exception) {
             Log.e(tag, "Failed to send pair accept", e)
-            pendingPairRequests.remove(remoteAddr)
             return false
         }
     }
@@ -133,18 +142,22 @@ class P2PServer(private val parentScope: CoroutineScope) {
      * Reject a pending pair request from the given remote address.
      */
     fun rejectPair(remoteAddr: String): Boolean {
-        val pending = pendingPairRequests[remoteAddr] ?: return false
+        val pending = pendingPairRequests[remoteAddr]
+        if (pending == null) {
+            Log.w(tag, "rejectPair ignored, no pending request for $remoteAddr")
+            return false
+        }
         try {
+            Log.i(tag, "Sending PairReject to $remoteAddr")
             val reject = PairRejectPayload(reason = "Rejected by user")
             val payload = p2pJson.encodeToString(PairRejectPayload.serializer(), reject)
                 .toByteArray(Charsets.UTF_8)
-            FrameCodec.writeFrame(pending.outputStream, P2PFrame(P2PProtocol.TYPE_PAIR_REJECT.toByte(), payload))
+            writeFrameLocked(pending.outputStream, pending.writeLock, P2PFrame(P2PProtocol.TYPE_PAIR_REJECT.toByte(), payload))
             pendingPairRequests.remove(remoteAddr)
             Log.i(tag, "Pair rejected for $remoteAddr")
             return true
         } catch (e: Exception) {
             Log.e(tag, "Failed to send pair reject", e)
-            pendingPairRequests.remove(remoteAddr)
             return false
         }
     }
@@ -152,21 +165,32 @@ class P2PServer(private val parentScope: CoroutineScope) {
     /**
      * Send a TransferAccept frame.
      */
-    private fun sendTransferAccept(outputStream: OutputStream, transferId: String, encryptionKey: ByteArray?) {
+    private fun sendTransferAccept(
+        outputStream: OutputStream,
+        writeLock: ReentrantLock,
+        transferId: String,
+        encryptionKey: ByteArray?
+    ) {
         val accept = TransferAcceptPayload(transferId = transferId)
         val payload = p2pJson.encodeToString(TransferAcceptPayload.serializer(), accept)
             .toByteArray(Charsets.UTF_8)
-        sendEncryptedFrame(outputStream, P2PFrame(P2PProtocol.TYPE_TRANSFER_ACCEPT.toByte(), payload), encryptionKey)
+        sendEncryptedFrame(outputStream, writeLock, P2PFrame(P2PProtocol.TYPE_TRANSFER_ACCEPT.toByte(), payload), encryptionKey)
     }
 
     /**
      * Send a TransferReject frame.
      */
-    private fun sendTransferReject(outputStream: OutputStream, transferId: String, reason: String = "", encryptionKey: ByteArray?) {
+    private fun sendTransferReject(
+        outputStream: OutputStream,
+        writeLock: ReentrantLock,
+        transferId: String,
+        reason: String = "",
+        encryptionKey: ByteArray?
+    ) {
         val reject = TransferRejectPayload(transferId = transferId, reason = reason)
         val payload = p2pJson.encodeToString(TransferRejectPayload.serializer(), reject)
             .toByteArray(Charsets.UTF_8)
-        sendEncryptedFrame(outputStream, P2PFrame(P2PProtocol.TYPE_TRANSFER_REJECT.toByte(), payload), encryptionKey)
+        sendEncryptedFrame(outputStream, writeLock, P2PFrame(P2PProtocol.TYPE_TRANSFER_REJECT.toByte(), payload), encryptionKey)
     }
 
     /**
@@ -191,9 +215,12 @@ class P2PServer(private val parentScope: CoroutineScope) {
             socket.soTimeout = 60000
 
             var isPaired = false
+            val isPairConfirmed = AtomicBoolean(false)
+            val writeLock = ReentrantLock()
 
-            // Start heartbeat for this client connection
-            heartbeatJob = launchHeartbeat(parentScope, outStream, remoteAddr)
+            // Start heartbeat only after pairing is confirmed to avoid interleaving
+            // PING frames with PairAccept/Reject responses on the same socket.
+            heartbeatJob = launchHeartbeat(parentScope, outStream, remoteAddr, writeLock, isPairConfirmed)
 
             while (isActive && !socket.isClosed) {
                 val frame = FrameCodec.readFrame(inStream) ?: break
@@ -202,7 +229,7 @@ class P2PServer(private val parentScope: CoroutineScope) {
                     P2PProtocol.TYPE_PING -> {
                         // Reply PONG — never encrypted
                         try {
-                            FrameCodec.writeFrame(outStream, P2PFrame(P2PProtocol.TYPE_PONG.toByte(), ByteArray(0)))
+                            writeFrameLocked(outStream, writeLock, P2PFrame(P2PProtocol.TYPE_PONG.toByte(), ByteArray(0)))
                             Log.d(tag, "Replied PONG to PING from $remoteAddr")
                         } catch (e: Exception) {
                             Log.w(tag, "Failed to send PONG to $remoteAddr", e)
@@ -221,19 +248,24 @@ class P2PServer(private val parentScope: CoroutineScope) {
 
                         if (req.pairCode.equals(expectedPairCode, ignoreCase = true)) {
                             // Valid pair code - notify callback for user confirmation
-                            pendingPairRequests[remoteAddr] = PendingPairRequest(
+                            val pendingRequest = PendingPairRequest(
                                 remoteAddr = remoteAddr,
                                 deviceName = ourDeviceName,
                                 outputStream = outStream,
-                                clientSocket = socket
+                                clientSocket = socket,
+                                writeLock = writeLock,
+                                isPaired = isPairConfirmed
                             )
+                            pendingPairRequests[remoteAddr] = pendingRequest
+                            Log.i(tag, "Pending pair request stored for $remoteAddr, awaiting confirmation")
                             callback?.onPairRequest(remoteAddr, req.deviceName, req.pairCode)
+                            launchPendingPairTimeout(remoteAddr, pendingRequest)
                         } else {
                             // Pair code mismatch - reject immediately
                             val reject = PairRejectPayload(reason = "Pair code mismatch")
                             val payload = p2pJson.encodeToString(PairRejectPayload.serializer(), reject)
                                 .toByteArray(Charsets.UTF_8)
-                            FrameCodec.writeFrame(outStream, P2PFrame(P2PProtocol.TYPE_PAIR_REJECT.toByte(), payload))
+                            writeFrameLocked(outStream, writeLock, P2PFrame(P2PProtocol.TYPE_PAIR_REJECT.toByte(), payload))
                             Log.w(tag, "Pair code mismatch from $remoteAddr")
                         }
                     }
@@ -275,7 +307,7 @@ class P2PServer(private val parentScope: CoroutineScope) {
                         )
                         val confirmBytes = p2pJson.encodeToString(EncryptionConfirmPayload.serializer(), confirmPayload)
                             .toByteArray(Charsets.UTF_8)
-                        FrameCodec.writeFrame(outStream, P2PFrame(P2PProtocol.TYPE_ENCRYPTION_CONFIRM.toByte(), confirmBytes))
+                        writeFrameLocked(outStream, writeLock, P2PFrame(P2PProtocol.TYPE_ENCRYPTION_CONFIRM.toByte(), confirmBytes))
 
                         encryptionKey = derivedKey
                         Log.i(tag, "Encryption negotiated with $remoteAddr")
@@ -283,7 +315,7 @@ class P2PServer(private val parentScope: CoroutineScope) {
 
                     P2PProtocol.TYPE_TRANSFER_OFFER -> {
                         if (!isPaired && !pairedRemotes.containsKey(remoteAddr)) {
-                            sendTransferReject(outStream, "", reason = "Not paired", encryptionKey = encryptionKey)
+                            sendTransferReject(outStream, writeLock, "", reason = "Not paired", encryptionKey = encryptionKey)
                             Log.w(tag, "Transfer offer rejected - not paired: $remoteAddr")
                             continue
                         }
@@ -297,7 +329,7 @@ class P2PServer(private val parentScope: CoroutineScope) {
                         Log.d(tag, "Transfer offer: transfer=${offer.transferId} desc=${offer.description} size=${offer.totalSize} count=${offer.billCount}")
 
                         // Accept the transfer
-                        sendTransferAccept(outStream, offer.transferId, encryptionKey)
+                        sendTransferAccept(outStream, writeLock, offer.transferId, encryptionKey)
 
                         // Receive data frames
                         val dataBuffer = java.io.ByteArrayOutputStream()
@@ -308,7 +340,7 @@ class P2PServer(private val parentScope: CoroutineScope) {
                             val decryptedPayload: ByteArray? = when (dataFrame.type.toInt() and 0xFF) {
                                 P2PProtocol.TYPE_PING -> {
                                     try {
-                                        FrameCodec.writeFrame(outStream, P2PFrame(P2PProtocol.TYPE_PONG.toByte(), ByteArray(0)))
+                                        writeFrameLocked(outStream, writeLock, P2PFrame(P2PProtocol.TYPE_PONG.toByte(), ByteArray(0)))
                                     } catch (_: Exception) {}
                                     null
                                 }
@@ -394,13 +426,22 @@ class P2PServer(private val parentScope: CoroutineScope) {
     /**
      * Start a heartbeat coroutine that sends PING every 30 seconds.
      */
-    private fun launchHeartbeat(scope: CoroutineScope, outputStream: OutputStream, remoteAddr: String): Job {
+    private fun launchHeartbeat(
+        scope: CoroutineScope,
+        outputStream: OutputStream,
+        remoteAddr: String,
+        writeLock: ReentrantLock,
+        isPaired: AtomicBoolean
+    ): Job {
         return scope.launch(Dispatchers.IO) {
             while (isActive) {
                 delay(30_000L)
+                if (!isPaired.get()) {
+                    continue
+                }
                 try {
                     // PING is never encrypted
-                    FrameCodec.writeFrame(outputStream, P2PFrame(P2PProtocol.TYPE_PING.toByte(), ByteArray(0)))
+                    writeFrameLocked(outputStream, writeLock, P2PFrame(P2PProtocol.TYPE_PING.toByte(), ByteArray(0)))
                     Log.d(tag, "Sent PING to $remoteAddr")
                 } catch (e: CancellationException) {
                     throw e
@@ -412,15 +453,55 @@ class P2PServer(private val parentScope: CoroutineScope) {
         }
     }
 
+    private fun launchPendingPairTimeout(remoteAddr: String, pendingRequest: PendingPairRequest) {
+        parentScope.launch(Dispatchers.IO) {
+            delay(pendingPairTimeoutMs)
+
+            if (pendingRequest.isPaired.get()) {
+                return@launch
+            }
+
+            val removed = pendingPairRequests.remove(remoteAddr, pendingRequest)
+            if (!removed) {
+                return@launch
+            }
+
+            try {
+                val reject = PairRejectPayload(reason = "Pairing request timed out")
+                val payload = p2pJson.encodeToString(PairRejectPayload.serializer(), reject)
+                    .toByteArray(Charsets.UTF_8)
+                writeFrameLocked(
+                    pendingRequest.outputStream,
+                    pendingRequest.writeLock,
+                    P2PFrame(P2PProtocol.TYPE_PAIR_REJECT.toByte(), payload)
+                )
+                Log.w(tag, "Pending pair request timed out for $remoteAddr")
+            } catch (e: Exception) {
+                Log.w(tag, "Failed to send timed-out pair reject to $remoteAddr", e)
+            }
+        }
+    }
+
     /**
      * Send a frame, encrypting the payload if an encryption key is set and the
      * message type requires encryption.
      */
-    private fun sendEncryptedFrame(output: OutputStream, frame: P2PFrame, encryptionKey: ByteArray?) {
+    private fun sendEncryptedFrame(
+        output: OutputStream,
+        writeLock: ReentrantLock,
+        frame: P2PFrame,
+        encryptionKey: ByteArray?
+    ) {
         if (encryptionKey != null && P2PCrypto.shouldEncrypt(frame.type)) {
             val encrypted = P2PCrypto.encrypt(encryptionKey, frame.payload)
-            FrameCodec.writeFrame(output, P2PFrame(frame.type, encrypted))
+            writeFrameLocked(output, writeLock, P2PFrame(frame.type, encrypted))
         } else {
+            writeFrameLocked(output, writeLock, frame)
+        }
+    }
+
+    private fun writeFrameLocked(output: OutputStream, writeLock: ReentrantLock, frame: P2PFrame) {
+        writeLock.withLock {
             FrameCodec.writeFrame(output, frame)
         }
     }
@@ -449,6 +530,8 @@ class P2PServer(private val parentScope: CoroutineScope) {
         val remoteAddr: String,
         val deviceName: String,
         val outputStream: OutputStream,
-        val clientSocket: Socket
+        val clientSocket: Socket,
+        val writeLock: ReentrantLock,
+        val isPaired: AtomicBoolean
     )
 }

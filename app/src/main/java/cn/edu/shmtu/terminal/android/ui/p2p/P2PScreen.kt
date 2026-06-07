@@ -971,7 +971,7 @@ private fun PairedTab(
                         ) {
                             FilledTonalButton(
                                 onClick = { onSendBills(session.sessionId) },
-                                enabled = !isSending,
+                                enabled = !isSending && session.canSendBills,
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -986,6 +986,14 @@ private fun PairedTab(
                             ) {
                                 Text("断开")
                             }
+                        }
+
+                        if (!session.canSendBills) {
+                            Text(
+                                text = "该会话由对方主动连接建立，仅支持接收；如需发送，请由本机主动扫描对方二维码重新配对。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }

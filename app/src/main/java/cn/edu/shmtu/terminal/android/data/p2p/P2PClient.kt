@@ -2,6 +2,7 @@ package cn.edu.shmtu.terminal.android.data.p2p
 
 import android.util.Base64
 import android.util.Log
+import android.os.SystemClock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -10,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.EOFException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetSocketAddress
@@ -31,6 +33,7 @@ class P2PClient {
 
     /** Heartbeat coroutine job, cancelled when the read loop exits. */
     private var heartbeatJob: Job? = null
+    private var receiveJob: Job? = null
 
     /** AES-256-GCM encryption key; null until encryption negotiation succeeds. */
     var encryptionKey: ByteArray? = null
@@ -97,10 +100,31 @@ class P2PClient {
             // Read pair response. Remote desktop peers wait for explicit user approval,
             // so allow a longer timeout than the general socket read timeout.
             socket?.soTimeout = pairResponseTimeoutMs
-            val responseFrame = FrameCodec.readFrame(inStream)
-                ?: return@withContext Result.failure(
-                    Exception("Connection closed while waiting for pair response")
-                )
+            val startedAt = SystemClock.elapsedRealtime()
+            var responseFrame: P2PFrame? = null
+            while (responseFrame == null) {
+                val frame = FrameCodec.readFrame(inStream)
+                    ?: return@withContext Result.failure(
+                        Exception("Connection closed while waiting for pair response")
+                    )
+
+                when (frame.type.toInt() and 0xFF) {
+                    P2PProtocol.TYPE_PING -> {
+                        Log.d(tag, "Ignoring PING while waiting for pair response")
+                        FrameCodec.writeFrame(outStream, P2PFrame(P2PProtocol.TYPE_PONG.toByte(), ByteArray(0)))
+                    }
+                    P2PProtocol.TYPE_PONG -> {
+                        Log.d(tag, "Ignoring PONG while waiting for pair response")
+                    }
+                    else -> {
+                        responseFrame = frame
+                    }
+                }
+
+                if (SystemClock.elapsedRealtime() - startedAt > pairResponseTimeoutMs) {
+                    throw SocketTimeoutException("Timed out waiting for pair response frame")
+                }
+            }
             socket?.soTimeout = 30000
 
             when (responseFrame.type.toInt() and 0xFF) {
@@ -366,11 +390,46 @@ class P2PClient {
     }
 
     /**
+     * Start a background receive loop for long-lived paired connections so
+     * control frames do not accumulate and break the next request/response.
+     */
+    fun startReceiving(scope: CoroutineScope, onDisconnected: (() -> Unit)? = null) {
+        stopReceiving()
+        receiveJob = scope.launch(Dispatchers.IO) {
+            try {
+                val inStream = input ?: return@launch
+                while (isActive) {
+                    val frame = readEncryptedFrame(inStream) ?: break
+                    val keepOpen = handleFrame(frame)
+                    if (!keepOpen) {
+                        break
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: SocketTimeoutException) {
+                Log.d(tag, "Receive loop timed out waiting for frame")
+            } catch (e: EOFException) {
+                Log.d(tag, "Receive loop reached EOF")
+            } catch (e: Exception) {
+                Log.w(tag, "Receive loop stopped", e)
+            } finally {
+                onDisconnected?.invoke()
+            }
+        }
+    }
+
+    /**
      * Stop the heartbeat loop.
      */
     fun stopHeartbeat() {
         heartbeatJob?.cancel()
         heartbeatJob = null
+    }
+
+    fun stopReceiving() {
+        receiveJob?.cancel()
+        receiveJob = null
     }
 
     /**
@@ -450,6 +509,7 @@ class P2PClient {
     }
 
     fun close() {
+        stopReceiving()
         stopHeartbeat()
         clearEncryptionKey()
         try { input?.close() } catch (_: Exception) {}

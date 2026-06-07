@@ -30,6 +30,7 @@ fun P2PSettingsScreen(
     settingsDataStore: SettingsDataStore
 ) {
     val autoStart by settingsDataStore.p2pAutoStart.collectAsState(initial = false)
+    val autoAccept by settingsDataStore.p2pAutoAccept.collectAsState(initial = false)
     val deviceName by settingsDataStore.p2pDeviceName.collectAsState(initial = "")
     val port by settingsDataStore.p2pPort.collectAsState(initial = 19827)
 
@@ -59,6 +60,29 @@ fun P2PSettingsScreen(
                     checked = autoStart,
                     onCheckedChange = { checked ->
                         settingsDataStore.setP2PAutoStart(checked)
+                    }
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("自动接受连接", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        text = "开启后，收到配对请求将直接接受，不再弹出确认对话框。默认关闭。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = autoAccept,
+                    onCheckedChange = { checked ->
+                        settingsDataStore.setP2PAutoAccept(checked)
                     }
                 )
             }

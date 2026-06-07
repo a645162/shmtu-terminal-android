@@ -200,11 +200,21 @@ class P2PViewModel @Inject constructor(
     }
 
     fun acceptPairing(remoteAddr: String) {
-        p2pManager.acceptPairRequest(remoteAddr)
+        viewModelScope.launch {
+            val accepted = p2pManager.acceptPairRequest(remoteAddr)
+            if (!accepted) {
+                _uiState.value = _uiState.value.copy(lastMessage = "接受配对失败：请求已失效或响应发送失败")
+            }
+        }
     }
 
     fun rejectPairing(remoteAddr: String) {
-        p2pManager.rejectPairRequest(remoteAddr)
+        viewModelScope.launch {
+            val rejected = p2pManager.rejectPairRequest(remoteAddr)
+            if (!rejected) {
+                _uiState.value = _uiState.value.copy(lastMessage = "拒绝配对失败：请求已失效或响应发送失败")
+            }
+        }
     }
 
     fun sendBills(sessionId: String) {

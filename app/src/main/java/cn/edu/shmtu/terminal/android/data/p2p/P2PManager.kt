@@ -119,6 +119,21 @@ class P2PManager @Inject constructor(
 
             override fun onClientDisconnected(remoteAddr: String) {
                 Log.d(tag, "Client disconnected: $remoteAddr")
+                val removedSessionIds = sessions.values
+                    .filter { it.remoteAddr == remoteAddr && !it.isLocallyInitiated }
+                    .map { it.sessionId }
+
+                if (removedSessionIds.isEmpty()) {
+                    return
+                }
+
+                removedSessionIds.forEach { sessionId ->
+                    sessions.remove(sessionId)
+                    clearEncryptionKey(sessionId)
+                    removeActiveClient(sessionId)
+                    _transferProgress.value = _transferProgress.value.filter { it.sessionId != sessionId }
+                }
+                _status.value = _status.value.copy(sessions = sessions.values.toList())
             }
 
             override fun onError(message: String) {
@@ -185,8 +200,12 @@ class P2PManager @Inject constructor(
     /**
      * Accept a pending pair request.
      */
-    fun acceptPairRequest(remoteAddr: String) {
-        val request = _pairRequests.value.find { it.remoteAddr == remoteAddr } ?: return
+    suspend fun acceptPairRequest(remoteAddr: String): Boolean = withContext(Dispatchers.IO) {
+        val request = _pairRequests.value.find { it.remoteAddr == remoteAddr }
+        if (request == null) {
+            Log.w(tag, "acceptPairRequest ignored, no UI request for $remoteAddr")
+            return@withContext false
+        }
         val sessionId = UUID.randomUUID().toString()
         val accepted = server.acceptPair(remoteAddr, sessionId)
 
@@ -196,21 +215,33 @@ class P2PManager @Inject constructor(
                 remoteDevice = request.remoteDevice,
                 remoteAddr = remoteAddr,
                 remotePort = serverPort,
+                pairCode = null,
+                isLocallyInitiated = false,
                 isPaired = true
             )
             sessions[sessionId] = session
             _status.value = _status.value.copy(sessions = sessions.values.toList())
+            _pairRequests.value = _pairRequests.value.filter { it.remoteAddr != remoteAddr }
+            Log.i(tag, "acceptPairRequest succeeded for $remoteAddr, session=$sessionId")
+            return@withContext true
         }
 
-        _pairRequests.value = _pairRequests.value.filter { it.remoteAddr != remoteAddr }
+        Log.e(tag, "acceptPairRequest failed for $remoteAddr")
+        false
     }
 
     /**
      * Reject a pending pair request.
      */
-    fun rejectPairRequest(remoteAddr: String) {
-        server.rejectPair(remoteAddr)
-        _pairRequests.value = _pairRequests.value.filter { it.remoteAddr != remoteAddr }
+    suspend fun rejectPairRequest(remoteAddr: String): Boolean = withContext(Dispatchers.IO) {
+        val rejected = server.rejectPair(remoteAddr)
+        if (rejected) {
+            _pairRequests.value = _pairRequests.value.filter { it.remoteAddr != remoteAddr }
+            Log.i(tag, "rejectPairRequest succeeded for $remoteAddr")
+            return@withContext true
+        }
+        Log.e(tag, "rejectPairRequest failed for $remoteAddr")
+        false
     }
 
     /**
@@ -248,6 +279,8 @@ class P2PManager @Inject constructor(
                 remoteDevice = acceptPayload.deviceName,
                 remoteAddr = host,
                 remotePort = port,
+                pairCode = pairCode,
+                isLocallyInitiated = true,
                 isPaired = true
             )
             sessions[session.sessionId] = session
@@ -261,6 +294,9 @@ class P2PManager @Inject constructor(
 
             // Start heartbeat for this client connection
             client.startHeartbeat(scope)
+            client.startReceiving(scope) {
+                handleClientConnectionClosed(session.sessionId)
+            }
 
             Log.i(tag, "Paired with ${session.remoteDevice} at $host, session=${session.sessionId}")
             Result.success(session)
@@ -286,6 +322,9 @@ class P2PManager @Inject constructor(
             if (exportData.isEmpty()) {
                 return@withContext Result.failure(Exception("没有可发送的账单数据"))
             }
+            if (!session.canSendBills) {
+                return@withContext Result.failure(Exception("当前会话为被动接收连接，暂不支持反向发送；请由该设备主动扫描对方二维码后再发送"))
+            }
 
             // Try to reuse an existing client connection
             val existingClient = activeClients[sessionId]
@@ -306,14 +345,16 @@ class P2PManager @Inject constructor(
                 }
 
                 // Re-pair with the remote
-                val pairResult = client.sendPairRequest(deviceName, currentInfo?.pairCode ?: "")
+                val pairCode = session.pairCode
+                    ?: return@withContext Result.failure(Exception("当前会话缺少配对码，无法重新建立发送连接"))
+                val pairResult = client.sendPairRequest(deviceName, pairCode)
                 if (pairResult.isFailure) {
                     client.close()
                     return@withContext Result.failure(Exception("配对失败"))
                 }
 
                 // Negotiate encryption
-                val encryptResult = client.negotiateEncryption(currentInfo?.pairCode ?: "")
+                val encryptResult = client.negotiateEncryption(pairCode)
                 if (encryptResult.isFailure) {
                     client.close()
                     return@withContext Result.failure(encryptResult.exceptionOrNull() ?: Exception("加密协商失败"))
@@ -327,6 +368,9 @@ class P2PManager @Inject constructor(
 
                 // Start heartbeat
                 client.startHeartbeat(scope)
+                client.startReceiving(scope) {
+                    handleClientConnectionClosed(sessionId)
+                }
             }
 
             // Use transferId (UUID) separate from sessionId for the Rust-aligned protocol
@@ -510,6 +554,7 @@ class P2PManager @Inject constructor(
      */
     private fun removeActiveClient(sessionId: String) {
         activeClients[sessionId]?.apply {
+            stopReceiving()
             stopHeartbeat()
             close()
         }
@@ -521,10 +566,20 @@ class P2PManager @Inject constructor(
      */
     private fun clearAllActiveClients() {
         activeClients.values.forEach { client ->
+            client.stopReceiving()
             client.stopHeartbeat()
             client.close()
         }
         activeClients.clear()
+    }
+
+    private fun handleClientConnectionClosed(sessionId: String) {
+        val existingClient = activeClients[sessionId] ?: return
+        if (activeClients.remove(sessionId, existingClient)) {
+            clearEncryptionKey(sessionId)
+            _transferProgress.value = _transferProgress.value.filter { it.sessionId != sessionId }
+            Log.i(tag, "Active client connection closed for session=$sessionId")
+        }
     }
 
     // ============================================================================

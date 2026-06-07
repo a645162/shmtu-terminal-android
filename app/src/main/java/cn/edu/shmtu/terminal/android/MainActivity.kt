@@ -20,6 +20,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -52,6 +53,7 @@ class MainActivity : ComponentActivity() {
 fun ShmtuterminalandroidApp() {
     val settingsWrapper: SettingsViewModelWrapper = hiltViewModel()
     val themeMode by settingsWrapper.featureStore.themeMode.collectAsState()
+    val p2pAutoAccept by settingsWrapper.settingsDataStore.p2pAutoAccept.collectAsState(initial = false)
     val shellViewModel: AppShellViewModel = hiltViewModel()
     val p2pViewModel: P2PViewModel = hiltViewModel()
     val currentIdentity by shellViewModel.currentIdentity.collectAsState()
@@ -69,7 +71,13 @@ fun ShmtuterminalandroidApp() {
     val currentPairRequest = p2pUiState.pairRequests.firstOrNull()
 
     ShmtuterminalandroidTheme(themeMode = themeMode) {
-        if (currentPairRequest != null) {
+        LaunchedEffect(p2pAutoAccept, currentPairRequest?.remoteAddr, currentPairRequest?.timestamp) {
+            if (p2pAutoAccept && currentPairRequest != null) {
+                p2pViewModel.acceptPairing(currentPairRequest.remoteAddr)
+            }
+        }
+
+        if (!p2pAutoAccept && currentPairRequest != null) {
             PairRequestDialog(
                 deviceName = currentPairRequest.remoteDevice,
                 pairCode = currentPairRequest.pairCode,

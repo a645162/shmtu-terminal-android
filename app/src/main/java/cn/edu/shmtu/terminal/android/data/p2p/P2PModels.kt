@@ -25,9 +25,14 @@ data class P2PSession(
     val remoteDevice: String,
     val remoteAddr: String,
     val remotePort: Int = P2PProtocol.DEFAULT_PORT,
+    val pairCode: String? = null,
+    val isLocallyInitiated: Boolean = false,
     val isPaired: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
-)
+) {
+    val canSendBills: Boolean
+        get() = isLocallyInitiated && !pairCode.isNullOrBlank()
+}
 
 data class P2PStatus(
     val isRunning: Boolean = false,
