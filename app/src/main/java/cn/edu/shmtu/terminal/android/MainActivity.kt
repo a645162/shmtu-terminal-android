@@ -31,6 +31,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.ui.navigation.AppNavigation
 import cn.edu.shmtu.terminal.android.ui.navigation.AppShellViewModel
 import cn.edu.shmtu.terminal.android.ui.navigation.TopLevelDestination
+import cn.edu.shmtu.terminal.android.ui.p2p.P2PViewModel
+import cn.edu.shmtu.terminal.android.ui.p2p.PairRequestDialog
 import cn.edu.shmtu.terminal.android.ui.settings.SettingsViewModelWrapper
 import cn.edu.shmtu.terminal.android.ui.theme.ShmtuterminalandroidTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -51,7 +53,9 @@ fun ShmtuterminalandroidApp() {
     val settingsWrapper: SettingsViewModelWrapper = hiltViewModel()
     val themeMode by settingsWrapper.featureStore.themeMode.collectAsState()
     val shellViewModel: AppShellViewModel = hiltViewModel()
+    val p2pViewModel: P2PViewModel = hiltViewModel()
     val currentIdentity by shellViewModel.currentIdentity.collectAsState()
+    val p2pUiState by p2pViewModel.uiState.collectAsState()
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -62,8 +66,23 @@ fun ShmtuterminalandroidApp() {
     val wideLayout = configuration.screenWidthDp >= 900
     val meLabel = currentIdentity?.remark?.ifBlank { currentIdentity?.username ?: "当前身份" }
         ?: "当前身份"
+    val currentPairRequest = p2pUiState.pairRequests.firstOrNull()
 
     ShmtuterminalandroidTheme(themeMode = themeMode) {
+        if (currentPairRequest != null) {
+            PairRequestDialog(
+                deviceName = currentPairRequest.remoteDevice,
+                pairCode = currentPairRequest.pairCode,
+                remoteAddr = currentPairRequest.remoteAddr,
+                onAccept = {
+                    p2pViewModel.acceptPairing(currentPairRequest.remoteAddr)
+                },
+                onReject = {
+                    p2pViewModel.rejectPairing(currentPairRequest.remoteAddr)
+                }
+            )
+        }
+
         if (wideLayout) {
             Row(modifier = Modifier.fillMaxSize()) {
                 NavigationRail(

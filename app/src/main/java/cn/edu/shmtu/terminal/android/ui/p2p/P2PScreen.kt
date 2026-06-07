@@ -121,9 +121,6 @@ fun P2PScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Show pair request dialog when requests arrive
-    val currentPairRequest = uiState.pairRequests.firstOrNull()
-
     LaunchedEffect(uiState.lastMessage) {
         uiState.lastMessage?.let {
             snackbarHostState.showSnackbar(it)
@@ -157,20 +154,6 @@ fun P2PScreen(
 
     // Active transfer for the progress dialog
     val activeTransfer = uiState.transferProgress.firstOrNull { !it.isComplete }
-
-    if (currentPairRequest != null) {
-        PairRequestDialog(
-            deviceName = currentPairRequest.remoteDevice,
-            pairCode = currentPairRequest.pairCode,
-            remoteAddr = currentPairRequest.remoteAddr,
-            onAccept = {
-                viewModel.acceptPairing(currentPairRequest.remoteAddr)
-            },
-            onReject = {
-                viewModel.rejectPairing(currentPairRequest.remoteAddr)
-            }
-        )
-    }
 
     if (activeTransfer != null) {
         TransferProgressDialog(
@@ -864,7 +847,8 @@ private fun PairedTab(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = "已配对设备",
@@ -1022,7 +1006,8 @@ private fun TransferTab(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = "传输记录",

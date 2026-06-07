@@ -23,6 +23,7 @@ import java.net.SocketTimeoutException
 class P2PClient {
 
     private val tag = "P2PClient"
+    private val pairResponseTimeoutMs = 65_000
 
     private var socket: Socket? = null
     private var input: InputStream? = null
@@ -93,11 +94,14 @@ class P2PClient {
             FrameCodec.writeFrame(outStream, P2PFrame(P2PProtocol.TYPE_PAIR_REQUEST.toByte(), payload))
             Log.d(tag, "Sent PairRequest to remote (pair_code=****)")
 
-            // Read pair response
+            // Read pair response. Remote desktop peers wait for explicit user approval,
+            // so allow a longer timeout than the general socket read timeout.
+            socket?.soTimeout = pairResponseTimeoutMs
             val responseFrame = FrameCodec.readFrame(inStream)
                 ?: return@withContext Result.failure(
                     Exception("Connection closed while waiting for pair response")
                 )
+            socket?.soTimeout = 30000
 
             when (responseFrame.type.toInt() and 0xFF) {
                 P2PProtocol.TYPE_PAIR_ACCEPT -> {
@@ -127,6 +131,11 @@ class P2PClient {
         } catch (e: Exception) {
             Log.e(tag, "Pair request failed", e)
             Result.failure(e)
+        } finally {
+            try {
+                socket?.soTimeout = 30000
+            } catch (_: Exception) {
+            }
         }
     }
 
