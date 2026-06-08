@@ -628,7 +628,14 @@ private fun PersonAccountDetailFields(pa: PersonAccount) {
         "安全保护问题" to pa.securityQuestionStatus,
         "注册时间" to pa.registerDate,
         "学工号" to pa.studentId,
-        "性别" to pa.gender,
+        "性别" to (buildString {
+            append(pa.gender)
+            if (pa.genderFromId.isNotBlank() && pa.genderFromId != pa.gender) {
+                append(" (身份证推断: ")
+                append(pa.genderFromId)
+                append(")")
+            }
+        }),
         "手机号" to pa.phoneNum,
         "证件类型" to pa.idType,
         "证件号码" to pa.idNumber,

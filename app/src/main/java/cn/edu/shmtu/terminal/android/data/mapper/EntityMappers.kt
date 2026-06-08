@@ -12,6 +12,17 @@ import cn.edu.shmtu.terminal.android.domain.model.Identity
 import cn.edu.shmtu.terminal.android.domain.model.LoginStatus
 import cn.edu.shmtu.terminal.android.domain.model.PersonAccount
 
+/**
+ * 推断身份证号性别: 第 17 位数字 奇数=男性, 偶数=女性, 不足或非数字返回空字符串.
+ */
+internal fun guessGenderFromIdNumber(idNumber: String): String {
+    if (idNumber.length < 17) return ""
+    val ch = idNumber[16]
+    if (!ch.isDigit()) return ""
+    val digit = ch.digitToInt()
+    return if (digit % 2 == 1) "男性" else "女性"
+}
+
 object EntityMappers {
 
     fun IdentityEntity.toDomain(accountCount: Int = 0): Identity = Identity(
@@ -137,6 +148,7 @@ object EntityMappers {
         gender = gender,
         className = className,
         phoneNum = phoneNum,
+        genderFromId = genderFromId,
         idType = idType,
         idNumber = idNumber,
         remark = remark,
@@ -158,6 +170,8 @@ object EntityMappers {
         gender = gender,
         className = className,
         phoneNum = phoneNum,
+        // cas_lib 的 PersonAccountInfo 没有 genderFromId 字段, 这里从 idNumber 推断
+        genderFromId = guessGenderFromIdNumber(idNumber),
         idType = idType,
         idNumber = idNumber,
         remark = remark,

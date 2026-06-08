@@ -36,6 +36,7 @@ data class PersonAccountEntity(
     val gender: String = "",
     val className: String = "",
     val phoneNum: String = "",
+    val genderFromId: String = "",
     val idType: String = "",
     val idNumber: String = "",
     val remark: String = "",
