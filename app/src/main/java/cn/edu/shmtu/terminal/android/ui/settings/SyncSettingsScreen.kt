@@ -26,11 +26,14 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import cn.edu.shmtu.terminal.android.data.sync.PeriodicBillSyncWorker
 import cn.edu.shmtu.terminal.android.data.sync.AutoSyncStatusNotifier
+import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -55,6 +58,7 @@ data class AutoSyncStatus(
 @HiltViewModel
 class SyncSettingsViewModel @Inject constructor(
     private val store: FeatureSettingsStore,
+    private val settingsDataStore: SettingsDataStore,
     private val notifier: AutoSyncStatusNotifier
 ) : ViewModel() {
 
@@ -69,6 +73,10 @@ class SyncSettingsViewModel @Inject constructor(
     val syncEarlyStop: StateFlow<Int> = store.syncEarlyStop
     val syncSkipGraduated: StateFlow<Boolean> = store.syncSkipGraduated
     val syncAutoMerge: StateFlow<Boolean> = store.syncAutoMerge
+    val billMergeThresholdMinutes: StateFlow<Int> = settingsDataStore.billMergeThresholdMinutes
+        .stateIn(viewModelScope, SharingStarted.Eagerly, settingsDataStore.getBillMergeThresholdMinutes())
+
+    fun setBillMergeThresholdMinutes(n: Int) = settingsDataStore.setBillMergeThresholdMinutes(n)
 
     fun setAutoSyncEnabled(v: Boolean) { store.setAutoSyncEnabled(v); notifier.refresh() }
     fun setAutoSyncInterval(n: Int) { store.setAutoSyncInterval(n); notifier.refresh() }
@@ -138,6 +146,7 @@ fun SyncSettingsScreen(
     val syncEarlyStop by viewModel.syncEarlyStop.collectAsState()
     val syncSkipGraduated by viewModel.syncSkipGraduated.collectAsState()
     val syncAutoMerge by viewModel.syncAutoMerge.collectAsState()
+    val billMergeThresholdMinutes by viewModel.billMergeThresholdMinutes.collectAsState()
     val status by viewModel.status.collectAsState()
     var nextRunCountdown by remember { mutableStateOf(status.nextRunInSeconds) }
 
@@ -207,9 +216,25 @@ fun SyncSettingsScreen(
                 checked = syncAutoMerge,
                 onCheckedChange = { viewModel.setSyncAutoMerge(it) }
             )
+            Text(
+                text = "洗澡账单合并阈值：${if (billMergeThresholdMinutes == 0) "禁用" else "$billMergeThresholdMinutes 分钟"}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                text = "相邻两笔洗澡/热水账单时间间隔 < 阈值时，自动首尾合并（订单号和时间变成列表）。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Slider(
+                value = billMergeThresholdMinutes.toFloat(),
+                onValueChange = { viewModel.setBillMergeThresholdMinutes(it.toInt()) },
+                valueRange = 0f..60f,
+                steps = 12
+            )
             SettingsExampleBlock {
                 SettingsExampleLine("跳过已毕业账号", "开启后，不再反复尝试长期失效的账号，减少报错和等待。")
                 SettingsExampleLine("同步后自动合并", "开启后，同步完成会立刻做去重和分类整理；关闭后只拉原始账单。")
+                SettingsExampleLine("合并阈值（0=禁用）", "仅对洗澡/热水类账单生效。例：阈值=15 表示两个连续洗澡记录间隔 < 15 分钟时合并。")
             }
         }
 
