@@ -110,6 +110,18 @@ class HomeViewModel @Inject constructor(
     private val _isRefreshingBalance = MutableStateFlow(false)
     val isRefreshingBalance: StateFlow<Boolean> = _isRefreshingBalance.asStateFlow()
 
+    /** 点击余额卡片时显示的"确认刷新"弹窗状态 */
+    private val _showRefreshBalanceDialog = MutableStateFlow(false)
+    val showRefreshBalanceDialog: StateFlow<Boolean> = _showRefreshBalanceDialog.asStateFlow()
+
+    fun requestRefreshBalance() {
+        _showRefreshBalanceDialog.value = true
+    }
+
+    fun dismissRefreshBalanceDialog() {
+        _showRefreshBalanceDialog.value = false
+    }
+
     /** 用于触发主动刷新:每次值变化都会重新拉取所有统计流 */
     private val _refreshTrigger = MutableStateFlow(0)
     val refreshTrigger: StateFlow<Int> = _refreshTrigger.asStateFlow()

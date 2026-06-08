@@ -31,6 +31,9 @@ import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material3.Badge
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -198,7 +201,7 @@ fun HomeScreen(
                     BalanceCard(
                         personAccount = personAccount,
                         isRefreshing = isRefreshingBalance,
-                        onRefresh = { viewModel.refreshCurrentBalance() }
+                        onRefresh = { viewModel.requestRefreshBalance() }
                     )
                     StatCardsSection(
                         todaySummary = todaySummary,
@@ -304,6 +307,33 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    if (viewModel.showRefreshBalanceDialog.collectAsState().value) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissRefreshBalanceDialog() },
+            title = { Text("刷新一卡通余额") },
+            text = {
+                Text(
+                    "即将从校园卡服务器拉取最新余额与个人信息, " +
+                        "可能需要输入验证码 (取决于配置)。确定继续吗?"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.dismissRefreshBalanceDialog()
+                        viewModel.refreshCurrentBalance()
+                    },
+                    enabled = !isRefreshingBalance
+                ) { Text(if (isRefreshingBalance) "刷新中..." else "确定刷新") }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissRefreshBalanceDialog() }) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }
 
