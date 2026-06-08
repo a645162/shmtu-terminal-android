@@ -16,6 +16,7 @@ import cn.edu.shmtu.terminal.android.ui.bill.BillDetailScreen
 import cn.edu.shmtu.terminal.android.ui.datatransfer.DataTransferScreen
 import cn.edu.shmtu.terminal.android.ui.hotwater.HotWaterScreen
 import cn.edu.shmtu.terminal.android.ui.bill.BillListScreen
+import cn.edu.shmtu.terminal.android.ui.cloud.CloudBackupScreen
 import cn.edu.shmtu.terminal.android.ui.features.FeatureHubScreen
 import cn.edu.shmtu.terminal.android.ui.home.HomeScreen
 import cn.edu.shmtu.terminal.android.ui.me.MeScreen
@@ -68,7 +69,8 @@ fun AppNavigation(
                 FeatureHubScreen(
                     onNavigateToBillStatistics = { navController.navigate("bill_statistics") },
                     onNavigateToDataTransfer = { navController.navigate("data_transfer") },
-                    onNavigateToP2P = { navController.navigate("p2p") }
+                    onNavigateToP2P = { navController.navigate("p2p") },
+                    onNavigateToCloudBackup = { navController.navigate("cloud_backup") }
                 )
             }
             composable(TopLevelDestination.ME.route) {
@@ -130,6 +132,11 @@ fun AppNavigation(
             }
             composable("data_transfer") {
                 DataTransferScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable("cloud_backup") {
+                CloudBackupScreen(
                     onBack = { navController.popBackStack() }
                 )
             }

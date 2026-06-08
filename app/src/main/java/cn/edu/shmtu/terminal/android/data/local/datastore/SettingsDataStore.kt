@@ -263,6 +263,55 @@ class SettingsDataStore @Inject constructor(
     private fun getBillMergeThresholdMinutesRaw(): Int =
         prefs.getInt(KEY_BILL_MERGE_THRESHOLD_MINUTES, 15)
 
+    // ============== 云备份配置 ==============
+
+    fun getCloudBackupProviderId(): String? = prefs.getString(KEY_CLOUD_BACKUP_PROVIDER, null)
+    fun getCloudBackupServerUrl(): String? = prefs.getString(KEY_CLOUD_BACKUP_SERVER_URL, null)
+    fun getCloudBackupUsername(): String? = prefs.getString(KEY_CLOUD_BACKUP_USERNAME, null)
+    fun getCloudBackupPassword(): String? = prefs.getString(KEY_CLOUD_BACKUP_PASSWORD, null)
+    fun getCloudBackupRoot(): String =
+        prefs.getString(KEY_CLOUD_BACKUP_ROOT, "shmtu-backup") ?: "shmtu-backup"
+
+    fun setCloudBackupConfig(
+        providerId: String,
+        serverUrl: String,
+        username: String,
+        backupRoot: String
+    ) {
+        prefs.edit()
+            .putString(KEY_CLOUD_BACKUP_PROVIDER, providerId)
+            .putString(KEY_CLOUD_BACKUP_SERVER_URL, serverUrl)
+            .putString(KEY_CLOUD_BACKUP_USERNAME, username)
+            .putString(KEY_CLOUD_BACKUP_ROOT, backupRoot)
+            .apply()
+    }
+
+    fun setCloudBackupPassword(password: String) {
+        prefs.edit().putString(KEY_CLOUD_BACKUP_PASSWORD, password).apply()
+    }
+
+    fun getCloudBackupHistory(): List<cn.edu.shmtu.terminal.android.data.cloud.CloudBackupRecord> {
+        val raw = prefs.getString(KEY_CLOUD_BACKUP_HISTORY, null) ?: return emptyList()
+        return try {
+            kotlinx.serialization.json.Json.decodeFromString(
+                kotlinx.serialization.builtins.ListSerializer(
+                    cn.edu.shmtu.terminal.android.data.cloud.CloudBackupRecord.serializer()
+                ),
+                raw
+            )
+        } catch (_: Exception) { emptyList() }
+    }
+
+    fun setCloudBackupHistory(records: List<cn.edu.shmtu.terminal.android.data.cloud.CloudBackupRecord>) {
+        val raw = kotlinx.serialization.json.Json.encodeToString(
+            kotlinx.serialization.builtins.ListSerializer(
+                cn.edu.shmtu.terminal.android.data.cloud.CloudBackupRecord.serializer()
+            ),
+            records
+        )
+        prefs.edit().putString(KEY_CLOUD_BACKUP_HISTORY, raw).apply()
+    }
+
     private fun getWEBAutoStart(): Boolean =
         prefs.getBoolean(KEY_WEB_AUTO_START, false)
 
@@ -293,6 +342,13 @@ class SettingsDataStore @Inject constructor(
         private const val KEY_P2P_AUTO_RECONNECT = "p2p_auto_reconnect"
         // 账单合并阈值（分钟），默认 15
         private const val KEY_BILL_MERGE_THRESHOLD_MINUTES = "bill_merge_threshold_minutes"
+        // 云备份配置
+        private const val KEY_CLOUD_BACKUP_PROVIDER = "cloud_backup_provider"
+        private const val KEY_CLOUD_BACKUP_SERVER_URL = "cloud_backup_server_url"
+        private const val KEY_CLOUD_BACKUP_USERNAME = "cloud_backup_username"
+        private const val KEY_CLOUD_BACKUP_PASSWORD = "cloud_backup_password"
+        private const val KEY_CLOUD_BACKUP_ROOT = "cloud_backup_root"
+        private const val KEY_CLOUD_BACKUP_HISTORY = "cloud_backup_history"
         // WEB settings keys
         private const val KEY_WEB_AUTO_START = "web_auto_start_server"
         private const val KEY_WEB_DEVICE_NAME = "web_device_name"
