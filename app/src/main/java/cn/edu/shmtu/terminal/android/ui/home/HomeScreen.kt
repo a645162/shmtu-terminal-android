@@ -29,6 +29,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material3.Badge
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -123,6 +124,8 @@ fun HomeScreen(
     val monthSummary by viewModel.monthSummary.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val isLoadingStatistics by viewModel.isLoadingStatistics.collectAsState()
+    val personAccount by viewModel.currentPersonAccount.collectAsState()
+    val isRefreshingBalance by viewModel.isRefreshingBalance.collectAsState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val configuration = LocalConfiguration.current
     val ultraWide = configuration.screenWidthDp >= 1200
@@ -192,6 +195,11 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     HomeDeskIntroCard()
+                    BalanceCard(
+                        personAccount = personAccount,
+                        isRefreshing = isRefreshingBalance,
+                        onRefresh = { viewModel.refreshCurrentBalance() }
+                    )
                     StatCardsSection(
                         todaySummary = todaySummary,
                         monthSummary = monthSummary,
@@ -256,6 +264,11 @@ fun HomeScreen(
                     )
                     return@Column
                 }
+                BalanceCard(
+                    personAccount = personAccount,
+                    isRefreshing = isRefreshingBalance,
+                    onRefresh = { viewModel.refreshCurrentBalance() }
+                )
                 StatCardsSection(
                     todaySummary = todaySummary,
                     monthSummary = monthSummary,
@@ -713,6 +726,88 @@ private fun HomeDeskIntroCard() {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+private fun BalanceCard(
+    personAccount: cn.edu.shmtu.terminal.android.domain.model.PersonAccount?,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit
+) {
+    val cashText = when {
+        personAccount == null -> "点击刷新"
+        personAccount.cashBalanceRaw.isNotBlank() -> "${personAccount.cashBalanceRaw} 元"
+        else -> "%.2f 元".format(personAccount.cashBalance)
+    }
+    val subtitle = when {
+        personAccount == null -> "尚未获取一卡通余额"
+        personAccount.realName.isNotBlank() -> personAccount.realName +
+            (if (personAccount.studentId.isNotBlank()) " · ${personAccount.studentId}" else "")
+        else -> "当前选中账号的现金资金"
+    }
+    val updatedLabel = personAccount?.updatedAt?.takeIf { it > 0 }?.let {
+        "更新于 " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(it))
+    }
+
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onRefresh),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.AccountBalanceWallet,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(36.dp)
+            )
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "当前余额",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+                )
+                Text(
+                    text = cashText,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                    maxLines = 1
+                )
+                if (updatedLabel != null) {
+                    Text(
+                        text = updatedLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                    )
+                }
+            }
+            if (isRefreshing) {
+                SpinningRefreshIcon()
+            } else {
+                IconButton(onClick = onRefresh) {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = "刷新余额",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
         }
     }
 }

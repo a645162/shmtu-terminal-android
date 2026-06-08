@@ -7,6 +7,7 @@ import cn.edu.shmtu.terminal.android.data.local.db.MainDatabase
 import cn.edu.shmtu.terminal.android.data.local.db.dao.AccountDao
 import cn.edu.shmtu.terminal.android.data.local.db.dao.FollowedBuildingDao
 import cn.edu.shmtu.terminal.android.data.local.db.dao.IdentityDao
+import cn.edu.shmtu.terminal.android.data.local.db.dao.PersonAccountDao
 import cn.edu.shmtu.terminal.android.data.local.db.dao.SessionDao
 import dagger.Module
 import dagger.Provides
@@ -49,6 +50,11 @@ object DatabaseModule {
     @Provides
     fun provideSessionDao(database: MainDatabase): SessionDao {
         return database.sessionDao()
+    }
+
+    @Provides
+    fun providePersonAccountDao(database: MainDatabase): PersonAccountDao {
+        return database.personAccountDao()
     }
 
     @Provides

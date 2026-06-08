@@ -1,11 +1,14 @@
 package cn.edu.shmtu.terminal.android.ui.account
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import cn.edu.shmtu.cas.parser.PersonAccountParser
 import cn.edu.shmtu.cas.session.LoginSubmitResult
 import cn.edu.shmtu.terminal.android.domain.model.Account
 import cn.edu.shmtu.terminal.android.domain.model.Identity
+import cn.edu.shmtu.terminal.android.domain.model.PersonAccount
 import cn.edu.shmtu.terminal.android.data.remote.EpayAdapter
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
@@ -14,12 +17,14 @@ import cn.edu.shmtu.terminal.android.domain.usecase.bill.CaptchaRequiredExceptio
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.Purpose
 import cn.edu.shmtu.terminal.android.domain.usecase.bill.SyncAccountBillsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -34,8 +39,11 @@ data class IdentityDetailUiState(
     val pendingCaptcha: CaptchaRequiredException? = null,
     val syncMessage: String? = null,
     val syncProgress: cn.edu.shmtu.terminal.android.domain.model.SyncProgress? = null,
+    /** 正在拉取个人账户详情的账号 id (用于 UI 显示 Loading) */
+    val refreshingAccountIds: Set<Long> = emptySet(),
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class IdentityDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -56,6 +64,24 @@ class IdentityDetailViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     }
 
+    /** 当前 identity 下所有账号的 PersonAccount 缓存 (accountId -> PersonAccount) */
+    val personAccountsByAccountId: StateFlow<Map<Long, PersonAccount>> = accounts
+        .flatMapLatest { list ->
+            if (list.isEmpty()) flowOf(emptyMap<Long, PersonAccount>())
+            else {
+                // 对每个账号单独观察;合并为 Map
+                val flows = list.map { acc ->
+                    accountRepository.observeCachedPersonAccount(acc.id)
+                        .map { pa -> acc.id to pa }
+                }
+                kotlinx.coroutines.flow.combine(flows) { array ->
+                    array.filter { it.second != null }
+                        .associate { (id, pa) -> id to pa!! }
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     private val _uiState = MutableStateFlow(IdentityDetailUiState())
     val uiState: StateFlow<IdentityDetailUiState> = _uiState.asStateFlow()
 
@@ -64,6 +90,41 @@ class IdentityDetailViewModel @Inject constructor(
 
     suspend fun getIdentity(): Identity? {
         return identityRepository.getIdentityById(identityId)
+    }
+
+    /**
+     * 刷新一卡通个人账户详情
+     *
+     * 流程: EpayAuth.getPersonAccountHtml() → PersonAccountParser().parse() → 写 Room 缓存
+     * 失败时: UI 仍可读取 Room 缓存;该函数返回 Result 给调用方用于展示 snackbar。
+     */
+    fun refreshPersonAccount(account: Account) {
+        viewModelScope.launch {
+            val current = _uiState.value.refreshingAccountIds
+            _uiState.value = _uiState.value.copy(refreshingAccountIds = current + account.id)
+
+            val htmlResult = epayAdapter.fetchPersonAccountHtml(account.id)
+            val result = htmlResult.mapCatching { html ->
+                PersonAccountParser().parse(html)
+            }
+
+            result.fold(
+                onSuccess = { info ->
+                    accountRepository.savePersonAccount(account.id, info)
+                    _uiState.value = _uiState.value.copy(
+                        refreshingAccountIds = _uiState.value.refreshingAccountIds - account.id,
+                        syncMessage = "「${account.label}」个人账户详情已更新"
+                    )
+                },
+                onFailure = { e ->
+                    Log.w("IdentityDetailVM", "refreshPersonAccount failed for ${account.id}: ${e.message}")
+                    _uiState.value = _uiState.value.copy(
+                        refreshingAccountIds = _uiState.value.refreshingAccountIds - account.id,
+                        syncMessage = "拉取「${account.label}」详情失败: ${e.message ?: "未知错误"}"
+                    )
+                }
+            )
+        }
     }
 
     fun refreshAccountBills(account: Account) {

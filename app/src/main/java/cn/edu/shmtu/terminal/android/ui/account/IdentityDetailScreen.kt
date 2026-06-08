@@ -1,7 +1,12 @@
 package cn.edu.shmtu.terminal.android.ui.account
 
 import android.graphics.BitmapFactory
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -25,6 +30,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -35,6 +44,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -71,6 +81,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.domain.model.Account
 import cn.edu.shmtu.terminal.android.domain.model.LoginStatus
+import cn.edu.shmtu.terminal.android.domain.model.PersonAccount
 import cn.edu.shmtu.terminal.android.ui.component.PasswordTextField
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -85,6 +96,7 @@ fun IdentityDetailScreen(
     val accounts by viewModel.accounts.collectAsState()
     val editingAccount by viewModel.editingAccount.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
+    val personAccountsMap by viewModel.personAccountsByAccountId.collectAsState()
     var expandedMenuAccount by remember { mutableLongStateOf(-1L) }
     var confirmingDelete by remember { mutableStateOf<Account?>(null) }
     var captchaInput by remember { mutableStateOf("") }
@@ -161,7 +173,10 @@ fun IdentityDetailScreen(
                     items(accounts, key = { it.id }) { account ->
                         SwipeableAccountCard(
                             account = account,
+                            personAccount = personAccountsMap[account.id],
+                            isRefreshingPersonAccount = uiState.refreshingAccountIds.contains(account.id),
                             onRefresh = { viewModel.refreshAccountBills(account) },
+                            onRefreshPersonAccount = { viewModel.refreshPersonAccount(account) },
                             onHotWater = { onHotWater(account.id) },
                             onEdit = { viewModel.startEditAccount(account) },
                             onDelete = { confirmingDelete = account },
@@ -320,7 +335,10 @@ private fun CaptchaDialog(
 @Composable
 private fun SwipeableAccountCard(
     account: Account,
+    personAccount: PersonAccount?,
+    isRefreshingPersonAccount: Boolean,
     onRefresh: () -> Unit,
+    onRefreshPersonAccount: () -> Unit,
     onHotWater: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -414,68 +432,227 @@ private fun SwipeableAccountCard(
             ),
             colors = CardDefaults.elevatedCardColors()
         ) {
-            Box {
-                ListItem(
-                    headlineContent = { Text("${account.label} - ${account.userId}") },
-                    supportingContent = {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = when (account.loginStatus) {
-                                    LoginStatus.LOGGED_IN -> "已登录"
-                                    LoginStatus.LOGGED_OUT -> "未登录"
-                                    LoginStatus.ERROR -> "登录错误"
-                                },
-                                color = when (account.loginStatus) {
-                                    LoginStatus.LOGGED_IN -> MaterialTheme.colorScheme.primary
-                                    LoginStatus.LOGGED_OUT -> MaterialTheme.colorScheme.onSurfaceVariant
-                                    LoginStatus.ERROR -> MaterialTheme.colorScheme.error
-                                }
-                            )
-                            if (account.lastSyncTime != null) {
+            Column {
+                Box {
+                    ListItem(
+                        headlineContent = { Text("${account.label} - ${account.userId}") },
+                        supportingContent = {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 Text(
-                                    text = "上次同步: ${formatTimestamp(account.lastSyncTime)}",
-                                    style = MaterialTheme.typography.bodySmall
+                                    text = when (account.loginStatus) {
+                                        LoginStatus.LOGGED_IN -> "已登录"
+                                        LoginStatus.LOGGED_OUT -> "未登录"
+                                        LoginStatus.ERROR -> "登录错误"
+                                    },
+                                    color = when (account.loginStatus) {
+                                        LoginStatus.LOGGED_IN -> MaterialTheme.colorScheme.primary
+                                        LoginStatus.LOGGED_OUT -> MaterialTheme.colorScheme.onSurfaceVariant
+                                        LoginStatus.ERROR -> MaterialTheme.colorScheme.error
+                                    }
                                 )
+                                if (account.lastSyncTime != null) {
+                                    Text(
+                                        text = "上次同步: ${formatTimestamp(account.lastSyncTime)}",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
                             }
                         }
-                    }
-                )
+                    )
 
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = onDismissMenu
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("刷新账单") },
-                        onClick = {
-                            onDismissMenu()
-                            onRefresh()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("热水查询") },
-                        onClick = {
-                            onDismissMenu()
-                            onHotWater()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("编辑") },
-                        onClick = {
-                            onDismissMenu()
-                            onEdit()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("删除", color = MaterialTheme.colorScheme.error) },
-                        onClick = {
-                            onDismissMenu()
-                            onDelete()
-                        }
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = onDismissMenu
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("刷新账单") },
+                            onClick = {
+                                onDismissMenu()
+                                onRefresh()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("拉取个人详情") },
+                            onClick = {
+                                onDismissMenu()
+                                onRefreshPersonAccount()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("热水查询") },
+                            onClick = {
+                                onDismissMenu()
+                                onHotWater()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("编辑") },
+                            onClick = {
+                                onDismissMenu()
+                                onEdit()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("删除", color = MaterialTheme.colorScheme.error) },
+                            onClick = {
+                                onDismissMenu()
+                                onDelete()
+                            }
+                        )
+                    }
+                }
+
+                PersonAccountSection(
+                    personAccount = personAccount,
+                    isRefreshing = isRefreshingPersonAccount,
+                    onRefresh = onRefreshPersonAccount
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PersonAccountSection(
+    personAccount: PersonAccount?,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = { expanded = !expanded },
+                    onLongClick = onRefresh
+                )
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.Person,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "个人账户详情",
+                    style = MaterialTheme.typography.titleSmall
+                )
+                personAccount?.let { pa ->
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "余额 ${pa.cashBalanceRaw.ifBlank { "%.2f".format(pa.cashBalance) }} 元",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isRefreshing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                } else {
+                    IconButton(
+                        onClick = onRefresh,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Refresh,
+                            contentDescription = "刷新个人详情",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = if (expanded) Icons.Outlined.KeyboardArrowUp
+                    else Icons.Outlined.KeyboardArrowDown,
+                    contentDescription = if (expanded) "收起" else "展开",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                if (personAccount == null) {
+                    Text(
+                        text = "暂无缓存,长按标题或点击刷新按钮拉取",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                } else {
+                    PersonAccountDetailFields(personAccount)
+                    if (personAccount.updatedAt > 0) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "缓存于 ${formatTimestamp(personAccount.updatedAt)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PersonAccountDetailFields(pa: PersonAccount) {
+    val fields = listOf(
+        "姓名" to pa.realName,
+        "实名认证" to pa.realNameAuthStatus,
+        "现金资金" to (pa.cashBalanceRaw.ifBlank { "%.2f 元".format(pa.cashBalance) }),
+        "安全保护问题" to pa.securityQuestionStatus,
+        "注册时间" to pa.registerDate,
+        "学工号" to pa.studentId,
+        "性别" to pa.gender,
+        "手机" to pa.mobile,
+        "固话" to pa.fixedLine,
+        "证件类型" to pa.idType,
+        "证件号码" to pa.idNumber,
+        "电子邮箱" to pa.email,
+        "昵称" to pa.nickname,
+        "班级" to pa.className,
+        "备注" to pa.remark,
+        "用户类型" to pa.userType,
+    )
+    fields.forEach { (label, value) ->
+        if (value.isNotBlank()) {
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(96.dp)
+                )
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
     }

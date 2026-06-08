@@ -1,13 +1,16 @@
 package cn.edu.shmtu.terminal.android.data.mapper
 
+import cn.edu.shmtu.cas.parser.PersonAccountInfo
 import cn.edu.shmtu.terminal.android.data.local.db.entity.AccountEntity
 import cn.edu.shmtu.terminal.android.data.local.db.entity.BillEntity
 import cn.edu.shmtu.terminal.android.data.local.db.entity.IdentityEntity
+import cn.edu.shmtu.terminal.android.data.local.db.entity.PersonAccountEntity
 import cn.edu.shmtu.terminal.android.domain.model.Account
 import cn.edu.shmtu.terminal.android.domain.model.AccountType
 import cn.edu.shmtu.terminal.android.domain.model.BillItem
 import cn.edu.shmtu.terminal.android.domain.model.Identity
 import cn.edu.shmtu.terminal.android.domain.model.LoginStatus
+import cn.edu.shmtu.terminal.android.domain.model.PersonAccount
 
 object EntityMappers {
 
@@ -119,5 +122,48 @@ object EntityMappers {
         money = amount,
         method = paymentMethod,
         status = status.name,
+    )
+
+    fun PersonAccountEntity.toDomain(): PersonAccount = PersonAccount(
+        realName = realName,
+        realNameAuthStatus = realNameAuthStatus,
+        cashBalance = cashBalance,
+        cashBalanceRaw = cashBalanceRaw,
+        securityQuestionStatus = securityQuestionStatus,
+        registerDate = registerDate,
+        studentId = studentId,
+        email = email,
+        nickname = nickname,
+        gender = gender,
+        className = className,
+        mobile = mobile,
+        fixedLine = fixedLine,
+        idType = idType,
+        idNumber = idNumber,
+        remark = remark,
+        userType = userType,
+        updatedAt = updatedAt,
+    )
+
+    fun PersonAccountInfo.toEntity(accountId: Long, now: Long = System.currentTimeMillis()): PersonAccountEntity = PersonAccountEntity(
+        accountId = accountId,
+        realName = realName,
+        realNameAuthStatus = realNameAuthStatus,
+        cashBalance = cashBalance,
+        cashBalanceRaw = cashBalanceRaw,
+        securityQuestionStatus = securityQuestionStatus,
+        registerDate = registerDate,
+        studentId = studentId,
+        email = email,
+        nickname = nickname,
+        gender = gender,
+        className = className,
+        mobile = mobile,
+        fixedLine = fixedLine,
+        idType = idType,
+        idNumber = idNumber,
+        remark = remark,
+        userType = userType,
+        updatedAt = now,
     )
 }

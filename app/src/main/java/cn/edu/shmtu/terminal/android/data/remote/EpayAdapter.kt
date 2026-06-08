@@ -296,6 +296,18 @@ class EpayAdapter @Inject constructor(
     }
 
     /**
+     * 拉取一卡通个人账户页面 HTML
+     *
+     * 需要该账号已登录(cookie 在 SecureStorage 中保存)。
+     * 302/401 等情况由调用方根据 Result.failure 自行处理。
+     */
+    suspend fun fetchPersonAccountHtml(accountId: Long): Result<String> = withContext(Dispatchers.IO) {
+        val result = getEpayAuth(accountId).getPersonAccountHtml()
+        Log.d(TAG, "fetchPersonAccountHtml account=$accountId success=${result.isSuccess}")
+        result
+    }
+
+    /**
      * 解析账单 HTML，并在解析后自动分类和翻译
      *
      * 返回的 Map 包含以下额外字段：
