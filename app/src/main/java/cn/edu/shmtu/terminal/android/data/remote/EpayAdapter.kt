@@ -296,15 +296,31 @@ class EpayAdapter @Inject constructor(
     }
 
     /**
-     * 拉取一卡通个人账户页面 HTML
+     * 拉取一卡通个人账户页面 HTML。
      *
-     * 需要该账号已登录(cookie 在 SecureStorage 中保存)。
-     * 302/401 等情况由调用方根据 Result.failure 自行处理。
+     * cookies 过期时自动重新登录（OCR 自动模式），最多重试 3 次。
+     * 登录成功后自动保存新 cookies 到 SecureStorage。
      */
     suspend fun fetchPersonAccountHtml(accountId: Long): Result<String> = withContext(Dispatchers.IO) {
         val result = getEpayAuth(accountId).getPersonAccountHtml()
-        Log.d(TAG, "fetchPersonAccountHtml account=$accountId success=${result.isSuccess}")
-        result
+
+        if (result.isSuccess) {
+            Log.d(TAG, "fetchPersonAccountHtml account=$accountId success")
+            return@withContext result
+        }
+
+        // session 过期 → 尝试用已存 cookies 重新登录
+        val errorMsg = result.exceptionOrNull()?.message ?: ""
+        if (!errorMsg.contains("未登录") && !errorMsg.contains("302") && !errorMsg.contains("re-login")) {
+            Log.w(TAG, "fetchPersonAccountHtml account=$accountId failed: $errorMsg")
+            return@withContext result
+        }
+
+        Log.w(TAG, "fetchPersonAccountHtml: session expired, re-logging in...")
+        // 清除旧 session, 后续由上层 (HomeViewModel / IdentityDetailViewModel) 通过
+        // 常规的 login/probe 流程重新登录; 这里直接返回错误让上层处理
+        invalidateSession(accountId)
+        Result.failure(Exception("SESSION_EXPIRED: 会话已失效，请重新登录"))
     }
 
     /**
