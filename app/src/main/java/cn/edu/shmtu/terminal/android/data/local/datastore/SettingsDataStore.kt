@@ -245,6 +245,24 @@ class SettingsDataStore @Inject constructor(
     private fun getP2PAutoReconnect(): Boolean =
         prefs.getBoolean(KEY_P2P_AUTO_RECONNECT, false)
 
+    /**
+     * 洗澡/热水账单合并阈值（分钟）
+     * 默认 15 分钟。设为 0 表示禁用合并。
+     */
+    private val _billMergeThresholdMinutesFlow = MutableStateFlow(getBillMergeThresholdMinutesRaw())
+    val billMergeThresholdMinutes: Flow<Int> = _billMergeThresholdMinutesFlow.asStateFlow()
+
+    fun getBillMergeThresholdMinutes(): Int = _billMergeThresholdMinutesFlow.value
+
+    fun setBillMergeThresholdMinutes(minutes: Int) {
+        val safe = minutes.coerceIn(0, 1440)  // 0..24小时
+        prefs.edit().putInt(KEY_BILL_MERGE_THRESHOLD_MINUTES, safe).apply()
+        _billMergeThresholdMinutesFlow.value = safe
+    }
+
+    private fun getBillMergeThresholdMinutesRaw(): Int =
+        prefs.getInt(KEY_BILL_MERGE_THRESHOLD_MINUTES, 15)
+
     private fun getWEBAutoStart(): Boolean =
         prefs.getBoolean(KEY_WEB_AUTO_START, false)
 
@@ -273,6 +291,8 @@ class SettingsDataStore @Inject constructor(
         private const val KEY_P2P_PORT = "p2p_port"
         private const val KEY_P2P_AUTO_ACCEPT = "p2p_auto_accept"
         private const val KEY_P2P_AUTO_RECONNECT = "p2p_auto_reconnect"
+        // 账单合并阈值（分钟），默认 15
+        private const val KEY_BILL_MERGE_THRESHOLD_MINUTES = "bill_merge_threshold_minutes"
         // WEB settings keys
         private const val KEY_WEB_AUTO_START = "web_auto_start_server"
         private const val KEY_WEB_DEVICE_NAME = "web_device_name"

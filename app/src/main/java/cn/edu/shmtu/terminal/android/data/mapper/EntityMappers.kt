@@ -67,7 +67,11 @@ object EntityMappers {
         position = position ?: building,
         room = room,
         category = category,
-        building = building
+        building = building,
+        mergedTransactionNos = mergedTransactionNos,
+        mergedDateTimes = mergedDateTimes,
+        isMerged = isMerged,
+        mergedBillCount = mergedBillCount
     )
 
     fun BillItem.toEntity(): BillEntity = BillEntity(
@@ -86,7 +90,11 @@ object EntityMappers {
         position = position,
         room = room,
         category = category,
-        building = building
+        building = building,
+        mergedTransactionNos = mergedTransactionNos,
+        mergedDateTimes = mergedDateTimes,
+        isMerged = isMerged,
+        mergedBillCount = mergedBillCount
     )
 
     /**
