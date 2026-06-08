@@ -272,6 +272,22 @@ class SettingsDataStore @Inject constructor(
     fun getCloudBackupRoot(): String =
         prefs.getString(KEY_CLOUD_BACKUP_ROOT, "shmtu-backup") ?: "shmtu-backup"
 
+    // 云备份自动定时配置
+    fun getCloudBackupAutoEnabledValue(): Boolean = prefs.getBoolean(KEY_CLOUD_BACKUP_AUTO_ENABLED, false)
+    fun setCloudBackupAutoEnabled(v: Boolean) {
+        prefs.edit().putBoolean(KEY_CLOUD_BACKUP_AUTO_ENABLED, v).apply()
+    }
+    fun getCloudBackupAutoIntervalMinutes(): Int = prefs.getInt(KEY_CLOUD_BACKUP_AUTO_INTERVAL, 360)
+    fun setCloudBackupAutoIntervalMinutes(minutes: Int) {
+        val safe = minutes.coerceIn(15, 10080)
+        prefs.edit().putInt(KEY_CLOUD_BACKUP_AUTO_INTERVAL, safe).apply()
+    }
+    fun getCloudBackupAutoPassword(): String =
+        prefs.getString(KEY_CLOUD_BACKUP_AUTO_PASSWORD, "") ?: ""
+    fun setCloudBackupAutoPassword(p: String) {
+        prefs.edit().putString(KEY_CLOUD_BACKUP_AUTO_PASSWORD, p).apply()
+    }
+
     fun setCloudBackupConfig(
         providerId: String,
         serverUrl: String,
@@ -349,6 +365,9 @@ class SettingsDataStore @Inject constructor(
         private const val KEY_CLOUD_BACKUP_PASSWORD = "cloud_backup_password"
         private const val KEY_CLOUD_BACKUP_ROOT = "cloud_backup_root"
         private const val KEY_CLOUD_BACKUP_HISTORY = "cloud_backup_history"
+        private const val KEY_CLOUD_BACKUP_AUTO_ENABLED = "cloud_backup_auto_enabled"
+        private const val KEY_CLOUD_BACKUP_AUTO_INTERVAL = "cloud_backup_auto_interval"
+        private const val KEY_CLOUD_BACKUP_AUTO_PASSWORD = "cloud_backup_auto_password"
         // WEB settings keys
         private const val KEY_WEB_AUTO_START = "web_auto_start_server"
         private const val KEY_WEB_DEVICE_NAME = "web_device_name"
