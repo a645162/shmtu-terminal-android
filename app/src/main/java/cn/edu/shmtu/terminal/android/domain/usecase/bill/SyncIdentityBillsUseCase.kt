@@ -6,6 +6,7 @@ import cn.edu.shmtu.cas.sync.SyncProgress as LibSyncProgress
 import cn.edu.shmtu.cas.sync.SyncRangePreset
 import cn.edu.shmtu.cas.sync.syncAccountsParallel
 import cn.edu.shmtu.terminal.android.data.remote.EpayAdapter
+import cn.edu.shmtu.terminal.android.data.sync.BillMergeService
 import cn.edu.shmtu.terminal.android.data.sync.RoomBillStore
 import cn.edu.shmtu.terminal.android.domain.model.SyncProgress
 import cn.edu.shmtu.terminal.android.domain.model.SyncResult
@@ -28,6 +29,7 @@ import javax.inject.Inject
 class SyncIdentityBillsUseCase @Inject constructor(
     private val epayAdapter: EpayAdapter,
     private val accountRepository: AccountRepository,
+    private val billMergeService: BillMergeService,
 ) {
     suspend operator fun invoke(identityId: Long): SyncResult = invoke(identityId, SyncRangePreset.Month) {}
 
@@ -57,6 +59,7 @@ class SyncIdentityBillsUseCase @Inject constructor(
                 auth = epayAdapter.getEpayAuth(account.id),
                 store = RoomBillStore(
                     billDbManager = epayAdapter.billDbManager,
+                    billMergeService = billMergeService,
                     accountId = account.id,
                     studentId = account.userId,
                     identityId = account.identityId,

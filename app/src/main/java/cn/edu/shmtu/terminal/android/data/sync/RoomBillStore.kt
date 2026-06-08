@@ -29,6 +29,7 @@ import javax.inject.Singleton
 @Singleton
 class RoomBillStore @Inject constructor(
     private val billDbManager: BillDatabaseManager,
+    private val billMergeService: BillMergeService,
     /** 当前账号的 app 域 ID（用于双写:account + identity） */
     private val accountId: Long,
     /** 当前账号的 userId（用于定位 account 数据库） */
@@ -101,8 +102,33 @@ class RoomBillStore @Inject constructor(
                 "classifier=${if (classifier != null) "loaded(${classifier!!.ruleCount()} rules)" else "NULL"} " +
                 "positionTranslator=${if (positionTranslator != null) "loaded(${positionTranslator!!.getAllKeywords().size} keywords)" else "NULL"}")
         kotlinx.coroutines.runBlocking {
-            accountDb.billDao().insertAll(entities)
-            identityDb.billDao().insertAll(entities)
+            // 实时账单合并：对每条新账单，检查是否可以与最近一笔合并
+            val threshold = billMergeService.getMergeThresholdMinutes()
+            val accountDao = accountDb.billDao()
+            val identityDao = identityDb.billDao()
+            val finalEntities = if (threshold > 0) {
+                entities.map { newEntity ->
+                    // 检查账号库是否有可合并的账单
+                    val mergeable = billMergeService.findMergeableBill(newEntity, accountDao, threshold)
+                    if (mergeable != null) {
+                        val merged = billMergeService.mergeBills(mergeable, newEntity)
+                        // 写入合并后的账单
+                        accountDao.insertAll(listOf(merged))
+                        identityDao.insertAll(listOf(merged))
+                        Log.d(TAG, "[merge-bill] account=${accountId} merged ${mergeable.transactionNo} + ${newEntity.transactionNo} → ${merged.transactionNo} (count=${merged.mergedBillCount})")
+                        // 返回 null 表示这条已被合并替代
+                        null
+                    } else {
+                        newEntity
+                    }
+                }.filterNotNull()
+            } else {
+                entities
+            }
+            if (finalEntities.isNotEmpty()) {
+                accountDao.insertAll(finalEntities)
+                identityDao.insertAll(finalEntities)
+            }
         }
     }
 

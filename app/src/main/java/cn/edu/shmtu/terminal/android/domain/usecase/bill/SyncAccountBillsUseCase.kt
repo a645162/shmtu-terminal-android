@@ -42,10 +42,12 @@ import javax.inject.Inject
  *
  * 进度回调：[LibSyncProgress] → [SyncProgress]（app 域）
  */
+import cn.edu.shmtu.terminal.android.data.sync.BillMergeService
 class SyncAccountBillsUseCase @Inject constructor(
     private val epayAdapter: EpayAdapter,
     private val accountRepository: AccountRepository,
     private val settingsDataStore: SettingsDataStore,
+    private val billMergeService: BillMergeService,
 ) {
     private val tag = "SyncAccountBills"
 
@@ -266,6 +268,7 @@ class SyncAccountBillsUseCase @Inject constructor(
 
     private fun createStore(account: Account) = RoomBillStore(
         billDbManager = epayAdapter.billDbManager,
+        billMergeService = billMergeService,
         accountId = account.id,
         studentId = account.userId,
         identityId = account.identityId,
