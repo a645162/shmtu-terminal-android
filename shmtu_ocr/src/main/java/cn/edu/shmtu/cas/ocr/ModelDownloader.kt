@@ -8,6 +8,7 @@ import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model.ModelSource
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model.ModelVersion
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
@@ -20,6 +21,58 @@ class ModelDownloader {
     companion object {
         private const val TAG = "ModelDownloader"
         private const val MAX_DOWNLOAD_ATTEMPTS = 3
+        private val SEMVER_TAG_REGEX = Regex("""^v(\d+)\.(\d+)\.(\d+)$""")
+
+        /**
+         * 列出 GitHub releases,选 v{maxMajor}.{<=maxMinor}.x 中最新 patch。
+         * 失败时返回 fallback。仅用于 v2 模型;v1 不再更新。
+         */
+        fun resolveLatestV2Tag(
+            client: OkHttpClient,
+            maxMajor: Int = SHMTU_NCNN_Model.V2_MAX_SUPPORTED_MAJOR,
+            maxMinor: Int = SHMTU_NCNN_Model.V2_MAX_SUPPORTED_MINOR,
+            fallback: String = SHMTU_NCNN_Model.V2_DEFAULT_TAG,
+        ): String {
+            return try {
+                val url = "${SHMTU_NCNN_Model.GITHUB_RELEASES_API}?per_page=100"
+                val req = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "shmtu-cas-ocr-android/1.0")
+                    .header("Accept", "application/vnd.github+json")
+                    .build()
+                client.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        Log.w(TAG, "list releases failed: HTTP ${resp.code}; fallback=$fallback")
+                        return fallback
+                    }
+                    val body = resp.body.string()
+                    val arr = JSONArray(body)
+                    val candidates = mutableListOf<Triple<IntArray, String, Int>>()
+                    for (i in 0 until arr.length()) {
+                        val rel = arr.getJSONObject(i)
+                        if (rel.optBoolean("draft", false)) continue
+                        if (rel.optBoolean("prerelease", false)) continue
+                        val tag = rel.optString("tag_name", "")
+                        val m = SEMVER_TAG_REGEX.matchEntire(tag) ?: continue
+                        val (mj, mn, pt) = m.destructured.toList().map { it.toInt() }
+                        if (mj == maxMajor && mn <= maxMinor) {
+                            candidates.add(Triple(intArrayOf(mj, mn, pt), tag, i))
+                        }
+                    }
+                    if (candidates.isEmpty()) {
+                        Log.w(TAG, "no v$maxMajor.$maxMinor.x release; fallback=$fallback")
+                        return fallback
+                    }
+                    candidates.sortByDescending { it.first[0] * 1_000_000 + it.first[1] * 1_000 + it.first[2] }
+                    val chosen = candidates[0].second
+                    Log.i(TAG, "resolved latest v2 tag: $chosen (${candidates.size} candidates)")
+                    chosen
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "resolveLatestV2Tag failed: ${e.message}; fallback=$fallback")
+                fallback
+            }
+        }
     }
 
     interface DownloadProgressListener {
@@ -318,7 +371,7 @@ class ModelDownloader {
         source: ModelSource,
         context: Context,
         listener: DownloadProgressListener,
-        tag: String = SHMTU_NCNN_Model.V2_DEFAULT_TAG,
+        tag: String? = null,
         backbone: String = SHMTU_NCNN_Model.V2_DEFAULT_BACKBONE,
         precision: String = SHMTU_NCNN_Model.V2_DEFAULT_PRECISION,
     ) {
@@ -331,9 +384,11 @@ class ModelDownloader {
                 val primary = source
                 val fallback = if (source == ModelSource.GITEE) ModelSource.GITHUB else ModelSource.GITEE
 
-                val manifest = fetchV2Manifest(primary, fallback, tag)
+                val resolvedTag = tag ?: resolveLatestV2Tag(client)
+
+                val manifest = fetchV2Manifest(primary, fallback, resolvedTag)
                 if (manifest == null) {
-                    mainHandler.post { listener.onError("无法获取 v2 manifest (tag=$tag)") }
+                    mainHandler.post { listener.onError("无法获取 v2 manifest (tag=$resolvedTag)") }
                     return@Thread
                 }
 
@@ -377,7 +432,7 @@ class ModelDownloader {
                     for (attempt in 0 until MAX_DOWNLOAD_ATTEMPTS) {
                         val useSource = if (attempt % 2 == 0) primary else fallback
                         val sourceLabel = if (attempt % 2 == 0) "primary" else "fallback"
-                        val urlStr = buildV2FileUrl(useSource, tag, releaseAssetName)
+                        val urlStr = buildV2FileUrl(useSource, resolvedTag, releaseAssetName)
                         val downloadOk = downloadFile(
                             urlStr = urlStr,
                             file = file,

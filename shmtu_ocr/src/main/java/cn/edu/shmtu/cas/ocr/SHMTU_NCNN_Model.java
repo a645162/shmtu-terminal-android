@@ -74,6 +74,11 @@ public class SHMTU_NCNN_Model {
     public static final String V2_DEFAULT_BACKBONE = "mobilenet_v3_small";
     public static final String V2_DEFAULT_PRECISION = "fp16";
     public static final String V2_DEFAULT_TAG = "v2.0.2";
+    public static final int V2_MAX_SUPPORTED_MAJOR = 2;
+    public static final int V2_MAX_SUPPORTED_MINOR = 0;
+    public static final String GITHUB_REPO = "a645162/shmtu-cas-ocr-model";
+    public static final String GITHUB_RELEASES_API =
+            "https://api.github.com/repos/a645162/shmtu-cas-ocr-model/releases";
 
     public static final String V2_URL_MODEL_PREFIX_GITHUB
             = "https://github.com/a645162/shmtu-cas-ocr-model/releases/download/";
