@@ -23,6 +23,7 @@ class SettingsDataStore @Inject constructor(
     private val _useLocalOcrFlow = MutableStateFlow(getUseLocalOcr())
     private val _ocrServerUrlFlow = MutableStateFlow(getOcrServerUrl())
     private val _ocrModelVersionFlow = MutableStateFlow(getOcrModelVersion())
+    private val _ocrV2ModelTagFlow = MutableStateFlow(getOcrV2ModelTag())
     private val _sessionCheckIntervalFlow = MutableStateFlow(getSessionCheckInterval())
     private val _currentIdentityIdFlow = MutableStateFlow(getCurrentIdentityId())
 
@@ -47,6 +48,7 @@ class SettingsDataStore @Inject constructor(
     val useLocalOcr: Flow<Boolean> = _useLocalOcrFlow.asStateFlow()
     val ocrServerUrl: Flow<String> = _ocrServerUrlFlow.asStateFlow()
     val ocrModelVersion: Flow<SHMTU_NCNN_Model.ModelVersion> = _ocrModelVersionFlow.asStateFlow()
+    val ocrV2ModelTag: Flow<String> = _ocrV2ModelTagFlow.asStateFlow()
     val sessionCheckInterval: Flow<Int> = _sessionCheckIntervalFlow.asStateFlow()
     val currentIdentityId: Flow<Long?> = _currentIdentityIdFlow.asStateFlow()
 
@@ -95,6 +97,11 @@ class SettingsDataStore @Inject constructor(
     fun setOcrModelVersion(version: SHMTU_NCNN_Model.ModelVersion) {
         prefs.edit().putString(KEY_OCR_MODEL_VERSION, version.toStorageString()).apply()
         _ocrModelVersionFlow.value = version
+    }
+
+    fun setOcrV2ModelTag(tag: String) {
+        prefs.edit().putString(KEY_OCR_V2_MODEL_TAG, tag).apply()
+        _ocrV2ModelTagFlow.value = tag
     }
 
     fun setSessionCheckInterval(minutes: Int) {
@@ -362,6 +369,7 @@ class SettingsDataStore @Inject constructor(
         private const val KEY_USE_LOCAL_OCR = "use_local_ocr"
         private const val KEY_OCR_SERVER_URL = "ocr_server_url"
         private const val KEY_OCR_MODEL_VERSION = "ocr_model_version"  // V1 | V2
+        private const val KEY_OCR_V2_MODEL_TAG = "ocr_v2_model_tag"    // e.g. "v2.0.2" or ""
         private const val KEY_SESSION_CHECK_INTERVAL = "session_check_interval"
         private const val KEY_CURRENT_IDENTITY_ID = "current_identity_id"
         // P2P settings keys

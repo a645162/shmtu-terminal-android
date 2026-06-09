@@ -74,8 +74,19 @@ public class SHMTU_NCNN_Model {
     public static final String V2_DEFAULT_BACKBONE = "mobilenet_v3_small";
     public static final String V2_DEFAULT_PRECISION = "fp16";
     public static final String V2_DEFAULT_TAG = "v2.0.2";
+    /**
+     * 主版本号锁:maxSupportedMajor. 改这个常量相当于声明客户端支持哪些 major。
+     * 当前支持 v2 全部 (2.x.x),不想支持 v3 时保持 2。
+     */
     public static final int V2_MAX_SUPPORTED_MAJOR = 2;
-    public static final int V2_MAX_SUPPORTED_MINOR = 0;
+
+    /**
+     * MINOR 上界:
+     *  * 0 或正数 N = 锁 major+minor (v2.0.x 或 v2.x.x, 0<=x<=N)
+     *  * Int.MIN_VALUE = 不限 minor,只锁 major (v2.x.x 全范围)
+     * 当前用户要求"小于 3 就可以" → 设成 Int.MIN_VALUE (支持 v2.0.x ~ v2.x.x)
+     */
+    public static final int V2_MAX_SUPPORTED_MINOR = Integer.MIN_VALUE;
     public static final String GITHUB_REPO = "a645162/shmtu-cas-ocr-model";
     public static final String GITHUB_RELEASES_API =
             "https://api.github.com/repos/a645162/shmtu-cas-ocr-model/releases";
