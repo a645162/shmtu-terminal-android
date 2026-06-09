@@ -19,4 +19,5 @@ class CaptchaRequiredException(
 enum class Purpose {
     SYNC,
     LOGIN_SAVE,
+    PERSON_ACCOUNT,
 }

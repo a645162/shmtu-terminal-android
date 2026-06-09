@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.ManageAccounts
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
@@ -71,15 +74,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.domain.model.Account
+import cn.edu.shmtu.terminal.android.domain.model.Identity
 import cn.edu.shmtu.terminal.android.domain.model.LoginStatus
 import cn.edu.shmtu.terminal.android.domain.model.PersonAccount
 import cn.edu.shmtu.terminal.android.ui.component.PasswordTextField
@@ -94,6 +101,7 @@ fun IdentityDetailScreen(
     viewModel: IdentityDetailViewModel = hiltViewModel()
 ) {
     val accounts by viewModel.accounts.collectAsState()
+    val identity by viewModel.identity.collectAsState()
     val editingAccount by viewModel.editingAccount.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
     val personAccountsMap by viewModel.personAccountsByAccountId.collectAsState()
@@ -168,8 +176,16 @@ fun IdentityDetailScreen(
             } else {
                 LazyColumn(
                     contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    item {
+                        IdentityDetailOverviewCard(
+                            identity = identity,
+                            accounts = accounts,
+                            personAccountsMap = personAccountsMap
+                        )
+                    }
+
                     items(accounts, key = { it.id }) { account ->
                         SwipeableAccountCard(
                             account = account,
@@ -257,6 +273,127 @@ fun IdentityDetailScreen(
             },
             focusManager = focusManager
         )
+    }
+}
+
+@Composable
+private fun IdentityDetailOverviewCard(
+    identity: Identity?,
+    accounts: List<Account>,
+    personAccountsMap: Map<Long, PersonAccount>
+) {
+    val cachedProfiles = personAccountsMap.size
+    val balanceSum = personAccountsMap.values.sumOf { it.cashBalance }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        Box(
+            modifier = Modifier
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.tertiary
+                        )
+                    )
+                )
+                .padding(20.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.18f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.ManageAccounts,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "身份详情",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
+                        )
+                        Text(
+                            text = identity?.remark?.ifBlank { identity.username } ?: "当前身份",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Text(
+                            text = "账号管理、余额刷新和一卡通档案都集中在这里。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.84f)
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OverviewMetricTile(
+                        modifier = Modifier.weight(1f),
+                        label = "账号数量",
+                        value = accounts.size.toString()
+                    )
+                    OverviewMetricTile(
+                        modifier = Modifier.weight(1f),
+                        label = "详情缓存",
+                        value = "$cachedProfiles/${accounts.size}"
+                    )
+                    OverviewMetricTile(
+                        modifier = Modifier.weight(1f),
+                        label = "余额合计",
+                        value = if (cachedProfiles > 0) "%.2f 元".format(balanceSum) else "未获取"
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OverviewMetricTile(
+    modifier: Modifier = Modifier,
+    label: String,
+    value: String
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.14f)
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f)
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimary
+            )
+        }
     }
 }
 
@@ -437,25 +574,42 @@ private fun SwipeableAccountCard(
                     ListItem(
                         headlineContent = { Text("${account.label} - ${account.userId}") },
                         supportingContent = {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = when (account.loginStatus) {
-                                        LoginStatus.LOGGED_IN -> "已登录"
-                                        LoginStatus.LOGGED_OUT -> "未登录"
-                                        LoginStatus.ERROR -> "登录错误"
-                                    },
-                                    color = when (account.loginStatus) {
-                                        LoginStatus.LOGGED_IN -> MaterialTheme.colorScheme.primary
-                                        LoginStatus.LOGGED_OUT -> MaterialTheme.colorScheme.onSurfaceVariant
-                                        LoginStatus.ERROR -> MaterialTheme.colorScheme.error
-                                    }
-                                )
-                                if (account.lastSyncTime != null) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
                                     Text(
-                                        text = "上次同步: ${formatTimestamp(account.lastSyncTime)}",
-                                        style = MaterialTheme.typography.bodySmall
+                                        text = when (account.loginStatus) {
+                                            LoginStatus.LOGGED_IN -> "已登录"
+                                            LoginStatus.LOGGED_OUT -> "未登录"
+                                            LoginStatus.ERROR -> "登录错误"
+                                        },
+                                        color = when (account.loginStatus) {
+                                            LoginStatus.LOGGED_IN -> MaterialTheme.colorScheme.primary
+                                            LoginStatus.LOGGED_OUT -> MaterialTheme.colorScheme.onSurfaceVariant
+                                            LoginStatus.ERROR -> MaterialTheme.colorScheme.error
+                                        }
+                                    )
+                                    if (account.lastSyncTime != null) {
+                                        Text(
+                                            text = "上次同步: ${formatTimestamp(account.lastSyncTime)}",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                                personAccount?.let { pa ->
+                                    Text(
+                                        text = buildString {
+                                            append("余额 ")
+                                            append(pa.cashBalanceRaw.ifBlank { "%.2f".format(pa.cashBalance) })
+                                            append(" 元")
+                                            if (pa.realNameAuthStatus.isNotBlank()) {
+                                                append(" · ")
+                                                append(pa.realNameAuthStatus)
+                                            }
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                 }
                             }

@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.cas.parser.PersonAccountParser
 import cn.edu.shmtu.cas.session.LoginSubmitResult
+import cn.edu.shmtu.terminal.android.data.remote.PersonAccountCaptchaRequiredException
 import cn.edu.shmtu.terminal.android.domain.model.Account
 import cn.edu.shmtu.terminal.android.domain.model.Identity
 import cn.edu.shmtu.terminal.android.domain.model.PersonAccount
@@ -64,6 +65,13 @@ class IdentityDetailViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     }
 
+    val identity: StateFlow<Identity?> = if (identityId == 0L) {
+        flowOf(null).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    } else {
+        identityRepository.getIdentityByIdFlow(identityId)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    }
+
     /** 当前 identity 下所有账号的 PersonAccount 缓存 (accountId -> PersonAccount) */
     val personAccountsByAccountId: StateFlow<Map<Long, PersonAccount>> = accounts
         .flatMapLatest { list ->
@@ -117,6 +125,29 @@ class IdentityDetailViewModel @Inject constructor(
                     )
                 },
                 onFailure = { e ->
+                    if (e is PersonAccountCaptchaRequiredException) {
+                        _uiState.value = _uiState.value.copy(
+                            refreshingAccountIds = _uiState.value.refreshingAccountIds - account.id,
+                            showCaptchaDialog = true,
+                            captchaImage = e.captchaImage,
+                            captchaAccount = account,
+                            captchaExecution = e.execution,
+                            pendingCaptcha = CaptchaRequiredException(
+                                captchaImageBase64 = android.util.Base64.encodeToString(
+                                    e.captchaImage,
+                                    android.util.Base64.NO_WRAP
+                                ),
+                                execution = e.execution,
+                                accountId = account.id,
+                                accountLabel = account.label,
+                                syncRange = cn.edu.shmtu.cas.sync.SyncRangePreset.Month,
+                                isFullSync = false,
+                                purpose = Purpose.PERSON_ACCOUNT,
+                            ),
+                            syncMessage = "请输入验证码以刷新「${account.label}」的一卡通详情"
+                        )
+                        return@fold
+                    }
                     Log.w("IdentityDetailVM", "refreshPersonAccount failed for ${account.id}: ${e.message}")
                     _uiState.value = _uiState.value.copy(
                         refreshingAccountIds = _uiState.value.refreshingAccountIds - account.id,
@@ -220,6 +251,7 @@ class IdentityDetailViewModel @Inject constructor(
                     }
                 }
                 Purpose.LOGIN_SAVE -> submitCaptchaForLoginSave(account, pendingCaptcha, captchaCode)
+                Purpose.PERSON_ACCOUNT -> submitCaptchaForPersonAccount(account, pendingCaptcha, captchaCode)
             }
         }
     }
@@ -411,6 +443,121 @@ class IdentityDetailViewModel @Inject constructor(
         } catch (e: Exception) {
             _uiState.value = _uiState.value.copy(
                 isLoggingInForSave = false,
+                syncMessage = "登录异常: ${e.message}"
+            )
+        }
+    }
+
+    private suspend fun submitCaptchaForPersonAccount(
+        account: Account,
+        pendingCaptcha: CaptchaRequiredException,
+        captchaCode: String,
+    ) {
+        _uiState.value = _uiState.value.copy(
+            refreshingAccountIds = _uiState.value.refreshingAccountIds + account.id,
+            showCaptchaDialog = false,
+            syncMessage = null,
+        )
+
+        try {
+            val password = accountRepository.getPassword(account.id)
+            if (password.isNullOrBlank()) {
+                _uiState.value = _uiState.value.copy(
+                    refreshingAccountIds = _uiState.value.refreshingAccountIds - account.id,
+                    syncMessage = "未找到密码，请重新填写后再试"
+                )
+                return
+            }
+
+            val loginResult = epayAdapter.submitLogin(
+                accountId = account.id,
+                username = account.userId,
+                password = password,
+                captchaCode = captchaCode,
+                execution = pendingCaptcha.execution,
+            )
+
+            when (val result = loginResult.getOrNull()) {
+                is LoginSubmitResult.Success -> {
+                    val htmlResult = epayAdapter.fetchPersonAccountHtml(account.id)
+                    val parseResult = htmlResult.mapCatching { html ->
+                        PersonAccountParser().parse(html)
+                    }
+                    parseResult.fold(
+                        onSuccess = { info ->
+                            accountRepository.savePersonAccount(account.id, info)
+                            _uiState.value = _uiState.value.copy(
+                                refreshingAccountIds = _uiState.value.refreshingAccountIds - account.id,
+                                captchaImage = null,
+                                captchaAccount = null,
+                                captchaExecution = null,
+                                pendingCaptcha = null,
+                                syncMessage = "「${account.label}」个人账户详情已更新"
+                            )
+                        },
+                        onFailure = { error ->
+                            _uiState.value = _uiState.value.copy(
+                                refreshingAccountIds = _uiState.value.refreshingAccountIds - account.id,
+                                captchaImage = null,
+                                captchaAccount = null,
+                                captchaExecution = null,
+                                pendingCaptcha = null,
+                                syncMessage = "刷新失败: ${error.message ?: "未知错误"}"
+                            )
+                        }
+                    )
+                }
+
+                is LoginSubmitResult.ValidateCodeError -> {
+                    val challenge = epayAdapter.prepareChallenge(account.id).getOrNull()
+                    _uiState.value = _uiState.value.copy(
+                        refreshingAccountIds = _uiState.value.refreshingAccountIds - account.id,
+                        showCaptchaDialog = challenge != null,
+                        captchaImage = challenge?.captchaImage,
+                        captchaAccount = account,
+                        captchaExecution = challenge?.execution,
+                        pendingCaptcha = challenge?.let {
+                            CaptchaRequiredException(
+                                captchaImageBase64 = android.util.Base64.encodeToString(
+                                    it.captchaImage,
+                                    android.util.Base64.NO_WRAP
+                                ),
+                                execution = it.execution,
+                                accountId = account.id,
+                                accountLabel = account.label,
+                                syncRange = cn.edu.shmtu.cas.sync.SyncRangePreset.Month,
+                                isFullSync = false,
+                                purpose = Purpose.PERSON_ACCOUNT,
+                            )
+                        },
+                        syncMessage = "验证码错误，请重试"
+                    )
+                }
+
+                is LoginSubmitResult.PasswordError -> {
+                    _uiState.value = _uiState.value.copy(
+                        refreshingAccountIds = _uiState.value.refreshingAccountIds - account.id,
+                        syncMessage = "密码错误"
+                    )
+                }
+
+                is LoginSubmitResult.Failure -> {
+                    _uiState.value = _uiState.value.copy(
+                        refreshingAccountIds = _uiState.value.refreshingAccountIds - account.id,
+                        syncMessage = "登录失败: ${result.message}"
+                    )
+                }
+
+                else -> {
+                    _uiState.value = _uiState.value.copy(
+                        refreshingAccountIds = _uiState.value.refreshingAccountIds - account.id,
+                        syncMessage = "登录失败"
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            _uiState.value = _uiState.value.copy(
+                refreshingAccountIds = _uiState.value.refreshingAccountIds - account.id,
                 syncMessage = "登录异常: ${e.message}"
             )
         }

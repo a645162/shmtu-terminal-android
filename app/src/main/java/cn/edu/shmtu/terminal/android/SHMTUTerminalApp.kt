@@ -2,6 +2,8 @@ package cn.edu.shmtu.terminal.android
 
 import android.app.Application
 import android.util.Log
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
@@ -22,7 +24,10 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 @HiltAndroidApp
-class SHMTUTerminalApp : Application() {
+class SHMTUTerminalApp : Application(), Configuration.Provider {
+
+    @Inject
+    lateinit var workerFactory: HiltWorkerFactory
 
     @Inject
     lateinit var billRulesManager: BillRulesManager
@@ -35,8 +40,15 @@ class SHMTUTerminalApp : Application() {
      */
     private val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .build()
+
     override fun onCreate() {
         super.onCreate()
+        WorkManager.initialize(this, workManagerConfiguration)
+
         // 启动定期 session 过期检查（默认 10 分钟间隔，±1 分钟浮动）
         SessionExpirationWorker.schedule(this, intervalMinutes = 10)
         Log.i("SHMTUTerminalApp", "Session 过期检查已启动")

@@ -5,6 +5,7 @@ import android.util.Log
 import cn.edu.shmtu.cas.auth.EpayAuth
 import cn.edu.shmtu.cas.classifier.BillCategory
 import cn.edu.shmtu.cas.classifier.BillClassifier
+import cn.edu.shmtu.cas.captcha.Captcha
 import cn.edu.shmtu.cas.classifier.MealClassifier
 import cn.edu.shmtu.cas.classifier.PositionInfo
 import cn.edu.shmtu.cas.classifier.PositionTranslator
@@ -12,18 +13,29 @@ import cn.edu.shmtu.cas.datatype.BillType
 import cn.edu.shmtu.cas.parser.BillParser
 import cn.edu.shmtu.cas.session.LoginSubmitResult
 import cn.edu.shmtu.cas.session.SessionProbe
+import cn.edu.shmtu.terminal.android.data.local.datastore.CaptchaMode
+import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
 import cn.edu.shmtu.terminal.android.data.local.db.BillDatabaseManager
+import cn.edu.shmtu.terminal.android.data.local.db.dao.AccountDao
 import cn.edu.shmtu.terminal.android.data.local.datastore.SecureStorage
 import cn.edu.shmtu.terminal.android.data.sync.BillRulesManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+class PersonAccountCaptchaRequiredException(
+    val captchaImage: ByteArray,
+    val execution: String
+) : Exception("PERSON_ACCOUNT_CAPTCHA_REQUIRED")
+
 @Singleton
 class EpayAdapter @Inject constructor(
     private val secureStorage: SecureStorage,
+    private val settingsDataStore: SettingsDataStore,
+    private val accountDao: AccountDao,
     @param:ApplicationContext private val context: Context,
     /** 由 Hilt 注入 [BillDatabaseManager] 供 [cn.edu.shmtu.terminal.android.data.sync.RoomBillStore] 使用 */
     val billDbManager: BillDatabaseManager,
@@ -219,6 +231,17 @@ class EpayAdapter @Inject constructor(
         return epayAuth
     }
 
+    private suspend fun <T> runEpayCall(
+        auth: EpayAuth,
+        block: suspend EpayAuth.() -> Result<T>
+    ): Result<T> {
+        return try {
+            auth.block()
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     /**
      * 探测登录状态
      *
@@ -226,7 +249,7 @@ class EpayAdapter @Inject constructor(
      */
     suspend fun probeLogin(accountId: Long): Result<SessionProbe> = withContext(Dispatchers.IO) {
         val epayAuth = getEpayAuth(accountId)
-        val result = epayAuth.probeLogin()
+        val result = runEpayCall(epayAuth) { probeLogin() }
         Log.d(TAG, "probeLogin for account $accountId: $result")
         result
     }
@@ -235,7 +258,7 @@ class EpayAdapter @Inject constructor(
      * 获取验证码图片
      */
     suspend fun prepareChallenge(accountId: Long) = withContext(Dispatchers.IO) {
-        val result = getEpayAuth(accountId).prepareChallenge()
+        val result = runEpayCall(getEpayAuth(accountId)) { prepareChallenge() }
         Log.d(TAG, "prepareChallenge for account $accountId")
         result
     }
@@ -255,14 +278,16 @@ class EpayAdapter @Inject constructor(
         val epayAuth = getEpayAuth(accountId)
 
         // 提交登录
-        val result = epayAuth.submitLogin(username, password, captchaCode, execution)
+        val result = runEpayCall(epayAuth) {
+            submitLogin(username, password, captchaCode, execution)
+        }
 
         if (result.isSuccess && result.getOrNull() is LoginSubmitResult.Success) {
             // 保存会话
             val cookiesJson = epayAuth.extractSession()
             secureStorage.saveLoginCookie(accountId, cookiesJson)
             // 新 cas_lib 中 loginUrl 由 probeLogin() 返回值携带;此处尝试再次 probe 以获取并保存
-            val probe = epayAuth.probeLogin()
+            val probe = runEpayCall(epayAuth) { probeLogin() }
             if (probe.isSuccess) {
                 val p = probe.getOrNull()
                 if (p is SessionProbe.AlreadyLoggedIn || p is SessionProbe.NeedLogin) {
@@ -280,7 +305,7 @@ class EpayAdapter @Inject constructor(
      * 测试登录状态
      */
     suspend fun testLoginStatus(accountId: Long): Result<Boolean> = withContext(Dispatchers.IO) {
-        val result = getEpayAuth(accountId).testLoginStatus()
+        val result = runEpayCall(getEpayAuth(accountId)) { testLoginStatus() }
         Log.d(TAG, "testLoginStatus for account $accountId: $result")
         result
     }
@@ -290,7 +315,9 @@ class EpayAdapter @Inject constructor(
      */
     suspend fun fetchBillPage(accountId: Long, pageNo: Int): Result<String> = withContext(Dispatchers.IO) {
         // 显式指定 BillType 以消歧 getBill(Int) 与 getBill(Int, String) 重载
-        val result = getEpayAuth(accountId).getBill(pageNo = pageNo, billType = BillType.ALL)
+        val result = runEpayCall(getEpayAuth(accountId)) {
+            getBill(pageNo = pageNo, billType = BillType.ALL)
+        }
         Log.d(TAG, "fetchBillPage account=$accountId page=$pageNo")
         result
     }
@@ -298,26 +325,156 @@ class EpayAdapter @Inject constructor(
     /**
      * 拉取一卡通个人账户页面 HTML。
      *
-     * 仅使用已保存的 session cookies (由账单同步流程获取)。
-     * 如果 cookies 过期, 返回 SESSION_EXPIRED 让 UI 层提示用户先同步账单以刷新 session。
+     * 优先复用已保存的 session cookies。
+     * 如果 cookies 过期，则按当前验证码设置自动补登录；手动模式下抛出
+     * [PersonAccountCaptchaRequiredException] 让 UI 弹窗继续完成登录并刷新。
      */
     suspend fun fetchPersonAccountHtml(accountId: Long): Result<String> = withContext(Dispatchers.IO) {
-        val result = getEpayAuth(accountId).getPersonAccountHtml()
+        val firstTry = runEpayCall(getEpayAuth(accountId)) { getPersonAccountHtml() }
 
-        if (result.isSuccess) {
+        if (firstTry.isSuccess) {
             Log.d(TAG, "fetchPersonAccountHtml account=$accountId success")
-            return@withContext result
+            return@withContext firstTry
         }
 
-        val errorMsg = result.exceptionOrNull()?.message ?: ""
-        if (errorMsg.contains("302") || errorMsg.contains("未登录")) {
-            Log.w(TAG, "fetchPersonAccountHtml: session expired for $accountId")
-            invalidateSession(accountId)
-            return@withContext Result.failure(Exception("SESSION_EXPIRED: 会话已失效, 请先同步账单以刷新 cookies"))
+        val errorMsg = firstTry.exceptionOrNull()?.message ?: ""
+        if (!isSessionExpired(errorMsg)) {
+            Log.w(TAG, "fetchPersonAccountHtml account=$accountId failed: $errorMsg")
+            return@withContext firstTry
         }
 
-        Log.w(TAG, "fetchPersonAccountHtml account=$accountId failed: $errorMsg")
-        result
+        Log.w(TAG, "fetchPersonAccountHtml: session expired for $accountId, trying re-login")
+        invalidateSession(accountId)
+
+        val account = accountDao.getById(accountId)
+            ?: return@withContext Result.failure(Exception("账号不存在"))
+        val password = secureStorage.getPassword(accountId)
+        if (password.isNullOrBlank()) {
+            return@withContext Result.failure(Exception("未找到密码，请重新保存账号密码"))
+        }
+
+        val reloginResult = loginForPersonAccount(accountId, account.userId, password)
+        if (reloginResult.isFailure) {
+            return@withContext Result.failure(reloginResult.exceptionOrNull() ?: Exception("重新登录失败"))
+        }
+
+        val secondTry = runEpayCall(getEpayAuth(accountId)) { getPersonAccountHtml() }
+        if (secondTry.isSuccess) {
+            Log.d(TAG, "fetchPersonAccountHtml account=$accountId success after re-login")
+        } else {
+            Log.w(
+                TAG,
+                "fetchPersonAccountHtml account=$accountId failed after re-login: ${secondTry.exceptionOrNull()?.message}"
+            )
+        }
+        secondTry
+    }
+
+    private suspend fun loginForPersonAccount(
+        accountId: Long,
+        username: String,
+        password: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val auth = getEpayAuth(accountId)
+        val probeResult = runEpayCall(auth) { probeLogin() }
+        if (probeResult.isFailure) {
+            return@withContext Result.failure(
+                Exception("探测登录态失败: ${probeResult.exceptionOrNull()?.message ?: "未知错误"}")
+            )
+        }
+        if (probeResult.getOrNull() is SessionProbe.AlreadyLoggedIn) {
+            saveSessionCookies(accountId, auth)
+            return@withContext Result.success(Unit)
+        }
+
+        val captchaMode = settingsDataStore.captchaMode.first()
+
+        when (captchaMode) {
+            CaptchaMode.MANUAL -> {
+                val challenge = runEpayCall(auth) { prepareChallenge() }.getOrElse { error ->
+                    return@withContext Result.failure(Exception("获取验证码失败: ${error.message ?: "未知错误"}"))
+                }
+                return@withContext Result.failure(
+                    PersonAccountCaptchaRequiredException(
+                        captchaImage = challenge.captchaImage,
+                        execution = challenge.execution
+                    )
+                )
+            }
+
+            CaptchaMode.AUTO_OCR -> {
+                val maxAttempts = 3
+                repeat(maxAttempts) { attempt ->
+                    val challenge = runEpayCall(auth) { prepareChallenge() }.getOrElse { error ->
+                        return@withContext Result.failure(Exception("获取验证码失败: ${error.message ?: "未知错误"}"))
+                    }
+
+                    val captchaCode = resolveCaptchaForPersonAccount(challenge.captchaImage).getOrElse { error ->
+                        return@withContext Result.failure(Exception("OCR 识别失败: ${error.message ?: "未知错误"}"))
+                    }
+
+                    when (
+                        val submit = runEpayCall(auth) {
+                            submitLogin(username, password, captchaCode, challenge.execution)
+                        }.getOrNull()
+                    ) {
+                        is LoginSubmitResult.Success -> {
+                            val verifyResult = runEpayCall(auth) { probeLogin() }
+                            if (verifyResult.getOrNull() is SessionProbe.AlreadyLoggedIn) {
+                                saveSessionCookies(accountId, auth)
+                                return@withContext Result.success(Unit)
+                            }
+                            if (attempt == maxAttempts - 1) {
+                                return@withContext Result.failure(Exception("登录验证失败"))
+                            }
+                        }
+
+                        is LoginSubmitResult.ValidateCodeError -> {
+                            if (attempt == maxAttempts - 1) {
+                                return@withContext Result.failure(Exception("验证码识别失败，请稍后重试"))
+                            }
+                        }
+
+                        is LoginSubmitResult.PasswordError -> {
+                            return@withContext Result.failure(Exception("用户名或密码错误"))
+                        }
+
+                        is LoginSubmitResult.Failure -> {
+                            if (attempt == maxAttempts - 1) {
+                                return@withContext Result.failure(Exception("登录失败: ${submit.message}"))
+                            }
+                        }
+
+                        else -> {
+                            if (attempt == maxAttempts - 1) {
+                                return@withContext Result.failure(Exception("登录失败"))
+                            }
+                        }
+                    }
+                }
+                Result.failure(Exception("登录重试次数耗尽"))
+            }
+        }
+    }
+
+    private suspend fun resolveCaptchaForPersonAccount(imageData: ByteArray): Result<String> {
+        val serverUrl = settingsDataStore.ocrServerUrl.first()
+        val parts = serverUrl.split(":")
+        if (parts.size != 2) {
+            return Result.failure(Exception("OCR 配置无效（需 host:port 格式）"))
+        }
+        val port = parts[1].toIntOrNull()
+            ?: return Result.failure(Exception("OCR 配置端口无效"))
+        val answer = Captcha.ocrByRemoteTcpServerAutoRetry(parts[0], port, imageData)
+        return if (answer.isNotBlank()) {
+            Result.success(answer)
+        } else {
+            Result.failure(Exception("OCR 识别失败"))
+        }
+    }
+
+    private fun isSessionExpired(message: String): Boolean {
+        return message.contains("302") || message.contains("未登录")
     }
 
     /**

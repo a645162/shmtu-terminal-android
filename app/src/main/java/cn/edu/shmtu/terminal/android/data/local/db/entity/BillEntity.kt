@@ -17,10 +17,11 @@ class BillListConverters {
         list?.joinToString("") { it.replace("", "") }
 
     @TypeConverter
-    fun toList(value: String?): List<String>? =
+    fun toList(value: String?): List<String> =
         value?.takeIf { it.isNotEmpty() }
             ?.split("")
             ?.map { it.replace("", "") }
+            ?: emptyList()
 }
 
 @Entity(

@@ -328,7 +328,12 @@ class HomeViewModel @Inject constructor(
                     return@launch
                 }
                 for (acc in accounts) {
-                    val result = epayAdapter.fetchPersonAccountHtml(acc.id)
+                    val result = try {
+                        epayAdapter.fetchPersonAccountHtml(acc.id)
+                    } catch (e: Exception) {
+                        Log.e("HomeViewModel", "refreshCurrentBalance: ${acc.id} crashed", e)
+                        continue
+                    }
                     if (result.isSuccess) {
                         val html = result.getOrThrow()
                         val info = runCatching { PersonAccountParser().parse(html) }.getOrNull()
