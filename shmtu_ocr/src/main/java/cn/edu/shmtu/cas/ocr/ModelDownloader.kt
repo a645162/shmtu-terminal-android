@@ -22,9 +22,15 @@ class ModelDownloader {
         private const val TAG = "ModelDownloader"
         private const val MAX_DOWNLOAD_ATTEMPTS = 3
         private val SEMVER_TAG_REGEX = Regex("""^v(\d+)\.(\d+)\.(\d+)$""")
+        /**
+         * maxMinor < 0 表示"不限 minor,只锁 major"。
+         * 客户端用 Int.MIN_VALUE 传参。
+         */
+        private const val UNBOUNDED_MINOR: Int = Int.MIN_VALUE
 
         /**
          * 列出 GitHub releases,选 v{maxMajor}.{<=maxMinor}.x 中最新 patch。
+         * maxMinor < 0 表示不限 minor,只锁 major。
          * 失败时返回 fallback。仅用于 v2 模型;v1 不再更新。
          */
         fun resolveLatestV2Tag(
@@ -55,12 +61,14 @@ class ModelDownloader {
                         val tag = rel.optString("tag_name", "")
                         val m = SEMVER_TAG_REGEX.matchEntire(tag) ?: continue
                         val (mj, mn, pt) = m.destructured.toList().map { it.toInt() }
-                        if (mj == maxMajor && mn <= maxMinor) {
-                            candidates.add(Triple(intArrayOf(mj, mn, pt), tag, i))
-                        }
+                        if (mj != maxMajor) continue
+                        // maxMinor == Int.MIN_VALUE 表示不限 minor,只锁 major。
+                        if (maxMinor != UNBOUNDED_MINOR && mn > maxMinor) continue
+                        candidates.add(Triple(intArrayOf(mj, mn, pt), tag, i))
                     }
                     if (candidates.isEmpty()) {
-                        Log.w(TAG, "no v$maxMajor.$maxMinor.x release; fallback=$fallback")
+                        val filter = if (maxMinor == UNBOUNDED_MINOR) "v$maxMajor.x.x" else "v$maxMajor.$maxMinor.x"
+                        Log.w(TAG, "no release matched $filter; fallback=$fallback")
                         return fallback
                     }
                     candidates.sortByDescending { it.first[0] * 1_000_000 + it.first[1] * 1_000 + it.first[2] }
