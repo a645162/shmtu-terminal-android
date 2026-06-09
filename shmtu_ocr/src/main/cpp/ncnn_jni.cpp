@@ -29,6 +29,7 @@
 #include <benchmark.h>
 
 #include "CAS_OCR_ANDROID.h"
+#include "CAS_OCR_V2.h"
 
 //#include "res.id.h"
 
@@ -144,6 +145,72 @@ Java_cn_edu_shmtu_cas_ocr_SHMTU_1NCNN_ReleaseModel(JNIEnv *env, jobject thiz) {
 JNIEXPORT jboolean JNICALL
 Java_cn_edu_shmtu_cas_ocr_SHMTU_1NCNN_IsVulkanSupported(JNIEnv *env, jobject thiz) {
     return CAS_OCR::is_vulkan_supported() ? JNI_TRUE : JNI_FALSE;
+}
+
+// ============== v2 (TriSlot decoder) JNI ==============
+
+// public native boolean InitV2FromDir(String modelDir, boolean use_gpu);
+JNIEXPORT jboolean JNICALL
+Java_cn_edu_shmtu_cas_ocr_SHMTU_1NCNN_InitV2FromDir(JNIEnv *env, jobject thiz, jstring modelDir, jboolean use_gpu) {
+    const char *dirPath = env->GetStringUTFChars(modelDir, nullptr);
+    std::string dir_path(dirPath);
+    env->ReleaseStringUTFChars(modelDir, dirPath);
+
+    const auto isSuccessful = CAS_OCR_V2::init_from_dir(dir_path, use_gpu == JNI_TRUE);
+
+    return isSuccessful ? JNI_TRUE : JNI_FALSE;
+}
+
+// public native ArrayList<String> DetectV2(Bitmap bitmap);
+JNIEXPORT jobject JNICALL
+Java_cn_edu_shmtu_cas_ocr_SHMTU_1NCNN_DetectV2(
+        JNIEnv *env, jobject thiz,
+        jobject bitmap
+) {
+    AndroidBitmapInfo info;
+    AndroidBitmap_getInfo(env, bitmap, &info);
+
+    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888)
+        return NULL;
+
+    const auto image_input = convertBitmapToMat(env, thiz, bitmap);
+
+    const auto result = CAS_OCR_V2::predict(image_input);
+
+    std::vector<std::string> return_tuples = {
+            std::to_string(std::get<0>(result)),
+            std::get<1>(result),
+            std::to_string(std::get<2>(result)),
+            std::to_string(std::get<3>(result)),
+            std::to_string(std::get<4>(result)),
+    };
+
+    jclass arrayListClass = env->FindClass("java/util/ArrayList");
+    jmethodID arrayListConstructor = env->GetMethodID(arrayListClass, "<init>", "()V");
+    jmethodID arrayListAdd = env->GetMethodID(arrayListClass, "add", "(Ljava/lang/Object;)Z");
+    jobject stringList = env->NewObject(arrayListClass, arrayListConstructor);
+
+    for (const auto &str: return_tuples) {
+        jstring jStr = env->NewStringUTF(str.c_str());
+        env->CallBooleanMethod(stringList, arrayListAdd, jStr);
+        env->DeleteLocalRef(jStr);
+    }
+    return stringList;
+}
+
+JNIEXPORT jint JNICALL
+Java_cn_edu_shmtu_cas_ocr_SHMTU_1NCNN_GetV2ModelStatus(JNIEnv *env, jobject thiz) {
+    return static_cast<jint>(CAS_OCR_V2::get_status());
+}
+
+JNIEXPORT void JNICALL
+Java_cn_edu_shmtu_cas_ocr_SHMTU_1NCNN_ReleaseV2Model(JNIEnv *env, jobject thiz) {
+    CAS_OCR_V2::release();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_cn_edu_shmtu_cas_ocr_SHMTU_1NCNN_IsV2Loaded(JNIEnv *env, jobject thiz) {
+    return CAS_OCR_V2::is_loaded() ? JNI_TRUE : JNI_FALSE;
 }
 
 }

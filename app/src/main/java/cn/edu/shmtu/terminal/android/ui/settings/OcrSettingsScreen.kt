@@ -26,6 +26,9 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -58,6 +61,7 @@ fun OcrSettingsScreen(
     val useLocalOcr by settingsViewModel.useLocalOcr.collectAsState()
     val ocrServerUrl by settingsViewModel.ocrServerUrl.collectAsState()
     val ocrRetryCount by viewModel.ocrRetryCount.collectAsState()
+    val ocrModelVersion by viewModel.ocrModelVersion.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
 
@@ -84,6 +88,7 @@ fun OcrSettingsScreen(
                 useLocalOcr = useLocalOcr,
                 ocrServerUrl = ocrServerUrl,
                 ocrRetryCount = ocrRetryCount,
+                ocrModelVersion = ocrModelVersion,
                 showLoadSourceDialog = showLoadSourceDialog,
                 onShowLoadSourceDialogChange = { showLoadSourceDialog = it },
                 showDownloadSourceDialog = showDownloadSourceDialog,
@@ -95,7 +100,8 @@ fun OcrSettingsScreen(
                 onDeleteDownloadedModels = { showDeleteModelsDialog = true },
                 onRefreshStatus = viewModel::refreshStatus,
                 onSetUseLocalOcr = settingsViewModel::setUseLocalOcr,
-                onSetOcrRetryCount = viewModel::setOcrRetryCount
+                onSetOcrRetryCount = viewModel::setOcrRetryCount,
+                onSetOcrModelVersion = viewModel::setOcrModelVersion
             )
         }
     } else {
@@ -133,6 +139,7 @@ fun OcrSettingsScreen(
                     useLocalOcr = useLocalOcr,
                     ocrServerUrl = ocrServerUrl,
                     ocrRetryCount = ocrRetryCount,
+                    ocrModelVersion = ocrModelVersion,
                     showLoadSourceDialog = showLoadSourceDialog,
                     onShowLoadSourceDialogChange = { showLoadSourceDialog = it },
                     showDownloadSourceDialog = showDownloadSourceDialog,
@@ -144,7 +151,8 @@ fun OcrSettingsScreen(
                     onDeleteDownloadedModels = { showDeleteModelsDialog = true },
                     onRefreshStatus = viewModel::refreshStatus,
                     onSetUseLocalOcr = settingsViewModel::setUseLocalOcr,
-                    onSetOcrRetryCount = viewModel::setOcrRetryCount
+                    onSetOcrRetryCount = viewModel::setOcrRetryCount,
+                    onSetOcrModelVersion = viewModel::setOcrModelVersion
                 )
             }
         }
@@ -304,6 +312,7 @@ private fun OcrSettingsContent(
     useLocalOcr: Boolean,
     ocrServerUrl: String,
     ocrRetryCount: Int,
+    ocrModelVersion: SHMTU_NCNN_Model.ModelVersion,
     showLoadSourceDialog: Boolean,
     onShowLoadSourceDialogChange: (Boolean) -> Unit,
     showDownloadSourceDialog: Boolean,
@@ -315,7 +324,8 @@ private fun OcrSettingsContent(
     onDeleteDownloadedModels: () -> Unit,
     onRefreshStatus: () -> Unit,
     onSetUseLocalOcr: (Boolean) -> Unit,
-    onSetOcrRetryCount: (Int) -> Unit
+    onSetOcrRetryCount: (Int) -> Unit,
+    onSetOcrModelVersion: (SHMTU_NCNN_Model.ModelVersion) -> Unit,
 ) {
     SettingsCard {
         androidx.compose.foundation.layout.Row(
@@ -326,6 +336,30 @@ private fun OcrSettingsContent(
             Text("OCR 状态", style = MaterialTheme.typography.titleLarge)
             TextButton(onClick = onRefreshStatus) { Text("刷新") }
         }
+        // Model version selector (v1 = 3-resnet legacy, v2 = single TriSlot)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            ListItem(
+                headlineContent = { Text("模型版本") },
+                supportingContent = { Text("v2 为默认 TriSlot 单模型推理，v1 为旧版 3-resnet") }
+            )
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            ) {
+                SegmentedButton(
+                    selected = ocrModelVersion == SHMTU_NCNN_Model.ModelVersion.V1,
+                    onClick = { onSetOcrModelVersion(SHMTU_NCNN_Model.ModelVersion.V1) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                ) { Text("v1 (3-resnet)") }
+                SegmentedButton(
+                    selected = ocrModelVersion == SHMTU_NCNN_Model.ModelVersion.V2,
+                    onClick = { onSetOcrModelVersion(SHMTU_NCNN_Model.ModelVersion.V2) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                ) { Text("v2 (TriSlot)") }
+            }
+        }
+        HorizontalDivider()
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             // Model status section
             ListItem(

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
+import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model
 
 @Singleton
 class SettingsDataStore @Inject constructor(
@@ -21,6 +22,7 @@ class SettingsDataStore @Inject constructor(
     private val _captchaModeFlow = MutableStateFlow(getCaptchaMode())
     private val _useLocalOcrFlow = MutableStateFlow(getUseLocalOcr())
     private val _ocrServerUrlFlow = MutableStateFlow(getOcrServerUrl())
+    private val _ocrModelVersionFlow = MutableStateFlow(getOcrModelVersion())
     private val _sessionCheckIntervalFlow = MutableStateFlow(getSessionCheckInterval())
     private val _currentIdentityIdFlow = MutableStateFlow(getCurrentIdentityId())
 
@@ -44,6 +46,7 @@ class SettingsDataStore @Inject constructor(
     val captchaMode: Flow<CaptchaMode> = _captchaModeFlow.asStateFlow()
     val useLocalOcr: Flow<Boolean> = _useLocalOcrFlow.asStateFlow()
     val ocrServerUrl: Flow<String> = _ocrServerUrlFlow.asStateFlow()
+    val ocrModelVersion: Flow<SHMTU_NCNN_Model.ModelVersion> = _ocrModelVersionFlow.asStateFlow()
     val sessionCheckInterval: Flow<Int> = _sessionCheckIntervalFlow.asStateFlow()
     val currentIdentityId: Flow<Long?> = _currentIdentityIdFlow.asStateFlow()
 
@@ -87,6 +90,11 @@ class SettingsDataStore @Inject constructor(
     fun setOcrServerUrl(url: String) {
         prefs.edit().putString(KEY_OCR_SERVER_URL, url).apply()
         _ocrServerUrlFlow.value = url
+    }
+
+    fun setOcrModelVersion(version: SHMTU_NCNN_Model.ModelVersion) {
+        prefs.edit().putString(KEY_OCR_MODEL_VERSION, version.toStorageString()).apply()
+        _ocrModelVersionFlow.value = version
     }
 
     fun setSessionCheckInterval(minutes: Int) {
@@ -222,6 +230,11 @@ class SettingsDataStore @Inject constructor(
     private fun getOcrServerUrl(): String =
         prefs.getString(KEY_OCR_SERVER_URL, "127.0.0.1:21601") ?: "127.0.0.1:21601"
 
+    private fun getOcrModelVersion(): SHMTU_NCNN_Model.ModelVersion =
+        SHMTU_NCNN_Model.ModelVersion.fromString(
+            prefs.getString(KEY_OCR_MODEL_VERSION, SHMTU_NCNN_Model.ModelVersion.V2.toStorageString())
+        )
+
     private fun getCurrentIdentityId(): Long? =
         if (prefs.contains(KEY_CURRENT_IDENTITY_ID)) {
             prefs.getLong(KEY_CURRENT_IDENTITY_ID, 0L)
@@ -348,6 +361,7 @@ class SettingsDataStore @Inject constructor(
         private const val KEY_CAPTCHA_MODE = "captcha_mode"
         private const val KEY_USE_LOCAL_OCR = "use_local_ocr"
         private const val KEY_OCR_SERVER_URL = "ocr_server_url"
+        private const val KEY_OCR_MODEL_VERSION = "ocr_model_version"  // V1 | V2
         private const val KEY_SESSION_CHECK_INTERVAL = "session_check_interval"
         private const val KEY_CURRENT_IDENTITY_ID = "current_identity_id"
         // P2P settings keys

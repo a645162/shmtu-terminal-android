@@ -11,11 +11,35 @@ public class SHMTU_NCNN_Model {
         GITHUB
     }
 
+    /**
+     * Engine generation. v1 = 3 separate resnet models (equal/operator/digit).
+     * v2 = single TriSlot-decoder NCNN that returns (left, op, right) in one
+     * forward pass. v2 is the default.
+     */
+    public enum ModelVersion {
+        V1,
+        V2;
+
+        public static ModelVersion fromString(String s) {
+            if (s == null) return V2;
+            switch (s.toLowerCase()) {
+                case "v1": case "1": return V1;
+                case "v2": case "2": return V2;
+                default: return V2;
+            }
+        }
+
+        public String toStorageString() {
+            return name();  // "V1" / "V2"
+        }
+    }
+
     public interface LoadCallback {
         void onSuccess();
         void onError(String error);
     }
 
+    // ============ v1 (legacy) source URLs ============
     public static final String URL_MODEL_PREFIX_GITEE
             = "https://gitee.com/a645162/shmtu-cas-ocr-model/releases/download/v1.0-NCNN/";
     public static final String URL_MODEL_PREFIX_GITHUB
@@ -36,6 +60,7 @@ public class SHMTU_NCNN_Model {
 
     public static final String CHECKSUM_FILENAME = "SHA256SUMS.txt";
 
+    /** v1 has 6 files: 3 resnet models × {param, bin}. */
     public static final String[] MODEL_FILES = {
             FILE_NAME_MODEL_EQUAL_SYMBOL_BIN,
             FILE_NAME_MODEL_EQUAL_SYMBOL_PARAM,
@@ -45,14 +70,74 @@ public class SHMTU_NCNN_Model {
             FILE_NAME_MODEL_DIGIT_PARAM
     };
 
+    // ============ v2 (default) ============
+    public static final String V2_DEFAULT_BACKBONE = "mobilenet_v3_small";
+    public static final String V2_DEFAULT_PRECISION = "fp16";
+    public static final String V2_DEFAULT_TAG = "v2.0.2";
+
+    public static final String V2_URL_MODEL_PREFIX_GITHUB
+            = "https://github.com/a645162/shmtu-cas-ocr-model/releases/download/";
+    public static final String V2_URL_MODEL_PREFIX_GITEE
+            = "https://gitee.com/a645162/shmtu-cas-ocr-model/releases/download/";
+
+    public static final String V2_MANIFEST_FILENAME = "model-assets.json";
+
+    /**
+     * Build the v2 .param / .bin filenames from a (backbone, precision) pair.
+     */
+    public static String[] getV2ModelFiles(String backbone, String precision) {
+        String stem = backbone + ".trislot_decoder.v2_0." + precision;
+        return new String[] { stem + ".param", stem + ".bin" };
+    }
+
+    /**
+     * Returns the v2 asset stem prefix used both for the v2 manifest lookup
+     * and for filesystem layout.
+     */
+    public static String v2AssetStem(String backbone, String precision) {
+        return backbone + ".trislot_decoder.v2_0." + precision;
+    }
+
+    // ============ Directory layout ============
+    // filesDir/ncnn_model/        -> legacy v1 location (pre-v1/v2 split)
+    // filesDir/ncnn_model/v1/     -> v1 model files
+    // filesDir/ncnn_model/v2/     -> v2 model files
+
     public static String getModelDir(Context context) {
-        return context.getFilesDir().getAbsolutePath() + "/ncnn_model/";
+        return getModelDir(context, ModelVersion.V2);
+    }
+
+    public static String getModelDir(Context context, ModelVersion version) {
+        File base = new File(context.getFilesDir().getAbsolutePath(), "ncnn_model");
+        if (version == ModelVersion.V1) {
+            File v1Dir = new File(base, "v1");
+            if (v1Dir.isDirectory()) {
+                return v1Dir.getAbsolutePath() + "/";
+            }
+            // Backward compatibility: legacy v1 files live directly in
+            // filesDir/ncnn_model/ if the v1/ sub-directory does not exist.
+            if (isLegacyV1LayoutPresent(base)) {
+                return base.getAbsolutePath() + "/";
+            }
+            return v1Dir.getAbsolutePath() + "/";
+        }
+        File v2Dir = new File(base, "v2");
+        return v2Dir.getAbsolutePath() + "/";
+    }
+
+    private static boolean isLegacyV1LayoutPresent(File base) {
+        for (String name : MODEL_FILES) {
+            File f = new File(base, name);
+            if (f.exists() && f.length() > 0) return true;
+        }
+        return false;
     }
 
     public static String getModelFilePath(Context context, String fileName) {
         return getModelDir(context) + fileName;
     }
 
+    // ============ v1 URL / checksum helpers (unchanged) ============
     public static String[] buildModelUrls(ModelSource source) {
         String prefix = (source == ModelSource.GITHUB) ? URL_MODEL_PREFIX_GITHUB : URL_MODEL_PREFIX_GITEE;
         String[] urls = new String[MODEL_FILES.length];
@@ -67,7 +152,17 @@ public class SHMTU_NCNN_Model {
         return prefix + CHECKSUM_FILENAME;
     }
 
+    // ============ v1 built-in / downloaded detection (kept for back-compat) ============
     public static boolean isModelBuiltIn(AssetManager assetManager) {
+        return isModelBuiltIn(assetManager, ModelVersion.V1);
+    }
+
+    public static boolean isModelBuiltIn(AssetManager assetManager, ModelVersion version) {
+        // v2 is download-only; v1 may still ship inside the APK for legacy
+        // builds that embedded the model.
+        if (version == ModelVersion.V2) {
+            return false;
+        }
         try {
             String[] files = assetManager.list("");
             if (files == null) return false;
@@ -88,8 +183,15 @@ public class SHMTU_NCNN_Model {
     }
 
     public static boolean isModelDownloaded(Context context) {
-        String modelDir = getModelDir(context);
-        for (String fileName : MODEL_FILES) {
+        return isModelDownloaded(context, ModelVersion.V2);
+    }
+
+    public static boolean isModelDownloaded(Context context, ModelVersion version) {
+        String modelDir = getModelDir(context, version);
+        String[] files = (version == ModelVersion.V1)
+                ? MODEL_FILES
+                : getV2ModelFiles(V2_DEFAULT_BACKBONE, V2_DEFAULT_PRECISION);
+        for (String fileName : files) {
             File file = new File(modelDir + fileName);
             if (!file.exists() || file.length() == 0) {
                 return false;
@@ -99,9 +201,16 @@ public class SHMTU_NCNN_Model {
     }
 
     public static String getDownloadedModelInfo(Context context) {
-        String modelDir = getModelDir(context);
+        return getDownloadedModelInfo(context, ModelVersion.V2);
+    }
+
+    public static String getDownloadedModelInfo(Context context, ModelVersion version) {
+        String modelDir = getModelDir(context, version);
+        String[] files = (version == ModelVersion.V1)
+                ? MODEL_FILES
+                : getV2ModelFiles(V2_DEFAULT_BACKBONE, V2_DEFAULT_PRECISION);
         StringBuilder info = new StringBuilder();
-        for (String fileName : MODEL_FILES) {
+        for (String fileName : files) {
             File file = new File(modelDir + fileName);
             long size = file.exists() ? file.length() : 0;
             info.append(fileName).append(": ").append(size).append(" bytes\n");
@@ -110,9 +219,16 @@ public class SHMTU_NCNN_Model {
     }
 
     public static int deleteDownloadedModels(Context context) {
-        String modelDir = getModelDir(context);
+        return deleteDownloadedModels(context, ModelVersion.V2);
+    }
+
+    public static int deleteDownloadedModels(Context context, ModelVersion version) {
+        String modelDir = getModelDir(context, version);
+        String[] files = (version == ModelVersion.V1)
+                ? MODEL_FILES
+                : getV2ModelFiles(V2_DEFAULT_BACKBONE, V2_DEFAULT_PRECISION);
         int deleted = 0;
-        for (String fileName : MODEL_FILES) {
+        for (String fileName : files) {
             File file = new File(modelDir + fileName);
             if (file.exists() && file.delete()) {
                 deleted++;
@@ -126,6 +242,7 @@ public class SHMTU_NCNN_Model {
         return deleted;
     }
 
+    // ============ v1 async loaders (unchanged) ============
     public static void loadModelFromAssetsAsync(SHMTU_NCNN ncnn, AssetManager assetManager, boolean useGpu, LoadCallback callback) {
         new Thread(() -> {
             try {
@@ -144,8 +261,8 @@ public class SHMTU_NCNN_Model {
     public static void loadModelFromDirAsync(SHMTU_NCNN ncnn, Context context, boolean useGpu, LoadCallback callback) {
         new Thread(() -> {
             try {
-                String modelDir = getModelDir(context);
-
+                ModelVersion v = ModelVersion.V1;
+                String modelDir = getModelDir(context, v);
                 for (String fileName : MODEL_FILES) {
                     File file = new File(modelDir + fileName);
                     if (!file.exists() || file.length() == 0) {
@@ -153,12 +270,37 @@ public class SHMTU_NCNN_Model {
                         return;
                     }
                 }
-
                 boolean success = ncnn.InitModelFromDir(modelDir, useGpu);
                 if (success) {
                     callback.onSuccess();
                 } else {
                     callback.onError("Failed to load model from " + modelDir);
+                }
+            } catch (Exception e) {
+                callback.onError(e.getMessage());
+            }
+        }).start();
+    }
+
+    // ============ v2 async loaders ============
+    public static void loadV2ModelFromDirAsync(SHMTU_NCNN ncnn, Context context, boolean useGpu, LoadCallback callback) {
+        new Thread(() -> {
+            try {
+                ModelVersion v = ModelVersion.V2;
+                String modelDir = getModelDir(context, v);
+                String[] files = getV2ModelFiles(V2_DEFAULT_BACKBONE, V2_DEFAULT_PRECISION);
+                for (String fileName : files) {
+                    File file = new File(modelDir + fileName);
+                    if (!file.exists() || file.length() == 0) {
+                        callback.onError("V2 model file missing or empty: " + fileName);
+                        return;
+                    }
+                }
+                boolean success = ncnn.InitV2ModelFromDir(modelDir, useGpu);
+                if (success) {
+                    callback.onSuccess();
+                } else {
+                    callback.onError("Failed to load v2 model from " + modelDir);
                 }
             } catch (Exception e) {
                 callback.onError(e.getMessage());

@@ -4,8 +4,11 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model.ModelSource
+import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model.ModelVersion
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -37,9 +40,11 @@ class ModelDownloader {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    // ===================== v1 download helpers (unchanged) =====================
+
     private fun fetchChecksums(
-        primarySource: SHMTU_NCNN_Model.ModelSource,
-        fallbackSource: SHMTU_NCNN_Model.ModelSource
+        primarySource: ModelSource,
+        fallbackSource: ModelSource
     ): Map<String, String>? {
         val sources = arrayOf(primarySource, fallbackSource)
         for (source in sources) {
@@ -58,8 +63,6 @@ class ModelDownloader {
                         for (line in content.lines()) {
                             val trimmed = line.trim()
                             if (trimmed.isEmpty()) continue
-                            // Format: <64-char-hex>  <filename>
-                            // Two or more spaces separate hash from filename
                             val parts = trimmed.split(Regex("\\s+"), limit = 2)
                             if (parts.size == 2 && parts[0].length == 64) {
                                 checksums[parts[1]] = parts[0].lowercase()
@@ -91,11 +94,11 @@ class ModelDownloader {
 
     fun verifyDownloadedModels(context: Context): Result<String> {
         val checksums = fetchChecksums(
-            primarySource = SHMTU_NCNN_Model.ModelSource.GITEE,
-            fallbackSource = SHMTU_NCNN_Model.ModelSource.GITHUB
+            primarySource = ModelSource.GITEE,
+            fallbackSource = ModelSource.GITHUB
         ) ?: return Result.failure(IllegalStateException("无法获取 SHA256 校验清单"))
 
-        val modelDir = SHMTU_NCNN_Model.getModelDir(context)
+        val modelDir = SHMTU_NCNN_Model.getModelDir(context, ModelVersion.V1)
         val mismatches = mutableListOf<String>()
         var verifiedCount = 0
 
@@ -188,24 +191,20 @@ class ModelDownloader {
         }
     }
 
-    fun download(source: SHMTU_NCNN_Model.ModelSource, context: Context, listener: DownloadProgressListener) {
+    fun download(source: ModelSource, context: Context, listener: DownloadProgressListener) {
         Thread {
-            val modelDir = SHMTU_NCNN_Model.getModelDir(context)
+            val modelDir = SHMTU_NCNN_Model.getModelDir(context, ModelVersion.V1)
             val dir = File(modelDir)
             if (!dir.exists()) {
                 dir.mkdirs()
             }
 
             val primarySource = source
-            val fallbackSource = if (source == SHMTU_NCNN_Model.ModelSource.GITEE)
-                SHMTU_NCNN_Model.ModelSource.GITHUB
-            else
-                SHMTU_NCNN_Model.ModelSource.GITEE
+            val fallbackSource = if (source == ModelSource.GITEE) ModelSource.GITHUB else ModelSource.GITEE
 
             val urls = SHMTU_NCNN_Model.buildModelUrls(primarySource)
             val fallbackUrls = SHMTU_NCNN_Model.buildModelUrls(fallbackSource)
 
-            // Fetch checksums before downloading model files
             var checksums: Map<String, String>? = null
             try {
                 checksums = fetchChecksums(primarySource, fallbackSource)
@@ -244,7 +243,6 @@ class ModelDownloader {
                 var lastError: String? = null
                 val expectedHash = checksums?.get(fileName)
 
-                // Up to MAX_DOWNLOAD_ATTEMPTS attempts, cycling through primary/fallback sources
                 for (attempt in 0 until MAX_DOWNLOAD_ATTEMPTS) {
                     val urlStr = if (attempt % 2 == 0) urls[i] else fallbackUrls[i]
                     val sourceLabel = if (attempt % 2 == 0) "primary" else "fallback"
@@ -263,7 +261,6 @@ class ModelDownloader {
                         continue
                     }
 
-                    // Verify checksum if available
                     if (expectedHash != null) {
                         val actualHash = computeSHA256(file)
                         if (actualHash != expectedHash) {
@@ -302,6 +299,177 @@ class ModelDownloader {
                 listener.onSuccess()
             }
         }.start()
+    }
+
+    // ===================== v2 download (manifest-driven) =====================
+
+    /**
+     * v2 model download entry point.
+     *
+     * Flow:
+     *  1. Fetch `<base>/<tag>/model-assets.json` from primary, falling back to the other source.
+     *  2. Locate the `artifacts[]` entry matching `engine=="ncnn"`, `precision` and `backbone`.
+     *  3. Download each file referenced in that artifact's `files[]`, with SHA256 verification.
+     *
+     * File names follow the convention produced by [SHMTU_NCNN_Model.getV2ModelFiles] and are
+     * matched against the `release_asset_name` of each manifest entry.
+     */
+    fun downloadV2(
+        source: ModelSource,
+        context: Context,
+        listener: DownloadProgressListener,
+        tag: String = SHMTU_NCNN_Model.V2_DEFAULT_TAG,
+        backbone: String = SHMTU_NCNN_Model.V2_DEFAULT_BACKBONE,
+        precision: String = SHMTU_NCNN_Model.V2_DEFAULT_PRECISION,
+    ) {
+        Thread {
+            try {
+                val modelDir = SHMTU_NCNN_Model.getModelDir(context, ModelVersion.V2)
+                val dir = File(modelDir)
+                if (!dir.exists()) dir.mkdirs()
+
+                val primary = source
+                val fallback = if (source == ModelSource.GITEE) ModelSource.GITHUB else ModelSource.GITEE
+
+                val manifest = fetchV2Manifest(primary, fallback, tag)
+                if (manifest == null) {
+                    mainHandler.post { listener.onError("无法获取 v2 manifest (tag=$tag)") }
+                    return@Thread
+                }
+
+                val artifact = selectV2Artifact(manifest, backbone, precision)
+                if (artifact == null) {
+                    mainHandler.post {
+                        listener.onError("v2 manifest 中找不到 engine=ncnn backbone=$backbone precision=$precision 的产物")
+                    }
+                    return@Thread
+                }
+
+                val files = artifact.getJSONArray("files")
+                val totalFiles = files.length()
+                if (totalFiles == 0) {
+                    mainHandler.post { listener.onError("v2 manifest 产物中没有 files 列表") }
+                    return@Thread
+                }
+
+                for (i in 0 until totalFiles) {
+                    val entry = files.getJSONObject(i)
+                    val releaseAssetName = entry.getString("release_asset_name")
+                    val expectedHash = entry.takeIf { !it.isNull("sha256") }?.optString("sha256")?.takeIf { it.isNotEmpty() }
+                    val file = File(modelDir + releaseAssetName)
+                    val fileIndex = i + 1
+
+                    if (file.exists() && file.length() > 0L) {
+                        mainHandler.post {
+                            listener.onProgress(
+                                fileIndex = fileIndex,
+                                totalFiles = totalFiles,
+                                currentFileName = releaseAssetName,
+                                currentFileProgress = 100,
+                                overallProgress = (((i + 1) * 100f) / totalFiles).toInt()
+                            )
+                        }
+                        continue
+                    }
+
+                    var success = false
+                    var lastError: String? = null
+                    for (attempt in 0 until MAX_DOWNLOAD_ATTEMPTS) {
+                        val useSource = if (attempt % 2 == 0) primary else fallback
+                        val sourceLabel = if (attempt % 2 == 0) "primary" else "fallback"
+                        val urlStr = buildV2FileUrl(useSource, tag, releaseAssetName)
+                        val downloadOk = downloadFile(
+                            urlStr = urlStr,
+                            file = file,
+                            fileIndex = fileIndex,
+                            totalFiles = totalFiles,
+                            completedFilesBefore = i,
+                            listener = listener
+                        )
+                        if (!downloadOk) {
+                            lastError = "HTTP download failed from $sourceLabel"
+                            if (file.exists()) file.delete()
+                            continue
+                        }
+                        if (expectedHash != null) {
+                            val actualHash = computeSHA256(file)
+                            if (actualHash != expectedHash.lowercase()) {
+                                Log.w(TAG, "SHA256 mismatch for $releaseAssetName (attempt ${attempt + 1})")
+                                lastError = "SHA256 checksum mismatch"
+                                file.delete()
+                                continue
+                            }
+                            Log.i(TAG, "SHA256 verified for $releaseAssetName")
+                        }
+                        success = true
+                        break
+                    }
+
+                    if (!success) {
+                        mainHandler.post { listener.onError("Download failed: $releaseAssetName - $lastError") }
+                        return@Thread
+                    }
+
+                    mainHandler.post {
+                        listener.onProgress(
+                            fileIndex = fileIndex,
+                            totalFiles = totalFiles,
+                            currentFileName = releaseAssetName,
+                            currentFileProgress = 100,
+                            overallProgress = (((i + 1) * 100f) / totalFiles).toInt()
+                        )
+                    }
+                }
+
+                mainHandler.post { listener.onSuccess() }
+            } catch (e: Exception) {
+                Log.w(TAG, "v2 download failed: ${e.message}", e)
+                mainHandler.post { listener.onError("v2 download failed: ${e.message}") }
+            }
+        }.start()
+    }
+
+    private fun fetchV2Manifest(primary: ModelSource, fallback: ModelSource, tag: String): JSONObject? {
+        val sources = arrayOf(primary, fallback)
+        for (source in sources) {
+            val url = buildV2FileUrl(source, tag, SHMTU_NCNN_Model.V2_MANIFEST_FILENAME)
+            try {
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0")
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val text = response.body?.string() ?: continue
+                        return JSONObject(text)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to fetch v2 manifest from $source: ${e.message}")
+            }
+        }
+        return null
+    }
+
+    private fun selectV2Artifact(manifest: JSONObject, backbone: String, precision: String): JSONObject? {
+        val artifacts = manifest.optJSONArray("artifacts") ?: return null
+        for (i in 0 until artifacts.length()) {
+            val a = artifacts.getJSONObject(i)
+            if (a.optString("engine") == "ncnn"
+                && a.optString("precision") == precision
+                && a.optString("backbone") == backbone) {
+                return a
+            }
+        }
+        return null
+    }
+
+    private fun buildV2FileUrl(source: ModelSource, tag: String, fileName: String): String {
+        val prefix = if (source == ModelSource.GITHUB)
+            SHMTU_NCNN_Model.V2_URL_MODEL_PREFIX_GITHUB
+        else
+            SHMTU_NCNN_Model.V2_URL_MODEL_PREFIX_GITEE
+        return "$prefix$tag/$fileName"
     }
 
     fun release() {

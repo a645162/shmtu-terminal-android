@@ -20,6 +20,7 @@ import android.graphics.Bitmap;
 import java.util.ArrayList;
 
 public class SHMTU_NCNN {
+    // ============ v1 native methods ============
     private native boolean Init(AssetManager mgr, boolean use_gpu);
 
     private native boolean InitFromDir(String modelDir, boolean use_gpu);
@@ -31,6 +32,17 @@ public class SHMTU_NCNN {
     private native void ReleaseModel();
 
     private native boolean IsVulkanSupported();
+
+    // ============ v2 native methods ============
+    private native boolean InitV2FromDir(String modelDir, boolean use_gpu);
+
+    private native ArrayList<String> DetectV2(Bitmap bitmap);
+
+    private native int GetV2ModelStatus();
+
+    private native void ReleaseV2Model();
+
+    private native boolean IsV2Loaded();
 
     static {
         System.loadLibrary("shmtu_cas_ncnn");
@@ -54,6 +66,9 @@ public class SHMTU_NCNN {
     }
 
     private static boolean isInit = false;
+    private static boolean isV2Init = false;
+
+    // ============ v1 API (unchanged) ============
 
     public boolean InitModel(AssetManager mgr, boolean use_gpu) {
         if (!isInit) {
@@ -109,9 +124,7 @@ public class SHMTU_NCNN {
             Object[] tuples_result = new Object[]{0, "", 0, 0, 0, 0};
 
             tuples_result[0] = Integer.parseInt(result.get(0));
-
             tuples_result[1] = result.get(1);
-
             tuples_result[2] = Integer.parseInt(result.get(2));
             tuples_result[3] = Integer.parseInt(result.get(3));
             tuples_result[4] = Integer.parseInt(result.get(4));
@@ -119,6 +132,56 @@ public class SHMTU_NCNN {
 
             return tuples_result;
         }
+    }
 
+    // ============ v2 API ============
+
+    public boolean InitV2ModelFromDir(String modelDir, boolean use_gpu) {
+        if (!isV2Init) {
+            isV2Init = InitV2FromDir(modelDir, use_gpu);
+            return isV2Init;
+        } else {
+            ModelStatus status = ModelStatus.fromInt(GetV2ModelStatus());
+            if (status == ModelStatus.NOT_LOADED) {
+                ReleaseV2Model();
+                isV2Init = InitV2FromDir(modelDir, use_gpu);
+                return isV2Init;
+            }
+            return true;
+        }
+    }
+
+    public ModelStatus getV2ModelStatus() {
+        return ModelStatus.fromInt(GetV2ModelStatus());
+    }
+
+    public boolean isV2Loaded() {
+        return IsV2Loaded();
+    }
+
+    public void releaseV2Model() {
+        ReleaseV2Model();
+        isV2Init = false;
+    }
+
+    /**
+     * v2 predict: returns a 5-tuple Object[] {result, expression, left, op, right}.
+     * Layout matches the v1 call so existing CAS code can treat both the same.
+     */
+    public Object[] predict_validate_code_v2(Bitmap bitmap) {
+        if (!isV2Init) {
+            return null;
+        }
+        ArrayList<String> result = DetectV2(bitmap);
+        if (result == null || result.size() != 5) {
+            return null;
+        }
+        Object[] tuples_result = new Object[]{0, "", 0, 0, 0};
+        tuples_result[0] = Integer.parseInt(result.get(0));
+        tuples_result[1] = result.get(1);
+        tuples_result[2] = Integer.parseInt(result.get(2));
+        tuples_result[3] = Integer.parseInt(result.get(3));
+        tuples_result[4] = Integer.parseInt(result.get(4));
+        return tuples_result;
     }
 }

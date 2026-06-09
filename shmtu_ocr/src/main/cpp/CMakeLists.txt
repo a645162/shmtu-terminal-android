@@ -23,6 +23,9 @@ add_library(
         CAS_OCR_ANDROID.cpp
         CAS_OCR_ANDROID.h
 
+        CAS_OCR_V2.cpp
+        CAS_OCR_V2.h
+
         AndroidOpenCVUtils.cpp
         AndroidOpenCVUtils.h
 )
