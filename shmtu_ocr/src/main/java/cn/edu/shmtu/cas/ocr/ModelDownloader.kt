@@ -29,8 +29,30 @@ class ModelDownloader {
         private const val UNBOUNDED_MINOR: Int = Int.MIN_VALUE
 
         /**
+         * 解析 `v{major}.{minor}.{patch}` 格式的 tag。失败返回 null。
+         */
+        private val SEMVER_PATTERN = Regex("""^v(\d+)\.(\d+)\.(\d+)$""")
+
+        /**
+         * 校验 tag 是否满足最小版本约束。
+         *
+         * 返回 `true` 表示通过,`false` 表示低于最小版本或无法解析。
+         * 调用方应据此决定是否拒绝手动指定的 tag。
+         */
+        fun isTagAboveMinVersion(tag: String): Boolean {
+            val m = SEMVER_PATTERN.matchEntire(tag) ?: return false
+            val (mj, mn, pt) = m.destructured.toList().map { it.toInt() }
+            return mj > SHMTU_NCNN_Model.V2_MIN_SUPPORTED_MAJOR ||
+                (mj == SHMTU_NCNN_Model.V2_MIN_SUPPORTED_MAJOR &&
+                    (mn > SHMTU_NCNN_Model.V2_MIN_SUPPORTED_MINOR ||
+                        (mn == SHMTU_NCNN_Model.V2_MIN_SUPPORTED_MINOR &&
+                            pt >= SHMTU_NCNN_Model.V2_MIN_SUPPORTED_PATCH)))
+        }
+
+        /**
          * 列出 GitHub releases,选 v{maxMajor}.{<=maxMinor}.x 中最新 patch。
          * maxMinor < 0 表示不限 minor,只锁 major。
+         * 同时过滤低于 V2_MIN_SUPPORTED_* 的 tag。
          * 失败时返回 fallback。仅用于 v2 模型;v1 不再更新。
          */
         fun resolveLatestV2Tag(
@@ -39,6 +61,9 @@ class ModelDownloader {
             maxMinor: Int = SHMTU_NCNN_Model.V2_MAX_SUPPORTED_MINOR,
             fallback: String = SHMTU_NCNN_Model.V2_DEFAULT_TAG,
         ): String {
+            val minMajor = SHMTU_NCNN_Model.V2_MIN_SUPPORTED_MAJOR
+            val minMinor = SHMTU_NCNN_Model.V2_MIN_SUPPORTED_MINOR
+            val minPatch = SHMTU_NCNN_Model.V2_MIN_SUPPORTED_PATCH
             return try {
                 val url = "${SHMTU_NCNN_Model.GITHUB_RELEASES_API}?per_page=100"
                 val req = Request.Builder()
@@ -59,11 +84,15 @@ class ModelDownloader {
                         if (rel.optBoolean("draft", false)) continue
                         if (rel.optBoolean("prerelease", false)) continue
                         val tag = rel.optString("tag_name", "")
-                        val m = SEMVER_TAG_REGEX.matchEntire(tag) ?: continue
+                        val m = SEMVER_PATTERN.matchEntire(tag) ?: continue
                         val (mj, mn, pt) = m.destructured.toList().map { it.toInt() }
                         if (mj != maxMajor) continue
                         // maxMinor == Int.MIN_VALUE 表示不限 minor,只锁 major。
                         if (maxMinor != UNBOUNDED_MINOR && mn > maxMinor) continue
+                        // 过滤低于最小版本的 tag
+                        if (mj < minMajor) continue
+                        if (mj == minMajor && mn < minMinor) continue
+                        if (mj == minMajor && mn == minMinor && pt < minPatch) continue
                         candidates.add(Triple(intArrayOf(mj, mn, pt), tag, i))
                     }
                     if (candidates.isEmpty()) {
@@ -392,7 +421,15 @@ class ModelDownloader {
                 val primary = source
                 val fallback = if (source == ModelSource.GITEE) ModelSource.GITHUB else ModelSource.GITEE
 
-                val resolvedTag = tag ?: resolveLatestV2Tag(client)
+                val resolvedTag = tag?.also {
+                    // 手动指定 tag 时校验最小版本
+                    if (!isTagAboveMinVersion(it)) {
+                        mainHandler.post {
+                            listener.onError("tag $it 低于最低支持版本 v${SHMTU_NCNN_Model.V2_MIN_SUPPORTED_MAJOR}.${SHMTU_NCNN_Model.V2_MIN_SUPPORTED_MINOR}.${SHMTU_NCNN_Model.V2_MIN_SUPPORTED_PATCH}")
+                        }
+                        return@Thread
+                    }
+                } ?: resolveLatestV2Tag(client)
 
                 val manifest = fetchV2Manifest(primary, fallback, resolvedTag)
                 if (manifest == null) {

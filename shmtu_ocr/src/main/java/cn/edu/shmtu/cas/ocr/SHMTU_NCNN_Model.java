@@ -87,6 +87,21 @@ public class SHMTU_NCNN_Model {
      * 当前用户要求"小于 3 就可以" → 设成 Int.MIN_VALUE (支持 v2.0.x ~ v2.x.x)
      */
     public static final int V2_MAX_SUPPORTED_MINOR = Integer.MIN_VALUE;
+
+    /**
+     * 最低支持的主版本号。低于此版本的 tag 不会出现在候选列表,也不允许手动选择。
+     */
+    public static final int V2_MIN_SUPPORTED_MAJOR = 2;
+    /**
+     * 最低支持的次版本号。
+     */
+    public static final int V2_MIN_SUPPORTED_MINOR = 0;
+    /**
+     * 最低支持的补丁版本号。
+     * v2.0.0 / v2.0.1 已知存在兼容性问题,最低要求 v2.0.2。
+     */
+    public static final int V2_MIN_SUPPORTED_PATCH = 2;
+
     public static final String GITHUB_REPO = "a645162/shmtu-cas-ocr-model";
     public static final String GITHUB_RELEASES_API =
             "https://api.github.com/repos/a645162/shmtu-cas-ocr-model/releases";

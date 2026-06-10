@@ -80,6 +80,9 @@ object OcrV2TagCatalog {
         maxMajor: Int = SHMTU_NCNN_Model.V2_MAX_SUPPORTED_MAJOR,
         maxMinor: Int = SHMTU_NCNN_Model.V2_MAX_SUPPORTED_MINOR,
     ): List<CatalogEntry> {
+        val minMajor = SHMTU_NCNN_Model.V2_MIN_SUPPORTED_MAJOR
+        val minMinor = SHMTU_NCNN_Model.V2_MIN_SUPPORTED_MINOR
+        val minPatch = SHMTU_NCNN_Model.V2_MIN_SUPPORTED_PATCH
         val url = "${SHMTU_NCNN_Model.GITHUB_RELEASES_API}?per_page=100"
         val req = Request.Builder()
             .url(url)
@@ -98,9 +101,13 @@ object OcrV2TagCatalog {
                 if (o.optBoolean("draft", false)) continue
                 val tag = o.optString("tag_name", "")
                 val m = pattern.matchEntire(tag) ?: continue
-                val (mj, mn, _) = m.destructured.toList().map { it.toInt() }
+                val (mj, mn, pt) = m.destructured.toList().map { it.toInt() }
                 if (mj != maxMajor) continue
                 if (maxMinor != Integer.MIN_VALUE && mn > maxMinor) continue
+                // 过滤低于最小版本的 tag
+                if (mj < minMajor) continue
+                if (mj == minMajor && mn < minMinor) continue
+                if (mj == minMajor && mn == minMinor && pt < minPatch) continue
                 out.add(
                     CatalogEntry(
                         tag = tag,
