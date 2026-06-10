@@ -44,6 +44,11 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // 将编译时生成的 git_contributors.json 加入 assets
+    sourceSets.getByName("main") {
+        assets.srcDir(File(buildDir, "generated/git_contributors/assets"))
+    }
 }
 
 kotlin {
@@ -97,6 +102,9 @@ dependencies {
 
     // OkHttp — BillRulesManager 从 GitHub 拉取规则文件
     implementation(libs.okhttp)
+
+    // Coil — Compose 图像加载库 (About 页 GitHub 头像)
+    implementation(libs.coil.compose)
     // NanoHTTPD - embedded Web server for remote bill browsing
     implementation(libs.nanohttpd)
     implementation(libs.nanohttpd.websocket)
@@ -127,4 +135,104 @@ dependencies {
     implementation(libs.shmtu.cas.android)
     implementation(project(":shmtu_ocr"))
     coreLibraryDesugaring(libs.desugar.jdk.libs)
+}
+
+// ===== Git Contributors 构建任务 =====
+// 在编译时检测是否为 git 仓库，提取所有提交者的 name + email，
+// 写入 build/generated/git_contributors/assets/git_contributors.json，
+// 供运行时 About 页面展示。
+tasks.register("generateGitContributors") {
+    group = "build"
+    description = "Extract git contributors and write git_contributors.json"
+
+    val outputDir = File(buildDir, "generated/git_contributors/assets")
+    val outputFile = File(outputDir, "git_contributors.json")
+    outputs.file(outputFile)
+
+    doLast {
+        outputDir.mkdirs()
+
+        val isGitRepo = try {
+            val proc = ProcessBuilder("git", "rev-parse", "--is-inside-work-tree")
+                .directory(rootDir)
+                .redirectErrorStream(true)
+                .start()
+            proc.inputStream.bufferedReader().readText().trim().equals("true", ignoreCase = true)
+        } catch (_: Exception) {
+            false
+        }
+
+        if (!isGitRepo) {
+            outputFile.writeText("[]")
+            logger.lifecycle("[GitContributors] Not a git repo, wrote empty array")
+            return@doLast
+        }
+
+        val logOutput = try {
+            val proc = ProcessBuilder("git", "log", "--format=%aN||%aE")
+                .directory(rootDir)
+                .redirectErrorStream(true)
+                .start()
+            proc.inputStream.bufferedReader().readText()
+        } catch (_: Exception) {
+            ""
+        }
+
+        if (logOutput.isBlank()) {
+            outputFile.writeText("[]")
+            logger.lifecycle("[GitContributors] Empty git log, wrote empty array")
+            return@doLast
+        }
+
+        val seen = mutableSetOf<String>()
+        val entries = mutableListOf<String>()
+
+        for (line in logOutput.lines()) {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) continue
+
+            val parts = trimmed.split("||", limit = 2)
+            if (parts.size != 2) continue
+
+            val name = parts[0].trim()
+            val email = parts[1].trim().lowercase()
+
+            if (name.isEmpty() || email.isEmpty()) continue
+            if (email in seen) continue
+            seen.add(email)
+
+            entries.add("""{"name":${jsonEscape(name)},"email":${jsonEscape(email)}}""")
+        }
+
+        val json = if (entries.isEmpty()) "[]" else "[${entries.joinToString(",")}]"
+        outputFile.writeText(json)
+        logger.lifecycle("[GitContributors] Wrote ${outputFile.absolutePath} (${entries.size} contributors)")
+    }
+}
+
+fun jsonEscape(s: String): String {
+    val sb = StringBuilder()
+    sb.append('"')
+    for (ch in s) {
+        when (ch) {
+            '"' -> sb.append("\\\"")
+            '\\' -> sb.append("\\\\")
+            '\n' -> sb.append("\\n")
+            '\r' -> sb.append("\\r")
+            '\t' -> sb.append("\\t")
+            else -> {
+                if (ch.code < 0x20) {
+                    sb.append("\\u${ch.code.toString(16).padStart(4, '0')}")
+                } else {
+                    sb.append(ch)
+                }
+            }
+        }
+    }
+    sb.append('"')
+    return sb.toString()
+}
+
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
+    dependsOn("generateGitContributors")
 }

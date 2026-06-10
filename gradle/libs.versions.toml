@@ -34,6 +34,7 @@ zxingEmbedded = "4.3.0"
 cameraX = "1.6.1"
 mlkitBarcodeScanning = "17.3.0"
 nanohttpd = "2.3.1"
+coil = "2.7.0"
 
 [libraries]
 androidx-activity-compose = {group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose"}
@@ -87,6 +88,8 @@ camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.r
 camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraX" }
 camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
 mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcodeScanning" }
+
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 
 [plugins]
 android-application = {id = "com.android.application", version.ref = "agp"}
