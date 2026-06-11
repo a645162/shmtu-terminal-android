@@ -35,4 +35,19 @@
     <string name="action_check_remote">检查连通</string>
     <string name="action_remote_ocr">远程识别</string>
     <string name="demo_footer">Designed for OCR workflow review on tablets and phones</string>
+
+    <!-- v1/v2 切换 -->
+    <string name="model_version_label">模型版本</string>
+    <string name="model_version_v1">v1 (ResNet)</string>
+    <string name="model_version_v2">v2 (TriSlot)</string>
+    <string name="model_current_label">当前配置</string>
+    <string name="action_advanced_settings">高级设置</string>
+    <string name="advanced_settings_title">v2 模型高级配置</string>
+    <string name="advanced_settings_tag_label">Release Tag</string>
+    <string name="advanced_settings_backbone_label">Backbone</string>
+    <string name="advanced_settings_precision_label">精度</string>
+    <string name="advanced_settings_apply">应用</string>
+    <string name="advanced_settings_cancel">取消</string>
+    <string name="advanced_settings_refresh_tags">刷新 Tag 列表</string>
+    <string name="advanced_settings_loading">加载中…</string>
 </resources>

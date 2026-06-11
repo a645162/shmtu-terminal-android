@@ -17,7 +17,7 @@ android {
 
     defaultConfig {
         applicationId = "com.khm.shmtu.cas.ocr.demo"
-        minSdk = 21
+        minSdk = 23
         targetSdk = sdkVersion
         versionCode = appVersionCode
         versionName = appVersionName
@@ -54,6 +54,8 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraintlayout)
+
+    implementation(libs.okhttp)
 
     implementation(libs.kotlinx.coroutines.android)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
