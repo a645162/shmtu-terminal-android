@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.cas.ocr.ModelDownloader
 import cn.edu.shmtu.cas.ocr.NcnnModelLoader
+import cn.edu.shmtu.cas.ocr.OcrModelInfo
+import cn.edu.shmtu.cas.ocr.OcrV2TagCatalog
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model.ModelSource
@@ -28,6 +30,7 @@ class OcrSettingsViewModel @Inject constructor(
 
     private val shmtuNcnn = SHMTU_NCNN()
     private val modelDownloader = ModelDownloader()
+    private val okHttpClient = okhttp3.OkHttpClient()
 
     private val _uiState = MutableStateFlow(OcrSettingsUiState())
     val uiState: StateFlow<OcrSettingsUiState> = _uiState.asStateFlow()
@@ -46,6 +49,26 @@ class OcrSettingsViewModel @Inject constructor(
                 _ocrModelVersion.value = v
                 refreshStatus()
             }
+        }
+        // Load persisted v2 tag/backbone/precision and initialize model list
+        viewModelScope.launch(Dispatchers.IO) {
+            val tag = settingsDataStore.getOcrV2ModelTagNow().ifEmpty {
+                SHMTU_NCNN_Model.V2_DEFAULT_TAG
+            }
+            val backbone = settingsDataStore.getOcrV2BackboneNow()
+            val precision = settingsDataStore.getOcrV2PrecisionNow()
+            _uiState.value = _uiState.value.copy(
+                selectedTag = tag,
+                selectedBackbone = backbone,
+                selectedPrecision = precision,
+            )
+            // Try loading cached tags
+            val cached = OcrV2TagCatalog.loadFromCache(context)
+            if (cached != null) {
+                _uiState.value = _uiState.value.copy(tags = cached)
+            }
+            // Try loading manifest for current tag
+            loadModelsForTag(tag)
         }
     }
 
@@ -198,16 +221,17 @@ class OcrSettingsViewModel @Inject constructor(
     }
 
     private fun downloadV2(source: ModelSource) {
-        val files = SHMTU_NCNN_Model.getV2ModelFiles(
-            SHMTU_NCNN_Model.V2_DEFAULT_BACKBONE,
-            SHMTU_NCNN_Model.V2_DEFAULT_PRECISION
-        )
+        val state = _uiState.value
+        val tag = state.selectedTag.ifEmpty { null }
+        val backbone = state.selectedBackbone
+        val precision = state.selectedPrecision
+
         _uiState.value = _uiState.value.copy(
             isDownloading = true,
             overallDownloadProgress = 0,
             currentFileProgress = 0,
             downloadCurrentFile = 0,
-            downloadTotalFiles = files.size,
+            downloadTotalFiles = SHMTU_NCNN_Model.getV2ModelFiles(backbone, precision).size,
             downloadCurrentFileName = null,
             message = null
         )
@@ -238,7 +262,7 @@ class OcrSettingsViewModel @Inject constructor(
                         isDownloading = false,
                         overallDownloadProgress = 100,
                         currentFileProgress = 100,
-                        message = "v2 模型下载成功"
+                        message = "v2 模型下载成功 (tag=$tag, backbone=$backbone, precision=$precision)"
                     )
                 }
 
@@ -248,8 +272,114 @@ class OcrSettingsViewModel @Inject constructor(
                         message = "下载失败: $error"
                     )
                 }
-            }
+            },
+            tag = tag,
+            backbone = backbone,
+            precision = precision,
         )
+    }
+
+    // ===================== v2 model selection: tag / model / precision =====================
+
+    /** Refresh the list of candidate v2 release tags from GitHub. */
+    fun refreshTags() {
+        if (_uiState.value.isTagsLoading) return
+        _uiState.value = _uiState.value.copy(isTagsLoading = true, tagsError = null)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val tags = OcrV2TagCatalog.fetchFromNetwork(okHttpClient)
+                OcrV2TagCatalog.saveToCache(context, tags)
+                _uiState.value = _uiState.value.copy(
+                    tags = tags,
+                    isTagsLoading = false,
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isTagsLoading = false,
+                    tagsError = e.message ?: "未知错误",
+                )
+            }
+        }
+    }
+
+    /** Select a tag and load its model manifest. */
+    fun selectTag(tag: String) {
+        if (_uiState.value.selectedTag == tag) return
+        settingsDataStore.setOcrV2ModelTag(tag)
+        _uiState.value = _uiState.value.copy(
+            selectedTag = tag,
+            models = emptyList(),
+            modelsError = null,
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            loadModelsForTag(tag)
+        }
+    }
+
+    /** Select a backbone (model). */
+    fun selectBackbone(backbone: String) {
+        settingsDataStore.setOcrV2Backbone(backbone)
+        _uiState.value = _uiState.value.copy(selectedBackbone = backbone)
+    }
+
+    /** Select a precision. */
+    fun selectPrecision(precision: String) {
+        settingsDataStore.setOcrV2Precision(precision)
+        _uiState.value = _uiState.value.copy(selectedPrecision = precision)
+    }
+
+    /** Fetch manifest for [tag] and parse into model list. */
+    private fun loadModelsForTag(tag: String) {
+        _uiState.value = _uiState.value.copy(isModelsLoading = true, modelsError = null)
+        try {
+            val primary = ModelSource.GITHUB
+            val fallback = ModelSource.GITEE
+            val manifestJson = fetchV2ManifestJson(primary, fallback, tag)
+            if (manifestJson == null) {
+                _uiState.value = _uiState.value.copy(
+                    isModelsLoading = false,
+                    modelsError = "无法获取 manifest (tag=$tag)",
+                )
+                return
+            }
+            val manifest = modelDownloader.parseReleaseManifest(manifestJson)
+            val models = modelDownloader.listModelsFromManifest(manifest)
+            _uiState.value = _uiState.value.copy(
+                isModelsLoading = false,
+                models = models,
+            )
+        } catch (e: Exception) {
+            _uiState.value = _uiState.value.copy(
+                isModelsLoading = false,
+                modelsError = e.message ?: "解析 manifest 失败",
+            )
+        }
+    }
+
+    private fun fetchV2ManifestJson(primary: ModelSource, fallback: ModelSource, tag: String): String? {
+        val sources = arrayOf(primary, fallback)
+        for (source in sources) {
+            val prefix = if (source == ModelSource.GITHUB)
+                SHMTU_NCNN_Model.V2_URL_MODEL_PREFIX_GITHUB
+            else
+                SHMTU_NCNN_Model.V2_URL_MODEL_PREFIX_GITEE
+            val url = "${prefix}$tag/${SHMTU_NCNN_Model.V2_MANIFEST_FILENAME}"
+            try {
+                val request = okhttp3.Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0")
+                    .build()
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val text = response.body.string().takeIf { it.isNotEmpty() }
+                        if (text != null) return text
+                    }
+                }
+            } catch (_: Exception) {
+                // try next source
+            }
+        }
+        return null
     }
 
     fun deleteDownloadedModels() {
@@ -303,6 +433,8 @@ class OcrSettingsViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         modelDownloader.release()
+        okHttpClient.dispatcher.executorService.shutdownNow()
+        okHttpClient.connectionPool.evictAll()
     }
 }
 
@@ -322,4 +454,14 @@ data class OcrSettingsUiState(
     val isVerifyingSha256: Boolean = false,
     val message: String? = null,
     val ocrModelVersion: SHMTU_NCNN_Model.ModelVersion = SHMTU_NCNN_Model.ModelVersion.V2,
+    // v2 model selection
+    val tags: List<OcrV2TagCatalog.CatalogEntry> = emptyList(),
+    val isTagsLoading: Boolean = false,
+    val tagsError: String? = null,
+    val selectedTag: String = SHMTU_NCNN_Model.V2_DEFAULT_TAG,
+    val models: List<OcrModelInfo> = emptyList(),
+    val isModelsLoading: Boolean = false,
+    val modelsError: String? = null,
+    val selectedBackbone: String = SHMTU_NCNN_Model.V2_DEFAULT_BACKBONE,
+    val selectedPrecision: String = SHMTU_NCNN_Model.V2_DEFAULT_PRECISION,
 )

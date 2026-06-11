@@ -15,17 +15,25 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -45,8 +53,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import cn.edu.shmtu.cas.ocr.OcrModelInfo
+import cn.edu.shmtu.cas.ocr.OcrV2TagCatalog
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,6 +81,7 @@ fun OcrSettingsScreen(
     var showDeviceDialog by remember { mutableStateOf<Pair<Boolean, Boolean>?>(null) }
     var showUrlEditor by remember { mutableStateOf(false) }
     var showDeleteModelsDialog by remember { mutableStateOf(false) }
+    var showAdvancedOcrDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.message) {
         uiState.message?.let {
@@ -101,7 +113,8 @@ fun OcrSettingsScreen(
                 onRefreshStatus = viewModel::refreshStatus,
                 onSetUseLocalOcr = settingsViewModel::setUseLocalOcr,
                 onSetOcrRetryCount = viewModel::setOcrRetryCount,
-                onSetOcrModelVersion = viewModel::setOcrModelVersion
+                onSetOcrModelVersion = viewModel::setOcrModelVersion,
+                onShowAdvancedOcrDialog = { showAdvancedOcrDialog = true },
             )
         }
     } else {
@@ -110,7 +123,7 @@ fun OcrSettingsScreen(
                 MediumTopAppBar(
                     title = { Text("OCR 设置") },
                     navigationIcon = {
-                        androidx.compose.material3.IconButton(onClick = onBack) {
+                        IconButton(onClick = onBack) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                                 contentDescription = "返回"
@@ -152,7 +165,8 @@ fun OcrSettingsScreen(
                     onRefreshStatus = viewModel::refreshStatus,
                     onSetUseLocalOcr = settingsViewModel::setUseLocalOcr,
                     onSetOcrRetryCount = viewModel::setOcrRetryCount,
-                    onSetOcrModelVersion = viewModel::setOcrModelVersion
+                    onSetOcrModelVersion = viewModel::setOcrModelVersion,
+                    onShowAdvancedOcrDialog = { showAdvancedOcrDialog = true },
                 )
             }
         }
@@ -304,6 +318,18 @@ fun OcrSettingsScreen(
             }
         )
     }
+
+    // Advanced OCR model settings dialog
+    if (showAdvancedOcrDialog) {
+        OcrModelAdvancedDialog(
+            uiState = uiState,
+            onRefreshTags = viewModel::refreshTags,
+            onSelectTag = viewModel::selectTag,
+            onSelectBackbone = viewModel::selectBackbone,
+            onSelectPrecision = viewModel::selectPrecision,
+            onDismiss = { showAdvancedOcrDialog = false },
+        )
+    }
 }
 
 @Composable
@@ -326,20 +352,21 @@ private fun OcrSettingsContent(
     onSetUseLocalOcr: (Boolean) -> Unit,
     onSetOcrRetryCount: (Int) -> Unit,
     onSetOcrModelVersion: (SHMTU_NCNN_Model.ModelVersion) -> Unit,
+    onShowAdvancedOcrDialog: () -> Unit,
 ) {
     SettingsCard {
-        androidx.compose.foundation.layout.Row(
+        Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("OCR 状态", style = MaterialTheme.typography.titleLarge)
+            Text("OCR 验证码识别", style = MaterialTheme.typography.titleLarge)
             TextButton(onClick = onRefreshStatus) { Text("刷新") }
         }
         // Model version selector (v1 = 3-resnet legacy, v2 = single TriSlot)
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             ListItem(
-                headlineContent = { Text("模型版本") },
+                headlineContent = { Text("版本") },
                 supportingContent = { Text("v2 为默认 TriSlot 单模型推理，v1 为旧版 3-resnet") }
             )
             SingleChoiceSegmentedButtonRow(
@@ -351,126 +378,147 @@ private fun OcrSettingsContent(
                     selected = ocrModelVersion == SHMTU_NCNN_Model.ModelVersion.V1,
                     onClick = { onSetOcrModelVersion(SHMTU_NCNN_Model.ModelVersion.V1) },
                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
-                ) { Text("v1 (3-resnet)") }
+                ) { Text("v1") }
                 SegmentedButton(
                     selected = ocrModelVersion == SHMTU_NCNN_Model.ModelVersion.V2,
                     onClick = { onSetOcrModelVersion(SHMTU_NCNN_Model.ModelVersion.V2) },
                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
-                ) { Text("v2 (TriSlot)") }
+                ) { Text("v2") }
             }
         }
         HorizontalDivider()
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            // Model status section
+
+        // v2 model status summary (simplified per requirement)
+        if (ocrModelVersion == SHMTU_NCNN_Model.ModelVersion.V2) {
             ListItem(
                 headlineContent = { Text("模型状态") },
                 supportingContent = {
-                    Text(
-                        when (uiState.modelStatus) {
-                            cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.NOT_LOADED -> "未加载"
-                            cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.LOADED_CPU -> "已加载 (CPU)"
-                            cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.LOADED_GPU -> "已加载 (GPU)"
-                        },
-                        color = if (uiState.modelStatus == cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.NOT_LOADED)
-                            MaterialTheme.colorScheme.error
-                        else
-                            MaterialTheme.colorScheme.primary
-                    )
+                    if (uiState.hasDownloadedModel) {
+                        val sizeStr = uiState.models
+                            .firstOrNull { it.backbone == uiState.selectedBackbone }
+                            ?.modelSizeM?.let { "%.2f".format(it) } ?: "?"
+                        Text(
+                            "已就绪 (${uiState.selectedBackbone}, ${sizeStr}M, ${uiState.selectedPrecision})",
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    } else {
+                        Text(
+                            "未下载",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             )
             HorizontalDivider()
-
-            // Built-in model
-            ListItem(
-                headlineContent = { Text("内置模型") },
-                supportingContent = {
-                    Text(
-                        if (uiState.hasBuiltInModel) "可用" else "不可用",
-                        color = if (uiState.hasBuiltInModel)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.error
-                    )
-                }
-            )
-            HorizontalDivider()
-
-            // Downloaded model
-            ListItem(
-                headlineContent = { Text("本地已下载模型") },
-                supportingContent = {
-                    Text(
-                        if (uiState.hasDownloadedModel) "已下载" else "未下载",
-                        color = if (uiState.hasDownloadedModel)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.error
-                    )
-                }
-            )
-            HorizontalDivider()
-
-            // GPU support
-            ListItem(
-                headlineContent = { Text("GPU 加速") },
-                supportingContent = {
-                    Text(
-                        if (uiState.gpuSupported) "支持 Vulkan" else "不支持",
-                        color = if (uiState.gpuSupported)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            )
-            HorizontalDivider()
-
-            // OCR preference
-            ListItem(
-                headlineContent = { Text("优先使用本地模型") },
-                supportingContent = { Text("关闭后将使用远程 OCR 服务器") },
-                trailingContent = {
-                    Switch(
-                        checked = useLocalOcr,
-                        onCheckedChange = onSetUseLocalOcr
-                    )
-                }
-            )
-            HorizontalDivider()
-
-            if (!useLocalOcr) {
+        } else {
+            // v1 status section (original layout)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 ListItem(
-                    headlineContent = { Text("远程 OCR 服务器") },
-                    supportingContent = { Text(ocrServerUrl) },
-                    modifier = Modifier.clickable { onShowUrlEditorChange(true) }
+                    headlineContent = { Text("模型状态") },
+                    supportingContent = {
+                        Text(
+                            when (uiState.modelStatus) {
+                                cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.NOT_LOADED -> "未加载"
+                                cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.LOADED_CPU -> "已加载 (CPU)"
+                                cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.LOADED_GPU -> "已加载 (GPU)"
+                            },
+                            color = if (uiState.modelStatus == cn.edu.shmtu.cas.ocr.SHMTU_NCNN.ModelStatus.NOT_LOADED)
+                                MaterialTheme.colorScheme.error
+                            else
+                                MaterialTheme.colorScheme.primary
+                        )
+                    }
+                )
+                HorizontalDivider()
+                ListItem(
+                    headlineContent = { Text("内置模型") },
+                    supportingContent = {
+                        Text(
+                            if (uiState.hasBuiltInModel) "可用" else "不可用",
+                            color = if (uiState.hasBuiltInModel)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.error
+                        )
+                    }
+                )
+                HorizontalDivider()
+                ListItem(
+                    headlineContent = { Text("本地已下载模型") },
+                    supportingContent = {
+                        Text(
+                            if (uiState.hasDownloadedModel) "已下载" else "未下载",
+                            color = if (uiState.hasDownloadedModel)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.error
+                        )
+                    }
                 )
                 HorizontalDivider()
             }
+        }
 
-            // 验证码错误重试次数 — 对齐 Tauri `ocr_retry_count` Slider
-            ListItem(
-                headlineContent = { Text("验证码错误重试次数") },
-                supportingContent = {
-                    Text(
-                        "识别失败后自动重新尝试的次数。当前 $ocrRetryCount 次。",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            )
-            androidx.compose.foundation.layout.Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-            ) {
-                Slider(
-                    value = ocrRetryCount.toFloat(),
-                    onValueChange = { onSetOcrRetryCount(it.toInt().coerceIn(1, 20)) },
-                    valueRange = 1f..20f,
-                    steps = 18
+        // GPU support
+        ListItem(
+            headlineContent = { Text("GPU 加速") },
+            supportingContent = {
+                Text(
+                    if (uiState.gpuSupported) "支持 Vulkan" else "不支持",
+                    color = if (uiState.gpuSupported)
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        )
+        HorizontalDivider()
+
+        // OCR preference
+        ListItem(
+            headlineContent = { Text("优先使用本地模型") },
+            supportingContent = { Text("关闭后将使用远程 OCR 服务器") },
+            trailingContent = {
+                Switch(
+                    checked = useLocalOcr,
+                    onCheckedChange = onSetUseLocalOcr
+                )
+            }
+        )
+        HorizontalDivider()
+
+        if (!useLocalOcr) {
+            ListItem(
+                headlineContent = { Text("远程 OCR 服务器") },
+                supportingContent = { Text(ocrServerUrl) },
+                modifier = Modifier.clickable { onShowUrlEditorChange(true) }
+            )
             HorizontalDivider()
         }
+
+        // 验证码错误重试次数
+        ListItem(
+            headlineContent = { Text("验证码错误重试次数") },
+            supportingContent = {
+                Text(
+                    "识别失败后自动重新尝试的次数。当前 $ocrRetryCount 次。",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+        ) {
+            Slider(
+                value = ocrRetryCount.toFloat(),
+                onValueChange = { onSetOcrRetryCount(it.toInt().coerceIn(1, 20)) },
+                valueRange = 1f..20f,
+                steps = 18
+            )
+        }
+        HorizontalDivider()
     }
 
     SettingsCard {
@@ -502,18 +550,30 @@ private fun OcrSettingsContent(
             }
         }
 
-        Button(
-            onClick = { onShowDownloadSourceDialogChange(true) },
-            enabled = !uiState.isDownloading,
-            modifier = Modifier.fillMaxWidth()
+        // Download button + Advanced settings button (v2 simplified layout)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (uiState.isDownloading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp
-                )
-            } else {
-                Text("下载模型")
+            Button(
+                onClick = { onShowDownloadSourceDialogChange(true) },
+                enabled = !uiState.isDownloading,
+                modifier = Modifier.weight(1f)
+            ) {
+                if (uiState.isDownloading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text("下载模型")
+                }
+            }
+
+            if (ocrModelVersion == SHMTU_NCNN_Model.ModelVersion.V2) {
+                OutlinedButton(onClick = onShowAdvancedOcrDialog, modifier = Modifier.weight(1f)) {
+                    Text("高级设置")
+                }
             }
         }
 
@@ -573,6 +633,193 @@ private fun OcrSettingsContent(
             }
         }
     }
+}
+
+/** Advanced OCR model settings dialog with tag dropdown, model radio list, and precision selector. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OcrModelAdvancedDialog(
+    uiState: OcrSettingsUiState,
+    onRefreshTags: () -> Unit,
+    onSelectTag: (String) -> Unit,
+    onSelectBackbone: (String) -> Unit,
+    onSelectPrecision: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("OCR 模型高级设置") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                // Release Tag dropdown + refresh
+                Text("Release Tag", style = MaterialTheme.typography.labelLarge)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    var tagExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        expanded = tagExpanded,
+                        onExpandedChange = { tagExpanded = it },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        OutlinedTextField(
+                            value = uiState.selectedTag,
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = tagExpanded) },
+                            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                            label = { Text("Tag") },
+                        )
+                        ExposedDropdownMenu(
+                            expanded = tagExpanded,
+                            onDismissRequest = { tagExpanded = false },
+                        ) {
+                            uiState.tags.forEach { entry ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(entry.tag)
+                                            entry.publishedAt?.let {
+                                                Text(
+                                                    it.take(10),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onClick = {
+                                        onSelectTag(entry.tag)
+                                        tagExpanded = false
+                                    },
+                                )
+                            }
+                            if (uiState.tags.isEmpty()) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (uiState.isTagsLoading) "加载中..." else "无可用 tag",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    onClick = {},
+                                    enabled = false,
+                                )
+                            }
+                        }
+                    }
+                    IconButton(onClick = onRefreshTags, enabled = !uiState.isTagsLoading) {
+                        if (uiState.isTagsLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Filled.Refresh,
+                                contentDescription = "刷新",
+                            )
+                        }
+                    }
+                }
+                uiState.tagsError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+
+                HorizontalDivider()
+
+                // Model list (radio group)
+                Text("模型", style = MaterialTheme.typography.labelLarge)
+                if (uiState.isModelsLoading) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    }
+                } else if (uiState.modelsError != null) {
+                    Text(uiState.modelsError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                } else if (uiState.models.isEmpty()) {
+                    Text("无可用模型", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                } else {
+                    uiState.models.forEach { model ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectBackbone(model.backbone) }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            RadioButton(
+                                selected = model.backbone == uiState.selectedBackbone,
+                                onClick = { onSelectBackbone(model.backbone) },
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "${model.displayName}${model.modelSizeM?.let { "  ${"%.2f".format(it)}M" } ?: ""}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                model.metrics?.let { m ->
+                                    val parts = mutableListOf<String>()
+                                    m.valAccExpression?.let { parts.add("val %.2f%%".format(it * 100)) }
+                                    m.testAccExpression?.let { parts.add("test %.2f%%".format(it * 100)) }
+                                    if (parts.isNotEmpty()) {
+                                        Text(
+                                            parts.joinToString("  "),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider()
+
+                // Precision selector
+                Text("精度", style = MaterialTheme.typography.labelLarge)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .clickable { onSelectPrecision("fp16") }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        RadioButton(
+                            selected = uiState.selectedPrecision == "fp16",
+                            onClick = { onSelectPrecision("fp16") },
+                        )
+                        Text("fp16")
+                    }
+                    Row(
+                        modifier = Modifier
+                            .clickable { onSelectPrecision("fp32") }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        RadioButton(
+                            selected = uiState.selectedPrecision == "fp32",
+                            onClick = { onSelectPrecision("fp32") },
+                        )
+                        Text("fp32")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("完成") }
+        },
+    )
 }
 
 @Composable

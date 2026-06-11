@@ -7,9 +7,6 @@ package cn.edu.shmtu.cas.ocr
  * artifacts 结构:每个模型自带一个 `artifacts` 对象,key 为 engine
  * (pytorch / onnx / ncnn),value 又是一个按 precision (fp32 / fp16) 嵌套
  * 的 `OcrArtifactInfo`。本文件的数据类即对应这种分层结构。
- *
- * 为保持向后兼容 (旧版 manifest 只有顶层 `artifacts` 平铺列表),
- * [V2ReleaseManifest.flatArtifacts] 仍保留顶层平铺列表。
  */
 
 /**
@@ -80,14 +77,11 @@ data class OcrModelInfo(
  * - [schemaVersion]: manifest 的 schema 版本。当前实现假设 `>= 2`。
  * - [modelCount]: 模型条目数,通常等于 [models].size。
  * - [modelList]: 模型 assetStem 列表,顺序与 [models] 一致。
- * - [models]: 按模型分组的清单。新版 manifest 必填。
- * - [flatArtifacts]: 顶层平铺 artifact 列表。旧版 manifest (v2 早期) 只有这一项,
- *   客户端在 [models] 为空时会回退到此处查找 (按 engine/backbone/precision 匹配)。
+ * - [models]: 按模型分组的清单。
  */
 data class V2ReleaseManifest(
     val schemaVersion: Int,
     val modelCount: Int,
     val modelList: List<String>,
     val models: List<OcrModelInfo>,
-    val flatArtifacts: List<OcrArtifactInfo>,
 )

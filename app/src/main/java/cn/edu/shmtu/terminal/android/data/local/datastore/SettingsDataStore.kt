@@ -24,6 +24,8 @@ class SettingsDataStore @Inject constructor(
     private val _ocrServerUrlFlow = MutableStateFlow(getOcrServerUrl())
     private val _ocrModelVersionFlow = MutableStateFlow(getOcrModelVersion())
     private val _ocrV2ModelTagFlow = MutableStateFlow(getOcrV2ModelTag())
+    private val _ocrV2BackboneFlow = MutableStateFlow(getOcrV2Backbone())
+    private val _ocrV2PrecisionFlow = MutableStateFlow(getOcrV2Precision())
     private val _sessionCheckIntervalFlow = MutableStateFlow(getSessionCheckInterval())
     private val _currentIdentityIdFlow = MutableStateFlow(getCurrentIdentityId())
 
@@ -49,6 +51,8 @@ class SettingsDataStore @Inject constructor(
     val ocrServerUrl: Flow<String> = _ocrServerUrlFlow.asStateFlow()
     val ocrModelVersion: Flow<SHMTU_NCNN_Model.ModelVersion> = _ocrModelVersionFlow.asStateFlow()
     val ocrV2ModelTag: Flow<String> = _ocrV2ModelTagFlow.asStateFlow()
+    val ocrV2Backbone: Flow<String> = _ocrV2BackboneFlow.asStateFlow()
+    val ocrV2Precision: Flow<String> = _ocrV2PrecisionFlow.asStateFlow()
     val sessionCheckInterval: Flow<Int> = _sessionCheckIntervalFlow.asStateFlow()
     val currentIdentityId: Flow<Long?> = _currentIdentityIdFlow.asStateFlow()
 
@@ -102,6 +106,20 @@ class SettingsDataStore @Inject constructor(
     fun setOcrV2ModelTag(tag: String) {
         prefs.edit().putString(KEY_OCR_V2_MODEL_TAG, tag).apply()
         _ocrV2ModelTagFlow.value = tag
+    }
+
+    fun getOcrV2ModelTagNow(): String = _ocrV2ModelTagFlow.value
+    fun getOcrV2BackboneNow(): String = _ocrV2BackboneFlow.value
+    fun getOcrV2PrecisionNow(): String = _ocrV2PrecisionFlow.value
+
+    fun setOcrV2Backbone(backbone: String) {
+        prefs.edit().putString(KEY_OCR_V2_BACKBONE, backbone).apply()
+        _ocrV2BackboneFlow.value = backbone
+    }
+
+    fun setOcrV2Precision(precision: String) {
+        prefs.edit().putString(KEY_OCR_V2_PRECISION, precision).apply()
+        _ocrV2PrecisionFlow.value = precision
     }
 
     fun setSessionCheckInterval(minutes: Int) {
@@ -245,6 +263,14 @@ class SettingsDataStore @Inject constructor(
     private fun getOcrV2ModelTag(): String =
         prefs.getString(KEY_OCR_V2_MODEL_TAG, "") ?: ""
 
+    private fun getOcrV2Backbone(): String =
+        prefs.getString(KEY_OCR_V2_BACKBONE, SHMTU_NCNN_Model.V2_DEFAULT_BACKBONE)
+            ?: SHMTU_NCNN_Model.V2_DEFAULT_BACKBONE
+
+    private fun getOcrV2Precision(): String =
+        prefs.getString(KEY_OCR_V2_PRECISION, SHMTU_NCNN_Model.V2_DEFAULT_PRECISION)
+            ?: SHMTU_NCNN_Model.V2_DEFAULT_PRECISION
+
     private fun getCurrentIdentityId(): Long? =
         if (prefs.contains(KEY_CURRENT_IDENTITY_ID)) {
             prefs.getLong(KEY_CURRENT_IDENTITY_ID, 0L)
@@ -373,6 +399,8 @@ class SettingsDataStore @Inject constructor(
         private const val KEY_OCR_SERVER_URL = "ocr_server_url"
         private const val KEY_OCR_MODEL_VERSION = "ocr_model_version"  // V1 | V2
         private const val KEY_OCR_V2_MODEL_TAG = "ocr_v2_model_tag"    // e.g. "v2.0.2" or ""
+        private const val KEY_OCR_V2_BACKBONE = "ocr_v2_backbone"      // e.g. "mobilenet_v3_small"
+        private const val KEY_OCR_V2_PRECISION = "ocr_v2_precision"    // e.g. "fp16" or "fp32"
         private const val KEY_SESSION_CHECK_INTERVAL = "session_check_interval"
         private const val KEY_CURRENT_IDENTITY_ID = "current_identity_id"
         // P2P settings keys

@@ -98,9 +98,9 @@ public class SHMTU_NCNN_Model {
     public static final int V2_MIN_SUPPORTED_MINOR = 0;
     /**
      * 最低支持的补丁版本号。
-     * v2.0.0 / v2.0.1 已知存在兼容性问题,最低要求 v2.0.2。
+     * v2.0.0 ~ v2.0.3 已删除或存在兼容性问题，最低要求 v2.0.4。
      */
-    public static final int V2_MIN_SUPPORTED_PATCH = 2;
+    public static final int V2_MIN_SUPPORTED_PATCH = 4;
 
     public static final String GITHUB_REPO = "a645162/shmtu-cas-ocr-model";
     public static final String GITHUB_RELEASES_API =

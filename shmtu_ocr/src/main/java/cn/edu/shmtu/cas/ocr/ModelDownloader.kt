@@ -558,11 +558,8 @@ class ModelDownloader {
     /**
      * 解析 `model-assets.json` 字符串为强类型的 [V2ReleaseManifest]。
      *
-     * - 所有字段使用 `opt*` 系列方法,缺失时安全降级 (例如 `model_size_m` 缺失 → null,
-     *   `metrics` 缺失 → null)。
-     * - `models` 为空时,会从顶层 `artifacts` 数组构造一个"虚拟模型"条目塞入 [models],
-     *   同时把原 `artifacts` 列表保留在 [V2ReleaseManifest.flatArtifacts] 中,
-     *   从而保证调用方在旧版 manifest 上仍可继续工作。
+     * 所有字段使用 `opt*` 系列方法,缺失时安全降级 (例如 `model_size_m` 缺失 → null,
+     * `metrics` 缺失 → null)。
      */
     fun parseReleaseManifest(jsonString: String): V2ReleaseManifest {
         val root = JSONObject(jsonString)
@@ -592,25 +589,13 @@ class ModelDownloader {
             }
         }
 
-        // 顶层平铺 artifacts (旧版 manifest 风格)
-        val flatArtifacts = parseFlatArtifacts(root.optJSONArray("artifacts"))
-
-        // 向后兼容:若 models 为空但顶层有 artifacts,把所有 flat artifact 视作
-        // 一个虚拟的"legacy"模型,以便旧版调用方 (e.g. selectV2Artifact) 仍可工作。
-        val finalModels = if (parsedModels.isEmpty() && flatArtifacts.isNotEmpty()) {
-            listOf(buildLegacyModelFromFlatArtifacts(flatArtifacts))
-        } else {
-            parsedModels
-        }
-
-        val modelCount = if (explicitModelCount > 0) explicitModelCount else finalModels.size
+        val modelCount = if (explicitModelCount > 0) explicitModelCount else parsedModels.size
 
         return V2ReleaseManifest(
             schemaVersion = schemaVersion,
             modelCount = modelCount,
             modelList = modelList,
-            models = finalModels,
-            flatArtifacts = flatArtifacts,
+            models = parsedModels,
         )
     }
 
@@ -634,8 +619,6 @@ class ModelDownloader {
      *  1. 若 [assetStem] 非空,先按 asset_stem 精确匹配模型;
      *  2. 若未指定或第一步失败,按 backbone 字段匹配;
      *  3. 在匹配的模型里,按 engine=ncnn / precision 找 artifact。
-     *  4. 若 [V2ReleaseManifest.models] 为空 (回退后的虚拟模型),
-     *     直接遍历 [V2ReleaseManifest.flatArtifacts] 用 (engine/backbone/precision) 匹配。
      */
     fun selectV2Artifact(
         manifest: V2ReleaseManifest,
@@ -643,31 +626,25 @@ class ModelDownloader {
         precision: String,
         assetStem: String? = null,
     ): OcrArtifactInfo? {
-        // 优先从 models 查找
         val candidates = manifest.models
-        if (candidates.isNotEmpty()) {
-            val resolved = candidates.firstOrNull { m ->
-                (assetStem == null || m.assetStem == assetStem) &&
-                    m.backbone == backbone
-            } ?: candidates.firstOrNull { m ->
+        if (candidates.isEmpty()) return null
+
+        val resolved = candidates.firstOrNull { m ->
+            (assetStem == null || m.assetStem == assetStem) &&
                 m.backbone == backbone
-            } ?: candidates.firstOrNull()
+        } ?: candidates.firstOrNull { m ->
+            m.backbone == backbone
+        } ?: candidates.firstOrNull()
 
-            if (resolved != null) {
-                val ncnn = findArtifactInModel(resolved, "ncnn", precision)
-                if (ncnn != null) return ncnn
-                // 该模型没有 ncnn 产物,继续尝试其它模型
-            }
-            for (m in candidates) {
-                val ncnn = findArtifactInModel(m, "ncnn", precision)
-                if (ncnn != null && m.backbone == backbone) return ncnn
-            }
+        if (resolved != null) {
+            val ncnn = findArtifactInModel(resolved, "ncnn", precision)
+            if (ncnn != null) return ncnn
         }
-
-        // 回退到旧版平铺 artifacts
-        return manifest.flatArtifacts.firstOrNull { a ->
-            a.engine == "ncnn" && a.precision == precision
+        for (m in candidates) {
+            val ncnn = findArtifactInModel(m, "ncnn", precision)
+            if (ncnn != null && m.backbone == backbone) return ncnn
         }
+        return null
     }
 
     // ---- private manifest parsing helpers ----
@@ -740,19 +717,6 @@ class ModelDownloader {
         return out
     }
 
-    private fun parseFlatArtifacts(arr: JSONArray?): List<OcrArtifactInfo> {
-        if (arr == null) return emptyList()
-        val out = mutableListOf<OcrArtifactInfo>()
-        for (i in 0 until arr.length()) {
-            val o = arr.optJSONObject(i) ?: continue
-            val engine = o.optString("engine", "")
-            val precision = o.optString("precision", "")
-            if (engine.isEmpty() || precision.isEmpty()) continue
-            out.add(parseArtifactObject(o, engine, precision))
-        }
-        return out
-    }
-
     private fun parseArtifactObject(
         obj: JSONObject,
         engineOverride: String? = null,
@@ -782,53 +746,6 @@ class ModelDownloader {
             format = format,
             files = files,
         )
-    }
-
-    /**
-     * 在旧版 manifest (顶层 artifacts 平铺) 上构造一个虚拟的"legacy"模型,
-     * 让 [selectV2Artifact] 等按 model 结构遍历的代码路径仍能工作。
-     */
-    private fun buildLegacyModelFromFlatArtifacts(flat: List<OcrArtifactInfo>): OcrModelInfo {
-        val grouped = flat.groupBy { it.engine }
-            .mapValues { (_, list) -> list.associateBy { it.precision } }
-        val first = flat.first()
-        return OcrModelInfo(
-            assetStem = SHMTU_NCNN_Model.v2AssetStem(
-                SHMTU_NCNN_Model.V2_DEFAULT_BACKBONE,
-                SHMTU_NCNN_Model.V2_DEFAULT_PRECISION,
-            ),
-            displayName = "legacy",
-            backbone = SHMTU_NCNN_Model.V2_DEFAULT_BACKBONE,
-            version = "2.0",
-            family = "trislot_decoder",
-            modelSizeM = null,
-            metrics = null,
-            supportedBackbones = listOf(SHMTU_NCNN_Model.V2_DEFAULT_BACKBONE),
-            artifactsByEngine = grouped,
-        )
-    }
-
-    /**
-     * 旧版本 selectV2Artifact (基于 JSONArray) 保留为私有兼容入口,
-     * 供尚未升级的调用方使用。逻辑已委托给 [selectV2Artifact] 的 typed 版本。
-     */
-    private fun selectV2Artifact(manifest: JSONObject, backbone: String, precision: String): JSONObject? {
-        val parsed = parseReleaseManifest(manifest.toString())
-        val artifact = selectV2Artifact(parsed, backbone, precision) ?: return null
-        val filesArr = JSONArray()
-        artifact.files.forEach { f ->
-            val o = JSONObject()
-            o.put("path", f.path)
-            o.put("release_asset_name", f.releaseAssetName)
-            if (f.sha256 != null) o.put("sha256", f.sha256)
-            filesArr.put(o)
-        }
-        val out = JSONObject()
-        out.put("engine", artifact.engine)
-        out.put("precision", artifact.precision)
-        artifact.format?.let { out.put("format", it) }
-        out.put("files", filesArr)
-        return out
     }
 
     private fun buildV2FileUrl(source: ModelSource, tag: String, fileName: String): String {
