@@ -3,6 +3,7 @@ package cn.edu.shmtu.terminal.android.ui.settings
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -278,9 +279,17 @@ private fun LinkRow(
 
 @Composable
 private fun ContributorRow(contributor: GitContributor) {
+    val context = LocalContext.current
     Row(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(contributor.githubUrl))
+                )
+            }
     ) {
         GitHubAvatar(
             username = contributor.githubUsername,

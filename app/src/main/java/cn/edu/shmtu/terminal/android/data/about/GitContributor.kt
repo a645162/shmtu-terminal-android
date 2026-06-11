@@ -1,6 +1,5 @@
 package cn.edu.shmtu.terminal.android.data.about
 
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
@@ -16,7 +15,13 @@ data class GitContributor(
 ) {
     /**
      * Best-effort GitHub username derived from the email local-part.
-     * Used to fetch the avatar from `avatars.githubusercontent.com`.
+     * Used to fetch the avatar from `avatars.githubusercontent.com`
+     * and the profile page from `github.com`.
      */
     val githubUsername: String get() = email.substringBefore("@")
+
+    /**
+     * GitHub profile URL — clickable in the About page.
+     */
+    val githubUrl: String get() = "https://github.com/$githubUsername"
 }

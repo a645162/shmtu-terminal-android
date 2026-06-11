@@ -168,6 +168,9 @@ tasks.register("generateGitContributors") {
 }
 
 fun collectContributors(dir: File, seen: MutableSet<String>, entries: MutableList<String>) {
+    // Email domains to ignore — auto-generated or placeholder addresses
+    val ignoredDomains = setOf("users.noreply.github.com", "example.com")
+
     val logOutput = runGit(dir, "log", "--format=%aN||%aE")
     if (logOutput.isNullOrBlank()) return
 
@@ -183,6 +186,11 @@ fun collectContributors(dir: File, seen: MutableSet<String>, entries: MutableLis
 
         if (name.isEmpty() || email.isEmpty()) continue
         if (email in seen) continue
+
+        // Skip ignored email domains
+        val domain = email.substringAfter("@", "")
+        if (domain in ignoredDomains) continue
+
         seen.add(email)
 
         entries.add("""{"name":${jsonEscape(name)},"email":${jsonEscape(email)}}""")
