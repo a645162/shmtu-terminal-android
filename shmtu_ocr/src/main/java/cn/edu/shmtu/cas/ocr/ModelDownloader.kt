@@ -540,7 +540,7 @@ class ModelDownloader {
                     .build()
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
-                        val text = response.body?.string() ?: continue
+                        val text = response.body.string().takeIf { it.isNotEmpty() } ?: continue
                         return JSONObject(text)
                     }
                 }
