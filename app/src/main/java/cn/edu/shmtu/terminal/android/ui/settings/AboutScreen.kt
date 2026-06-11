@@ -4,10 +4,17 @@ import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.toClipEntry
@@ -16,6 +23,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import kotlinx.coroutines.launch
+import cn.edu.shmtu.terminal.android.data.about.GitContributor
+import cn.edu.shmtu.terminal.android.data.about.GitContributorsProvider
 
 private const val APP_GITHUB = "https://github.com/a645162/shmtu-terminal"
 private const val APP_RELEASES = "https://github.com/a645162/shmtu-terminal/releases"
@@ -128,6 +137,8 @@ fun AboutScreen(
         }
     }
 
+    val contributors = remember(context) { GitContributorsProvider.load(context) }
+
     SettingsDetailScreen(
         title = "关于",
         onBack = onBack,
@@ -176,6 +187,26 @@ fun AboutScreen(
             )
         }
 
+        if (contributors.isNotEmpty()) {
+            SettingsCard {
+                Text("贡献者 (${contributors.size})")
+                Text(
+                    "所有提交过代码的开发者，头像从 GitHub 自动获取。",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(280.dp)
+                ) {
+                    items(contributors) { contributor ->
+                        ContributorRow(contributor)
+                    }
+                }
+            }
+        }
+
         SettingsCard {
             Text("所有子仓库 (${GitHubRepos.all.size})")
             Text(
@@ -196,7 +227,7 @@ fun AboutScreen(
         SettingsCard {
             Text("反馈建议")
             Text(
-                "如果是规则误判或位置未命中,优先在“分类规则设置”里重算历史账单并复制未命中诊断,再附上这里的 GitHub Issues 链接提交反馈。",
+                "如果是规则误判或位置未命中,优先在「分类规则设置」里重算历史账单并复制未命中诊断,再附上这里的 GitHub Issues 链接提交反馈。",
                 style = MaterialTheme.typography.bodyMedium
             )
             Text(
@@ -242,5 +273,30 @@ private fun LinkRow(
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         TextButton(onClick = onOpen) { Text("打开") }
         TextButton(onClick = onCopy) { Text("复制") }
+    }
+}
+
+@Composable
+private fun ContributorRow(contributor: GitContributor) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        GitHubAvatar(
+            username = contributor.githubUsername,
+            displayName = contributor.name,
+            size = 36.dp,
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                contributor.name,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                contributor.email,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }

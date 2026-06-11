@@ -242,6 +242,9 @@ class SettingsDataStore @Inject constructor(
             prefs.getString(KEY_OCR_MODEL_VERSION, SHMTU_NCNN_Model.ModelVersion.V2.toStorageString())
         )
 
+    private fun getOcrV2ModelTag(): String =
+        prefs.getString(KEY_OCR_V2_MODEL_TAG, "") ?: ""
+
     private fun getCurrentIdentityId(): Long? =
         if (prefs.contains(KEY_CURRENT_IDENTITY_ID)) {
             prefs.getLong(KEY_CURRENT_IDENTITY_ID, 0L)

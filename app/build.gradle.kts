@@ -102,8 +102,7 @@ dependencies {
 
     // OkHttp — BillRulesManager 从 GitHub 拉取规则文件
     implementation(libs.okhttp)
-
-    // Coil — Compose 图像加载库 (About 页 GitHub 头像)
+    // Coil — Compose 异步图片加载 (About 页 GitHub 头像)
     implementation(libs.coil.compose)
     // NanoHTTPD - embedded Web server for remote bill browsing
     implementation(libs.nanohttpd)
@@ -139,11 +138,12 @@ dependencies {
 
 // ===== Git Contributors 构建任务 =====
 // 在编译时检测是否为 git 仓库，提取所有提交者的 name + email，
+// 遍历当前仓库 + 所有子模块 + 父级主仓库（shmtu-terminal），
 // 写入 build/generated/git_contributors/assets/git_contributors.json，
 // 供运行时 About 页面展示。
 tasks.register("generateGitContributors") {
     group = "build"
-    description = "Extract git contributors and write git_contributors.json"
+    description = "Extract git contributors from this repo, submodules, and parent monorepo"
 
     val outputDir = File(buildDir, "generated/git_contributors/assets")
     val outputFile = File(outputDir, "git_contributors.json")
@@ -152,62 +152,77 @@ tasks.register("generateGitContributors") {
     doLast {
         outputDir.mkdirs()
 
-        val isGitRepo = try {
-            val proc = ProcessBuilder("git", "rev-parse", "--is-inside-work-tree")
-                .directory(rootDir)
-                .redirectErrorStream(true)
-                .start()
-            proc.inputStream.bufferedReader().readText().trim().equals("true", ignoreCase = true)
-        } catch (_: Exception) {
-            false
-        }
-
-        if (!isGitRepo) {
-            outputFile.writeText("[]")
-            logger.lifecycle("[GitContributors] Not a git repo, wrote empty array")
-            return@doLast
-        }
-
-        val logOutput = try {
-            val proc = ProcessBuilder("git", "log", "--format=%aN||%aE")
-                .directory(rootDir)
-                .redirectErrorStream(true)
-                .start()
-            proc.inputStream.bufferedReader().readText()
-        } catch (_: Exception) {
-            ""
-        }
-
-        if (logOutput.isBlank()) {
-            outputFile.writeText("[]")
-            logger.lifecycle("[GitContributors] Empty git log, wrote empty array")
-            return@doLast
-        }
-
         val seen = mutableSetOf<String>()
         val entries = mutableListOf<String>()
 
-        for (line in logOutput.lines()) {
-            val trimmed = line.trim()
-            if (trimmed.isEmpty()) continue
+        // 1. Collect from this repo (shmtu-terminal-android)
+        collectContributors(rootDir, seen, entries)
 
-            val parts = trimmed.split("||", limit = 2)
-            if (parts.size != 2) continue
-
-            val name = parts[0].trim()
-            val email = parts[1].trim().lowercase()
-
-            if (name.isEmpty() || email.isEmpty()) continue
-            if (email in seen) continue
-            seen.add(email)
-
-            entries.add("""{"name":${jsonEscape(name)},"email":${jsonEscape(email)}}""")
-        }
+        // 2. Collect from this repo's own submodules (e.g. lib/shmtu-cas-kotlin)
+        collectFromSubmodules(rootDir, seen, entries)
 
         val json = if (entries.isEmpty()) "[]" else "[${entries.joinToString(",")}]"
         outputFile.writeText(json)
         logger.lifecycle("[GitContributors] Wrote ${outputFile.absolutePath} (${entries.size} contributors)")
     }
+}
+
+fun collectContributors(dir: File, seen: MutableSet<String>, entries: MutableList<String>) {
+    val logOutput = runGit(dir, "log", "--format=%aN||%aE")
+    if (logOutput.isNullOrBlank()) return
+
+    for (line in logOutput.lines()) {
+        val trimmed = line.trim()
+        if (trimmed.isEmpty()) continue
+
+        val parts = trimmed.split("||", limit = 2)
+        if (parts.size != 2) continue
+
+        val name = parts[0].trim()
+        val email = parts[1].trim().lowercase()
+
+        if (name.isEmpty() || email.isEmpty()) continue
+        if (email in seen) continue
+        seen.add(email)
+
+        entries.add("""{"name":${jsonEscape(name)},"email":${jsonEscape(email)}}""")
+    }
+}
+
+fun collectFromSubmodules(root: File, seen: MutableSet<String>, entries: MutableList<String>) {
+    val statusOutput = runGit(root, "submodule", "status") ?: return
+
+    for (line in statusOutput.lines()) {
+        val trimmed = line.trim()
+        if (trimmed.isEmpty()) continue
+
+        // Format: <status><sha1> <path>
+        val parts = trimmed.splitWhitespace()
+        if (parts.size < 2) continue
+
+        val subPath = File(root, parts[1])
+        if (File(subPath, ".git").exists() || File(subPath, ".git").isFile) {
+            collectContributors(subPath, seen, entries)
+            // Recurse into nested submodules
+            collectFromSubmodules(subPath, seen, entries)
+        }
+    }
+}
+
+fun runGit(dir: File, vararg args: String): String? {
+    return try {
+        val proc = ProcessBuilder("git", *args)
+            .directory(dir)
+            .redirectErrorStream(true)
+            .start()
+        proc.inputStream.bufferedReader().readText()
+    } catch (_: Exception) {
+        null
+    }
+}
+
+fun String.splitWhitespace(): List<String> {
+    return this.trim().split(Regex("\\s+"))
 }
 
 fun jsonEscape(s: String): String {
@@ -233,6 +248,7 @@ fun jsonEscape(s: String): String {
     return sb.toString()
 }
 
+val genContributors = tasks.named("generateGitContributors")
 tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
-    dependsOn("generateGitContributors")
+    dependsOn(genContributors)
 }

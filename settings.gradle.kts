@@ -48,6 +48,14 @@ dependencyResolutionManagement {
                 includeGroup("io.github.koalaplot")
             }
         }
+        exclusiveContent {
+            forRepository {
+                mavenCentral()
+            }
+            filter {
+                includeGroup("io.coil-kt")
+            }
+        }
     }
 }
 
