@@ -43,6 +43,8 @@ class OcrSettingsViewModel @Inject constructor(
     val ocrModelVersion: StateFlow<ModelVersion>
         get() = _ocrModelVersion
 
+    private val _ocrModelVersion = MutableStateFlow(SHMTU_NCNN_Model.ModelVersion.V2)
+
     init {
         viewModelScope.launch {
             settingsDataStore.ocrModelVersion.collect { v ->
@@ -71,8 +73,6 @@ class OcrSettingsViewModel @Inject constructor(
             loadModelsForTag(tag)
         }
     }
-
-    private val _ocrModelVersion = MutableStateFlow(SHMTU_NCNN_Model.ModelVersion.V2)
 
     fun refreshStatus() {
         val version = _ocrModelVersion.value
