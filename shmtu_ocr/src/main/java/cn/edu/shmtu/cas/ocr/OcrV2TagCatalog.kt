@@ -83,40 +83,57 @@ object OcrV2TagCatalog {
         val minMajor = SHMTU_NCNN_Model.V2_MIN_SUPPORTED_MAJOR
         val minMinor = SHMTU_NCNN_Model.V2_MIN_SUPPORTED_MINOR
         val minPatch = SHMTU_NCNN_Model.V2_MIN_SUPPORTED_PATCH
-        val url = "${SHMTU_NCNN_Model.GITHUB_RELEASES_API}?per_page=100"
-        val req = Request.Builder()
-            .url(url)
-            .header("User-Agent", "shmtu-cas-ocr-android/1.0")
-            .header("Accept", "application/vnd.github+json")
-            .build()
-        val resp = client.newCall(req).execute()
-        return resp.use {
-            if (!it.isSuccessful) throw IOException("HTTP ${it.code}")
-            val body = it.body.string()
-            val arr = JSONArray(body)
-            val pattern = Regex("""^v(\d+)\.(\d+)\.(\d+)$""")
-            val out = mutableListOf<CatalogEntry>()
-            for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                if (o.optBoolean("draft", false)) continue
-                val tag = o.optString("tag_name", "")
-                val m = pattern.matchEntire(tag) ?: continue
-                val (mj, mn, pt) = m.destructured.toList().map { it.toInt() }
-                if (mj != maxMajor) continue
-                if (maxMinor != Integer.MIN_VALUE && mn > maxMinor) continue
-                // 过滤低于最小版本的 tag
-                if (mj < minMajor) continue
-                if (mj == minMajor && mn < minMinor) continue
-                if (mj == minMajor && mn == minMinor && pt < minPatch) continue
-                out.add(
-                    CatalogEntry(
-                        tag = tag,
-                        publishedAt = o.optString("published_at", "").takeIf { it.isNotEmpty() },
-                        isPrerelease = o.optBoolean("prerelease", false),
-                    )
-                )
+        // Try Gitee first, then fall back to GitHub
+        val apiUrls = listOf(
+            "${SHMTU_NCNN_Model.GITEE_RELEASES_API}?per_page=100" to false,
+            "${SHMTU_NCNN_Model.GITHUB_RELEASES_API}?per_page=100" to true,
+        )
+        val errors = mutableListOf<String>()
+        for ((url, isGithub) in apiUrls) {
+            try {
+                val reqBuilder = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "shmtu-cas-ocr-android/1.0")
+                if (isGithub) {
+                    reqBuilder.header("Accept", "application/vnd.github+json")
+                }
+                val req = reqBuilder.build()
+                val resp = client.newCall(req).execute()
+                resp.use {
+                    if (!it.isSuccessful) {
+                        errors.add("${if (isGithub) "GitHub" else "Gitee"}: HTTP ${it.code}")
+                        return@use
+                    }
+                    val body = it.body.string()
+                    val arr = JSONArray(body)
+                    val pattern = Regex("""^v(\d+)\.(\d+)\.(\d+)$""")
+                    val out = mutableListOf<CatalogEntry>()
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        if (o.optBoolean("draft", false)) continue
+                        val tag = o.optString("tag_name", "")
+                        val m = pattern.matchEntire(tag) ?: continue
+                        val (mj, mn, pt) = m.destructured.toList().map { it.toInt() }
+                        if (mj != maxMajor) continue
+                        if (maxMinor != Integer.MIN_VALUE && mn > maxMinor) continue
+                        // Filter out tags below minimum version
+                        if (mj < minMajor) continue
+                        if (mj == minMajor && mn < minMinor) continue
+                        if (mj == minMajor && mn == minMinor && pt < minPatch) continue
+                        out.add(
+                            CatalogEntry(
+                                tag = tag,
+                                publishedAt = o.optString("published_at", "").takeIf { it.isNotEmpty() },
+                                isPrerelease = o.optBoolean("prerelease", false),
+                            )
+                        )
+                    }
+                    return out.take(MAX_CACHED_ENTRIES)
+                }
+            } catch (e: Exception) {
+                errors.add("${if (isGithub) "GitHub" else "Gitee"}: ${e.message}")
             }
-            out.take(MAX_CACHED_ENTRIES)
         }
+        throw IOException("All sources failed: ${errors.joinToString("; ")}")
     }
 }

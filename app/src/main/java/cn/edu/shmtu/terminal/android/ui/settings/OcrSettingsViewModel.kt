@@ -332,8 +332,8 @@ class OcrSettingsViewModel @Inject constructor(
     private fun loadModelsForTag(tag: String) {
         _uiState.value = _uiState.value.copy(isModelsLoading = true, modelsError = null)
         try {
-            val primary = ModelSource.GITHUB
-            val fallback = ModelSource.GITEE
+            val primary = ModelSource.GITEE
+            val fallback = ModelSource.GITHUB
             val manifestJson = fetchV2ManifestJson(primary, fallback, tag)
             if (manifestJson == null) {
                 _uiState.value = _uiState.value.copy(

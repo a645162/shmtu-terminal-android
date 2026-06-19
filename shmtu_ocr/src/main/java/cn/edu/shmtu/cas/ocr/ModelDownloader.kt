@@ -64,51 +64,62 @@ class ModelDownloader {
             val minMajor = SHMTU_NCNN_Model.V2_MIN_SUPPORTED_MAJOR
             val minMinor = SHMTU_NCNN_Model.V2_MIN_SUPPORTED_MINOR
             val minPatch = SHMTU_NCNN_Model.V2_MIN_SUPPORTED_PATCH
-            return try {
-                val url = "${SHMTU_NCNN_Model.GITHUB_RELEASES_API}?per_page=100"
-                val req = Request.Builder()
-                    .url(url)
-                    .header("User-Agent", "shmtu-cas-ocr-android/1.0")
-                    .header("Accept", "application/vnd.github+json")
-                    .build()
-                client.newCall(req).execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        Log.w(TAG, "list releases failed: HTTP ${resp.code}; fallback=$fallback")
-                        return fallback
+            // Try Gitee first, then fall back to GitHub
+            val apiUrls = listOf(
+                "${SHMTU_NCNN_Model.GITEE_RELEASES_API}?per_page=100" to false,
+                "${SHMTU_NCNN_Model.GITHUB_RELEASES_API}?per_page=100" to true,
+            )
+            for ((url, isGithub) in apiUrls) {
+                try {
+                    val reqBuilder = Request.Builder()
+                        .url(url)
+                        .header("User-Agent", "shmtu-cas-ocr-android/1.0")
+                    if (isGithub) {
+                        reqBuilder.header("Accept", "application/vnd.github+json")
                     }
-                    val body = resp.body.string()
-                    val arr = JSONArray(body)
-                    val candidates = mutableListOf<Triple<IntArray, String, Int>>()
-                    for (i in 0 until arr.length()) {
-                        val rel = arr.getJSONObject(i)
-                        if (rel.optBoolean("draft", false)) continue
-                        if (rel.optBoolean("prerelease", false)) continue
-                        val tag = rel.optString("tag_name", "")
-                        val m = SEMVER_PATTERN.matchEntire(tag) ?: continue
-                        val (mj, mn, pt) = m.destructured.toList().map { it.toInt() }
-                        if (mj != maxMajor) continue
-                        // maxMinor == Int.MIN_VALUE 表示不限 minor,只锁 major。
-                        if (maxMinor != UNBOUNDED_MINOR && mn > maxMinor) continue
-                        // 过滤低于最小版本的 tag
-                        if (mj < minMajor) continue
-                        if (mj == minMajor && mn < minMinor) continue
-                        if (mj == minMajor && mn == minMinor && pt < minPatch) continue
-                        candidates.add(Triple(intArrayOf(mj, mn, pt), tag, i))
+                    val req = reqBuilder.build()
+                    val result = client.newCall(req).execute().use { resp ->
+                        if (!resp.isSuccessful) {
+                            Log.w(TAG, "list releases from ${if (isGithub) "GitHub" else "Gitee"} failed: HTTP ${resp.code}")
+                            null
+                        } else {
+                            val body = resp.body.string()
+                            val arr = JSONArray(body)
+                            val candidates = mutableListOf<Triple<IntArray, String, Int>>()
+                            for (i in 0 until arr.length()) {
+                                val rel = arr.getJSONObject(i)
+                                if (rel.optBoolean("draft", false)) continue
+                                if (rel.optBoolean("prerelease", false)) continue
+                                val tag = rel.optString("tag_name", "")
+                                val m = SEMVER_PATTERN.matchEntire(tag) ?: continue
+                                val (mj, mn, pt) = m.destructured.toList().map { it.toInt() }
+                                if (mj != maxMajor) continue
+                                if (maxMinor != UNBOUNDED_MINOR && mn > maxMinor) continue
+                                if (mj < minMajor) continue
+                                if (mj == minMajor && mn < minMinor) continue
+                                if (mj == minMajor && mn == minMinor && pt < minPatch) continue
+                                candidates.add(Triple(intArrayOf(mj, mn, pt), tag, i))
+                            }
+                            if (candidates.isEmpty()) {
+                                val filter = if (maxMinor == UNBOUNDED_MINOR) "v$maxMajor.x.x" else "v$maxMajor.$maxMinor.x"
+                                Log.w(TAG, "no release matched $filter from ${if (isGithub) "GitHub" else "Gitee"}")
+                                null
+                            } else {
+                                candidates.sortByDescending { it.first[0] * 1_000_000 + it.first[1] * 1_000 + it.first[2] }
+                                candidates[0].second
+                            }
+                        }
                     }
-                    if (candidates.isEmpty()) {
-                        val filter = if (maxMinor == UNBOUNDED_MINOR) "v$maxMajor.x.x" else "v$maxMajor.$maxMinor.x"
-                        Log.w(TAG, "no release matched $filter; fallback=$fallback")
-                        return fallback
+                    if (result != null) {
+                        Log.i(TAG, "resolved latest v2 tag: $result (from ${if (isGithub) "GitHub" else "Gitee"})")
+                        return result
                     }
-                    candidates.sortByDescending { it.first[0] * 1_000_000 + it.first[1] * 1_000 + it.first[2] }
-                    val chosen = candidates[0].second
-                    Log.i(TAG, "resolved latest v2 tag: $chosen (${candidates.size} candidates)")
-                    chosen
+                } catch (e: Exception) {
+                    Log.w(TAG, "resolveLatestV2Tag from ${if (isGithub) "GitHub" else "Gitee"} failed: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "resolveLatestV2Tag failed: ${e.message}; fallback=$fallback")
-                fallback
             }
+            Log.w(TAG, "all sources failed; fallback=$fallback")
+            return fallback
         }
     }
 
