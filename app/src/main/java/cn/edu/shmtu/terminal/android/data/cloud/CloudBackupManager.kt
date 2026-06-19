@@ -113,7 +113,7 @@ class CloudBackupManager @Inject constructor(
             _backupHistory.value = _backupHistory.value + record
             saveHistory()
 
-            pruneOldBackups(provider, providerPrefix, keepCount = 10)
+            pruneOldBackups(provider, providerPrefix)
             Result.success(result)
         } catch (e: Exception) {
             Log.e(tag, "backupNow failed", e)
@@ -126,20 +126,39 @@ class CloudBackupManager @Inject constructor(
         providerId: String,
         record: CloudBackupRecord,
         password: String?
+    ): Result<RestoreReport> = restoreBackup(providerId, record.remotePath, record.encrypted, password)
+
+    /**
+     * 从云端元数据恢复（通过文件扩展名判断是否加密）
+     */
+    suspend fun restoreBackup(
+        providerId: String,
+        meta: CloudBackupMeta,
+        password: String?
+    ): Result<RestoreReport> {
+        val encrypted = meta.name.endsWith(".enc")
+        return restoreBackup(providerId, meta.remotePath, encrypted, password)
+    }
+
+    private suspend fun restoreBackup(
+        providerId: String,
+        remotePath: String,
+        encrypted: Boolean,
+        password: String?
     ): Result<RestoreReport> {
         val provider = getProvider(providerId) ?: return Result.failure(
             IllegalArgumentException("Unknown provider")
         )
         return try {
             _backupStatus.value = BackupStatus.Preparing("正在下载...")
-            val encrypted = provider.download(record.remotePath)
-            val plainBytes = if (record.encrypted) {
+            val downloaded = provider.download(remotePath)
+            val plainBytes = if (encrypted) {
                 if (password.isNullOrBlank()) {
                     return Result.failure(IllegalStateException("备份已加密，请提供密码"))
                 }
-                decryptBytes(encrypted, password).bytes
+                decryptBytes(downloaded, password).bytes
             } else {
-                encrypted
+                downloaded
             }
 
             _backupStatus.value = BackupStatus.Preparing("正在导入...")
@@ -160,6 +179,73 @@ class CloudBackupManager @Inject constructor(
     suspend fun testConnection(providerId: String): Boolean {
         val provider = getProvider(providerId) ?: return false
         return provider.testConnection()
+    }
+
+    /**
+     * 真正写入一个测试文件再读回验证，确认 Provider 可用
+     */
+    suspend fun testWriteRead(providerId: String): Result<String> {
+        val provider = getProvider(providerId) ?: return Result.failure(
+            IllegalArgumentException("Unknown provider: $providerId")
+        )
+        return try {
+            val prefix = getProviderPrefix(providerId)
+            val testPath = "$prefix/.shmtu-test"
+            val testContent = "shmtu-cloud-test-${System.currentTimeMillis()}".toByteArray()
+            // 写入
+            provider.upload(testPath, testContent)
+            // 读回
+            val downloaded = provider.download(testPath)
+            if (downloaded.contentEquals(testContent)) {
+                // 清理测试文件
+                provider.delete(testPath)
+                Result.success("✓ 读写验证成功")
+            } else {
+                provider.delete(testPath)
+                Result.failure(RuntimeException("读回内容不匹配"))
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "testWriteRead failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 从云端拉取备份列表，供用户选择恢复
+     */
+    suspend fun listRemoteBackups(providerId: String): Result<List<CloudBackupMeta>> {
+        val provider = getProvider(providerId) ?: return Result.failure(
+            IllegalArgumentException("Unknown provider: $providerId")
+        )
+        return try {
+            val prefix = getProviderPrefix(providerId)
+            val list = provider.list(prefix)
+            Result.success(list)
+        } catch (e: Exception) {
+            Log.e(tag, "listRemoteBackups failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 删除远端指定备份
+     */
+    suspend fun deleteRemoteBackup(providerId: String, remotePath: String): Result<Boolean> {
+        val provider = getProvider(providerId) ?: return Result.failure(
+            IllegalArgumentException("Unknown provider: $providerId")
+        )
+        return try {
+            val deleted = provider.delete(remotePath)
+            if (deleted) {
+                // 同步清理本地历史记录
+                _backupHistory.value = _backupHistory.value.filter { it.remotePath != remotePath }
+                saveHistory()
+            }
+            Result.success(deleted)
+        } catch (e: Exception) {
+            Log.e(tag, "deleteRemoteBackup failed", e)
+            Result.failure(e)
+        }
     }
 
     fun configureWebDav(config: WebDavConfig) {
@@ -190,11 +276,13 @@ class CloudBackupManager @Inject constructor(
     private fun getProviderPrefix(providerId: String): String =
         settingsDataStore.getCloudBackupRoot().ifBlank { "shmtu-backup" }
 
-    private suspend fun pruneOldBackups(provider: CloudBackupProvider, prefix: String, keepCount: Int) {
+    private suspend fun pruneOldBackups(provider: CloudBackupProvider, prefix: String) {
         try {
+            val maxKeep = settingsDataStore.getCloudBackupMaxKeep()
             val list = provider.list(prefix)
-            if (list.size > keepCount) {
-                list.drop(keepCount).forEach { provider.delete(it.remotePath) }
+            if (list.size > maxKeep) {
+                list.drop(maxKeep).forEach { provider.delete(it.remotePath) }
+                Log.i(tag, "pruned ${list.size - maxKeep} old backups, keeping $maxKeep")
             }
         } catch (e: Exception) {
             Log.w(tag, "pruneOldBackups failed", e)

@@ -86,6 +86,16 @@ fun FeatureHubScreen(
     val phoneCompact = configuration.screenWidthDp < 600
     val ultraWide = configuration.screenWidthDp >= 1200
 
+    // 点击处理：统一分发
+    val onFeatureClick: (String?) -> Unit = { route ->
+        when (route) {
+            "bill_statistics" -> onNavigateToBillStatistics()
+            "data_transfer" -> onNavigateToDataTransfer()
+            "p2p" -> onNavigateToP2P()
+            "cloud_backup" -> onNavigateToCloudBackup()
+        }
+    }
+
     Scaffold(
         topBar = {
             MediumTopAppBar(
@@ -120,14 +130,7 @@ fun FeatureHubScreen(
                             feature = feature,
                             compact = false,
                             onClick = {
-                                if (feature.available) {
-                                    when (feature.route) {
-                                        "bill_statistics" -> onNavigateToBillStatistics()
-                                        "data_transfer" -> onNavigateToDataTransfer()
-                                        "p2p" -> onNavigateToP2P()
-                                        "cloud_backup" -> onNavigateToCloudBackup()
-                                    }
-                                }
+                                if (feature.available) onFeatureClick(feature.route)
                             }
                         )
                     }
@@ -157,14 +160,7 @@ fun FeatureHubScreen(
                         compact = true,
                         phoneCompact = phoneCompact,
                         onClick = {
-                            if (feature.available) {
-                                when (feature.route) {
-                                    "bill_statistics" -> onNavigateToBillStatistics()
-                                    "data_transfer" -> onNavigateToDataTransfer()
-                                    "p2p" -> onNavigateToP2P()
-                                    "cloud_backup" -> onNavigateToCloudBackup()
-                                }
-                            }
+                            if (feature.available) onFeatureClick(feature.route)
                         }
                     )
                 }

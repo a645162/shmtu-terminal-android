@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.terminal.android.data.cloud.BackupStatus
 import cn.edu.shmtu.terminal.android.data.cloud.CloudBackupManager
+import cn.edu.shmtu.terminal.android.data.cloud.CloudBackupMeta
 import cn.edu.shmtu.terminal.android.data.cloud.CloudBackupRecord
 import cn.edu.shmtu.terminal.android.data.cloud.CloudBackupWorker
 import cn.edu.shmtu.terminal.android.data.cloud.WebDavConfig
@@ -26,63 +27,145 @@ class CloudBackupViewModel @Inject constructor(
 ) : ViewModel() {
 
     val backupStatus: StateFlow<BackupStatus> = manager.backupStatus
-    val backupHistory: StateFlow<List<CloudBackupRecord>> = manager.backupHistory
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
-    private val _webDavConfig = MutableStateFlow(WebDavUiState())
-    val webDavConfig: StateFlow<WebDavUiState> = _webDavConfig.asStateFlow()
+    // 当前选择的 Provider
+    private val _selectedProvider = MutableStateFlow(
+        settingsDataStore.getCloudBackupProviderId() ?: "webdav"
+    )
+    val selectedProvider: StateFlow<String> = _selectedProvider.asStateFlow()
+
+    // WebDAV 配置
+    private val _webDavServerUrl = MutableStateFlow(manager.restoreWebDavServerUrl())
+    val webDavServerUrl: StateFlow<String> = _webDavServerUrl.asStateFlow()
+    private val _webDavUsername = MutableStateFlow(manager.restoreWebDavUsername())
+    val webDavUsername: StateFlow<String> = _webDavUsername.asStateFlow()
+    private val _webDavPassword = MutableStateFlow(settingsDataStore.getCloudBackupPassword().orEmpty())
+    val webDavPassword: StateFlow<String> = _webDavPassword.asStateFlow()
+    private val _webDavRoot = MutableStateFlow(manager.restoreWebDavRoot())
+    val webDavRoot: StateFlow<String> = _webDavRoot.asStateFlow()
+
+    // 连接测试状态
+    private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
+    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     // 自动备份配置
     val autoEnabled: StateFlow<Boolean> = settingsDataStore.cloudBackupAutoEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val autoIntervalMinutes: StateFlow<Int> = settingsDataStore.cloudBackupAutoInterval
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 360)
+    val maxKeep: StateFlow<Int> = settingsDataStore.cloudBackupMaxKeep
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 10)
+
+    // 远程备份列表
+    private val _remoteBackups = MutableStateFlow<List<CloudBackupMeta>>(emptyList())
+    val remoteBackups: StateFlow<List<CloudBackupMeta>> = _remoteBackups.asStateFlow()
+    private val _loadingRemote = MutableStateFlow(false)
+    val loadingRemote: StateFlow<Boolean> = _loadingRemote.asStateFlow()
 
     init {
         manager.restoreConfig()
         manager.loadHistory()
-        _webDavConfig.value = WebDavUiState(
-            serverUrl = manager.restoreWebDavServerUrl(),
-            username = manager.restoreWebDavUsername(),
-            root = manager.restoreWebDavRoot()
-        )
     }
 
-    fun configureWebDav(url: String, username: String, password: String, root: String) {
+    fun selectProvider(providerId: String) {
+        _selectedProvider.value = providerId
+        _connectionState.value = ConnectionState.Idle
+        settingsDataStore.setCloudBackupProviderId(providerId)
+    }
+
+    // WebDAF 字段更新
+    fun updateWebDavServerUrl(url: String) { _webDavServerUrl.value = url }
+    fun updateWebDavUsername(name: String) { _webDavUsername.value = name }
+    fun updateWebDavPassword(pass: String) { _webDavPassword.value = pass }
+    fun updateWebDavRoot(root: String) { _webDavRoot.value = root }
+
+    fun saveWebDavConfig() {
         manager.configureWebDav(WebDavConfig(
-            serverUrl = url, username = username, password = password,
-            backupRoot = root.ifBlank { "shmtu-backup" }
+            _webDavServerUrl.value, _webDavUsername.value,
+            _webDavPassword.value, _webDavRoot.value.ifBlank { "shmtu-backup" }
         ))
+        _message.value = "✓ WebDAV 配置已保存"
     }
 
-    fun saveWebDavConfig(url: String, username: String, password: String, root: String) {
-        manager.configureWebDav(WebDavConfig(url, username, password, root.ifBlank { "shmtu-backup" }))
-        _message.value = "已保存"
-    }
-
-    fun testConnection(providerId: String) {
+    fun testConnection() {
+        val providerId = _selectedProvider.value
+        // 先保存配置再测试
+        if (providerId == "webdav") {
+            manager.configureWebDav(WebDavConfig(
+                _webDavServerUrl.value, _webDavUsername.value,
+                _webDavPassword.value, _webDavRoot.value.ifBlank { "shmtu-backup" }
+            ))
+        }
         viewModelScope.launch {
-            val ok = manager.testConnection(providerId)
-            _message.value = if (ok) "✓ 连接成功" else "✗ 连接失败，请检查配置"
+            _connectionState.value = ConnectionState.Testing
+            // 第一步：基本连接测试
+            val connected = manager.testConnection(providerId)
+            if (!connected) {
+                _connectionState.value = ConnectionState.Failed("连接失败，请检查配置")
+                return@launch
+            }
+            // 第二步：真正读写测试
+            val writeResult = manager.testWriteRead(providerId)
+            _connectionState.value = if (writeResult.isSuccess) {
+                ConnectionState.Connected("✓ 连接成功，读写验证通过")
+            } else {
+                ConnectionState.Failed("连接成功但读写验证失败：${writeResult.exceptionOrNull()?.message}")
+            }
         }
     }
 
-    fun backupNow(providerId: String, password: String?) {
+    fun backupNow(password: String?) {
+        val providerId = _selectedProvider.value
+        if (providerId == "webdav") {
+            manager.configureWebDav(WebDavConfig(
+                _webDavServerUrl.value, _webDavUsername.value,
+                _webDavPassword.value, _webDavRoot.value.ifBlank { "shmtu-backup" }
+            ))
+        }
         viewModelScope.launch {
             val result = manager.backupNow(providerId, password)
             _message.value = if (result.isSuccess) "✓ 备份完成" else "✗ ${result.exceptionOrNull()?.message}"
+            refreshRemoteBackups()
         }
     }
 
-    fun restoreBackup(providerId: String, record: CloudBackupRecord, password: String?) {
+    fun restoreFromMeta(meta: CloudBackupMeta, password: String?) {
         viewModelScope.launch {
-            val result = manager.restoreBackup(providerId, record, password)
+            val result = manager.restoreBackup(_selectedProvider.value, meta, password)
             _message.value = if (result.isSuccess) {
                 val r = result.getOrNull()!!
                 "✓ 恢复完成：${r.identities}身份/${r.accounts}账号/${r.bills}账单"
             } else "✗ ${result.exceptionOrNull()?.message}"
+        }
+    }
+
+    fun refreshRemoteBackups() {
+        val providerId = _selectedProvider.value
+        if (providerId == "webdav") {
+            manager.configureWebDav(WebDavConfig(
+                _webDavServerUrl.value, _webDavUsername.value,
+                _webDavPassword.value, _webDavRoot.value.ifBlank { "shmtu-backup" }
+            ))
+        }
+        viewModelScope.launch {
+            _loadingRemote.value = true
+            val result = manager.listRemoteBackups(providerId)
+            _remoteBackups.value = result.getOrElse { emptyList() }
+            _loadingRemote.value = false
+            if (result.isFailure) {
+                _message.value = "✗ 获取远程列表失败：${result.exceptionOrNull()?.message}"
+            }
+        }
+    }
+
+    fun deleteRemoteBackup(remotePath: String) {
+        viewModelScope.launch {
+            val result = manager.deleteRemoteBackup(_selectedProvider.value, remotePath)
+            _message.value = if (result.isSuccess && result.getOrNull() == true) "✓ 已删除" else "✗ 删除失败"
+            refreshRemoteBackups()
         }
     }
 
@@ -100,7 +183,6 @@ class CloudBackupViewModel @Inject constructor(
 
     fun setAutoInterval(minutes: Int) {
         settingsDataStore.setCloudBackupAutoIntervalMinutes(minutes)
-        // 如果当前已启用，立即更新调度
         if (settingsDataStore.getCloudBackupAutoEnabledValue()) {
             CloudBackupWorker.schedule(application, minutes.toLong())
         }
@@ -110,10 +192,9 @@ class CloudBackupViewModel @Inject constructor(
         settingsDataStore.setCloudBackupAutoPassword(password)
     }
 
-    fun getWebDavServerUrl(): String = _webDavConfig.value.serverUrl
-    fun getWebDavUsername(): String = _webDavConfig.value.username
-    fun getWebDavRoot(): String = _webDavConfig.value.root.ifBlank { "shmtu-backup" }
-    fun getAutoPassword(): String = settingsDataStore.getCloudBackupAutoPassword()
+    fun setMaxKeep(count: Int) {
+        settingsDataStore.setCloudBackupMaxKeep(count)
+    }
 
     fun clearMessage() { _message.value = null }
 
@@ -124,8 +205,9 @@ class CloudBackupViewModel @Inject constructor(
     }
 }
 
-data class WebDavUiState(
-    val serverUrl: String = "",
-    val username: String = "",
-    val root: String = "shmtu-backup"
-)
+sealed class ConnectionState {
+    object Idle : ConnectionState()
+    object Testing : ConnectionState()
+    data class Connected(val message: String) : ConnectionState()
+    data class Failed(val message: String) : ConnectionState()
+}

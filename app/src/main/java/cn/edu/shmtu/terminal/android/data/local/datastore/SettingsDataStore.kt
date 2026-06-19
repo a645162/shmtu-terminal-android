@@ -49,6 +49,7 @@ class SettingsDataStore @Inject constructor(
     // Cloud backup auto flows
     private val _cloudBackupAutoEnabledFlow = MutableStateFlow(getCloudBackupAutoEnabledValue())
     private val _cloudBackupAutoIntervalFlow = MutableStateFlow(getCloudBackupAutoIntervalMinutes())
+    private val _cloudBackupMaxKeepFlow = MutableStateFlow(getCloudBackupMaxKeep())
 
     val captchaMode: Flow<CaptchaMode> = _captchaModeFlow.asStateFlow()
     val useLocalOcr: Flow<Boolean> = _useLocalOcrFlow.asStateFlow()
@@ -80,6 +81,7 @@ class SettingsDataStore @Inject constructor(
     // Cloud backup auto
     val cloudBackupAutoEnabled: Flow<Boolean> = _cloudBackupAutoEnabledFlow.asStateFlow()
     val cloudBackupAutoInterval: Flow<Int> = _cloudBackupAutoIntervalFlow.asStateFlow()
+    val cloudBackupMaxKeep: Flow<Int> = _cloudBackupMaxKeepFlow.asStateFlow()
 
     fun notificationConfigValue(): NotificationConfig = _notificationConfigFlow.value
 
@@ -323,6 +325,9 @@ class SettingsDataStore @Inject constructor(
     // ============== 云备份配置 ==============
 
     fun getCloudBackupProviderId(): String? = prefs.getString(KEY_CLOUD_BACKUP_PROVIDER, null)
+    fun setCloudBackupProviderId(id: String) {
+        prefs.edit().putString(KEY_CLOUD_BACKUP_PROVIDER, id).apply()
+    }
     fun getCloudBackupServerUrl(): String? = prefs.getString(KEY_CLOUD_BACKUP_SERVER_URL, null)
     fun getCloudBackupUsername(): String? = prefs.getString(KEY_CLOUD_BACKUP_USERNAME, null)
     fun getCloudBackupPassword(): String? = prefs.getString(KEY_CLOUD_BACKUP_PASSWORD, null)
@@ -345,6 +350,12 @@ class SettingsDataStore @Inject constructor(
         prefs.getString(KEY_CLOUD_BACKUP_AUTO_PASSWORD, "") ?: ""
     fun setCloudBackupAutoPassword(p: String) {
         prefs.edit().putString(KEY_CLOUD_BACKUP_AUTO_PASSWORD, p).apply()
+    }
+    fun getCloudBackupMaxKeep(): Int = prefs.getInt(KEY_CLOUD_BACKUP_MAX_KEEP, 10)
+    fun setCloudBackupMaxKeep(count: Int) {
+        val safe = count.coerceIn(1, 100)
+        prefs.edit().putInt(KEY_CLOUD_BACKUP_MAX_KEEP, safe).apply()
+        _cloudBackupMaxKeepFlow.value = safe
     }
 
     fun setCloudBackupConfig(
@@ -431,6 +442,7 @@ class SettingsDataStore @Inject constructor(
         private const val KEY_CLOUD_BACKUP_AUTO_ENABLED = "cloud_backup_auto_enabled"
         private const val KEY_CLOUD_BACKUP_AUTO_INTERVAL = "cloud_backup_auto_interval"
         private const val KEY_CLOUD_BACKUP_AUTO_PASSWORD = "cloud_backup_auto_password"
+        private const val KEY_CLOUD_BACKUP_MAX_KEEP = "cloud_backup_max_keep"
         // WEB settings keys
         private const val KEY_WEB_AUTO_START = "web_auto_start_server"
         private const val KEY_WEB_DEVICE_NAME = "web_device_name"

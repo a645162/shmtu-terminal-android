@@ -72,6 +72,7 @@ import cn.edu.shmtu.terminal.android.data.dedupe.BillDedupeRepository
 import cn.edu.shmtu.terminal.android.data.webserver.SettingsDataStoreWebExt
 import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
 import cn.edu.shmtu.terminal.android.data.sync.BillRulesManager
+import cn.edu.shmtu.terminal.android.ui.cloud.CloudBackupScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -411,6 +412,7 @@ private fun DetailFor(
         "sync" -> SyncSettingsScreen(onBack = onBack, embedded = embedded)
         "security" -> SecuritySettingsScreen(onBack = onBack, embedded = embedded)
         "data" -> DataSettingsScreen(onBack = onBack, dedupeRepository = dedupeRepository, embedded = embedded)
+        "cloud_backup" -> CloudBackupScreen(onBack = onBack, embedded = embedded)
         "classification" -> ClassificationSettingsScreen(onBack = onBack, rulesManager = rulesManager, embedded = embedded)
         "update" -> UpdateSettingsScreen(onBack = onBack, embedded = embedded)
         "debug" -> DebugSettingsScreen(onBack = onBack, embedded = embedded)
@@ -516,6 +518,14 @@ private fun settingsGroups(): List<SettingsGroup> {
             description = "对身份级和账号级账单进行维护处理。",
             icon = Icons.Filled.Storage,
             accent = listOf(Color(0xFF6A55E6), Color(0xFFB49CFF))
+        ),
+        SettingsGroup(
+            key = "cloud_backup",
+            title = "云备份",
+            subtitle = "WebDAV / Google Drive / OneDrive",
+            description = "备份数据到云端，支持自动定时备份、加密和远程恢复。",
+            icon = Icons.Filled.CloudDownload,
+            accent = listOf(Color(0xFF6750A4), Color(0xFFB69DF8))
         ),
         SettingsGroup(
             key = "classification",

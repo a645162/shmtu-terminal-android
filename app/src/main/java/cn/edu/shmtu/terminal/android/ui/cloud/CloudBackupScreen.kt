@@ -1,18 +1,32 @@
 package cn.edu.shmtu.terminal.android.ui.cloud
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -22,6 +36,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -34,11 +49,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.data.cloud.BackupStatus
-import cn.edu.shmtu.terminal.android.data.cloud.CloudBackupRecord
+import cn.edu.shmtu.terminal.android.data.cloud.CloudBackupMeta
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -47,37 +66,36 @@ import java.util.Locale
 @Composable
 fun CloudBackupScreen(
     onBack: () -> Unit,
-    viewModel: CloudBackupViewModel = hiltViewModel()
+    viewModel: CloudBackupViewModel = hiltViewModel(),
+    embedded: Boolean = false
 ) {
     val status by viewModel.backupStatus.collectAsState()
-    val history by viewModel.backupHistory.collectAsState()
     val message by viewModel.message.collectAsState()
+    val selectedProvider by viewModel.selectedProvider.collectAsState()
+    val connectionState by viewModel.connectionState.collectAsState()
     val autoEnabled by viewModel.autoEnabled.collectAsState()
     val autoInterval by viewModel.autoIntervalMinutes.collectAsState()
+    val maxKeep by viewModel.maxKeep.collectAsState()
+    val remoteBackups by viewModel.remoteBackups.collectAsState()
+    val loadingRemote by viewModel.loadingRemote.collectAsState()
 
-    var serverUrl by remember { mutableStateOf(viewModel.getWebDavServerUrl()) }
-    var username by remember { mutableStateOf(viewModel.getWebDavUsername()) }
-    var password by remember { mutableStateOf("") }
-    var backupRoot by remember { mutableStateOf(viewModel.getWebDavRoot()) }
+    // WebDAV 字段
+    val webDavUrl by viewModel.webDavServerUrl.collectAsState()
+    val webDavUser by viewModel.webDavUsername.collectAsState()
+    val webDavPass by viewModel.webDavPassword.collectAsState()
+    val webDavRoot by viewModel.webDavRoot.collectAsState()
+
     var backupPassword by remember { mutableStateOf("") }
-    var selectedProvider by remember { mutableStateOf("webdav") }
-    var autoPassword by remember { mutableStateOf(viewModel.getAutoPassword()) }
+    var autoPassword by remember { mutableStateOf("") }
+    var maxKeepInput by remember { mutableStateOf(maxKeep.toString()) }
+    var restorePassword by remember { mutableStateOf("") }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("云备份") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                }
-            )
-        }
-    ) { innerPadding ->
+    val content = @Composable {
         Column(
-            modifier = Modifier.padding(innerPadding).fillMaxSize()
-                .verticalScroll(rememberScrollState()).padding(16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(if (embedded) 0.dp else 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // 消息提示
@@ -92,57 +110,89 @@ fun CloudBackupScreen(
                 }
             }
 
-            // 存储后端选择
+            // === 1. 存储后端选择 ===
             ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("存储后端", style = MaterialTheme.typography.titleSmall)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("webdav" to "WebDAV", "google_drive" to "Google Drive", "onedrive" to "OneDrive")
-                            .forEach { (id, name) ->
-                                FilterChip(
-                                    selected = selectedProvider == id,
-                                    onClick = { selectedProvider = id },
-                                    label = { Text(name) },
-                                    enabled = id == "webdav"
-                                )
-                            }
+                    Column(modifier = Modifier.selectableGroup()) {
+                        ProviderOption(
+                            id = "webdav",
+                            label = "WebDAV",
+                            desc = "兼容坚果云、Nextcloud、自建 NAS",
+                            selected = selectedProvider == "webdav",
+                            onSelect = { viewModel.selectProvider("webdav") }
+                        )
+                        ProviderOption(
+                            id = "google_drive",
+                            label = "Google Drive",
+                            desc = "通过 OAuth 授权访问 Google 云端硬盘",
+                            selected = selectedProvider == "google_drive",
+                            onSelect = { viewModel.selectProvider("google_drive") }
+                        )
+                        ProviderOption(
+                            id = "onedrive",
+                            label = "OneDrive",
+                            desc = "通过 Microsoft OAuth 访问 OneDrive",
+                            selected = selectedProvider == "onedrive",
+                            onSelect = { viewModel.selectProvider("onedrive") }
+                        )
                     }
-                    Text("当前阶段：仅 WebDAV 可用。Google Drive / OneDrive 已留接口，需集成 OAuth 后启用。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
-            // WebDAV 配置
-            if (selectedProvider == "webdav") {
-                ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("WebDAV 配置", style = MaterialTheme.typography.titleSmall)
-                        OutlinedTextField(value = serverUrl, onValueChange = { serverUrl = it },
-                            label = { Text("服务器地址") },
-                            placeholder = { Text("https://dav.example.com/remote.php/dav") },
-                            modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        OutlinedTextField(value = username, onValueChange = { username = it },
-                            label = { Text("用户名") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        OutlinedTextField(value = password, onValueChange = { password = it },
-                            label = { Text("密码") }, visualTransformation = PasswordVisualTransformation(),
-                            modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        OutlinedTextField(value = backupRoot, onValueChange = { backupRoot = it },
-                            label = { Text("远端根目录") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = {
-                                viewModel.configureWebDav(serverUrl, username, password, backupRoot)
-                                viewModel.testConnection("webdav")
-                            }, modifier = Modifier.weight(1f)) { Text("测试连接") }
-                            OutlinedButton(onClick = {
-                                viewModel.saveWebDavConfig(serverUrl, username, password, backupRoot)
-                            }, modifier = Modifier.weight(1f)) { Text("保存配置") }
+            // === 2. Provider 配置面板 ===
+            when (selectedProvider) {
+                "webdav" -> WebDavConfigPanel(viewModel = viewModel)
+                "google_drive" -> GoogleDriveConfigPanel(viewModel = viewModel)
+                "onedrive" -> OneDriveConfigPanel(viewModel = viewModel)
+            }
+
+            // === 3. 连接测试结果 ===
+            when (val cs = connectionState) {
+                is ConnectionState.Idle -> {}
+                is ConnectionState.Testing -> {
+                    ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Text("正在测试连接与读写...", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+                is ConnectionState.Connected -> {
+                    ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(Icons.Default.CloudDone, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Text(cs.message, style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+                is ConnectionState.Failed -> {
+                    ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(Icons.Default.CloudOff, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                            Text(cs.message, style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
             }
 
-            // 自动备份
+            // === 4. 自动备份 ===
             ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("自动备份", style = MaterialTheme.typography.titleSmall)
@@ -157,13 +207,9 @@ fun CloudBackupScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(
-                            checked = autoEnabled,
-                            onCheckedChange = { viewModel.setAutoEnabled(it) }
-                        )
+                        Switch(checked = autoEnabled, onCheckedChange = { viewModel.setAutoEnabled(it) })
                     }
                     if (autoEnabled) {
-                        // 间隔选择
                         Text("备份间隔", style = MaterialTheme.typography.labelMedium)
                         val intervals = listOf(
                             30 to "30分钟", 60 to "1小时", 180 to "3小时",
@@ -178,22 +224,41 @@ fun CloudBackupScreen(
                                 )
                             }
                         }
-                        // 自动备份加密密码
                         OutlinedTextField(
-                            value = autoPassword,
-                            onValueChange = {
-                                autoPassword = it
-                                viewModel.setAutoPassword(it)
-                            },
+                            value = autoPassword, onValueChange = { autoPassword = it; viewModel.setAutoPassword(it) },
                             label = { Text("自动备份加密密码（留空则不加密）") },
                             visualTransformation = PasswordVisualTransformation(),
                             modifier = Modifier.fillMaxWidth(), singleLine = true
                         )
                     }
+                    // 最大保留数
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("最大保留数量", style = MaterialTheme.typography.bodyMedium)
+                            Text("超过后自动删除最旧的备份",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        OutlinedTextField(
+                            value = maxKeepInput,
+                            onValueChange = {
+                                maxKeepInput = it
+                                it.toIntOrNull()?.let { v -> if (v in 1..100) viewModel.setMaxKeep(v) }
+                            },
+                            modifier = Modifier.size(width = 80.dp, height = 56.dp),
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(textAlign = TextAlign.Center),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true
+                        )
+                    }
                 }
             }
 
-            // 立即备份
+            // === 5. 立即备份 ===
             ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("立即备份", style = MaterialTheme.typography.titleSmall)
@@ -201,63 +266,230 @@ fun CloudBackupScreen(
                         label = { Text("加密密码（留空则不加密）") },
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    Button(onClick = { viewModel.backupNow(selectedProvider, backupPassword.ifBlank { null }) },
+                    Button(
+                        onClick = { viewModel.backupNow(backupPassword.ifBlank { null }) },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = status !is BackupStatus.Preparing && status !is BackupStatus.Uploading) {
-                        Text("立即备份")
-                    }
+                        enabled = status !is BackupStatus.Preparing && status !is BackupStatus.Uploading
+                    ) { Text("立即备份") }
                     if (status is BackupStatus.Preparing || status is BackupStatus.Uploading) {
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        val txt = when (val s = status) {
+                        Text(when (val s = status) {
                             is BackupStatus.Preparing -> s.message
                             is BackupStatus.Uploading -> "上传中 ${s.transferred}/${s.total} 字节"
                             else -> ""
-                        }
-                        Text(txt, style = MaterialTheme.typography.bodySmall)
+                        }, style = MaterialTheme.typography.bodySmall)
                     }
-                    if (status is BackupStatus.Success) {
-                        Text("✓ 备份成功", color = MaterialTheme.colorScheme.primary)
-                    }
-                    if (status is BackupStatus.Failed) {
-                        Text("✗ 备份失败：${(status as BackupStatus.Failed).reason}",
-                            color = MaterialTheme.colorScheme.error)
-                    }
+                    if (status is BackupStatus.Success) Text("✓ 备份成功", color = MaterialTheme.colorScheme.primary)
+                    if (status is BackupStatus.Failed) Text("✗ 备份失败：${(status as BackupStatus.Failed).reason}", color = MaterialTheme.colorScheme.error)
                 }
             }
 
-            // 备份历史
+            // === 6. 远程备份列表 ===
             ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("备份历史", style = MaterialTheme.typography.titleSmall)
-                    if (history.isEmpty()) {
-                        Text("暂无备份", style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    } else {
-                        history.takeLast(10).reversed().forEach { record ->
-                            BackupHistoryItem(record = record, onRestore = {
-                                viewModel.restoreBackup(selectedProvider, record, backupPassword.ifBlank { null })
-                            })
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("远程备份", style = MaterialTheme.typography.titleSmall)
+                        IconButton(onClick = { viewModel.refreshRemoteBackups() }, enabled = !loadingRemote) {
+                            if (loadingRemote) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            else Icon(Icons.Default.Refresh, contentDescription = "刷新")
                         }
                     }
+                    if (remoteBackups.isEmpty() && !loadingRemote) {
+                        Text("暂无远程备份，点击刷新按钮拉取列表",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    remoteBackups.forEach { meta ->
+                        RemoteBackupItem(
+                            meta = meta,
+                            restorePassword = restorePassword,
+                            onRestorePasswordChange = { restorePassword = it },
+                            onRestore = { viewModel.restoreFromMeta(meta, restorePassword.ifBlank { null }) },
+                            onDelete = { viewModel.deleteRemoteBackup(meta.remotePath) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (embedded) {
+        content()
+    } else {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("云备份") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        }
+                    }
+                )
+            }
+        ) { innerPadding ->
+            Box(modifier = Modifier.padding(innerPadding)) { content() }
+        }
+    }
+}
+
+// === Provider 选择项 ===
+@Composable
+private fun ProviderOption(
+    id: String, label: String, desc: String,
+    selected: Boolean, onSelect: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, onClick = onSelect, role = Role.RadioButton)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+            Text(desc, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+// === WebDAV 配置面板 ===
+@Composable
+private fun WebDavConfigPanel(viewModel: CloudBackupViewModel) {
+    val url by viewModel.webDavServerUrl.collectAsState()
+    val user by viewModel.webDavUsername.collectAsState()
+    val pass by viewModel.webDavPassword.collectAsState()
+    val root by viewModel.webDavRoot.collectAsState()
+
+    ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("WebDAV 配置", style = MaterialTheme.typography.titleSmall)
+            OutlinedTextField(value = url, onValueChange = { viewModel.updateWebDavServerUrl(it) },
+                label = { Text("服务器地址") },
+                placeholder = { Text("https://dav.example.com/remote.php/dav") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(value = user, onValueChange = { viewModel.updateWebDavUsername(it) },
+                label = { Text("用户名") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(value = pass, onValueChange = { viewModel.updateWebDavPassword(it) },
+                label = { Text("密码") }, visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(value = root, onValueChange = { viewModel.updateWebDavRoot(it) },
+                label = { Text("远端根目录") }, placeholder = { Text("shmtu-backup") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { viewModel.testConnection() }, modifier = Modifier.weight(1f)) {
+                    Text("测试连接")
+                }
+                OutlinedButton(onClick = { viewModel.saveWebDavConfig() }, modifier = Modifier.weight(1f)) {
+                    Text("保存配置")
                 }
             }
         }
     }
 }
 
+// === Google Drive 配置面板 ===
 @Composable
-private fun BackupHistoryItem(record: CloudBackupRecord, onRestore: () -> Unit) {
-    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT) }
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(record.fileName, style = MaterialTheme.typography.bodyMedium)
-            Text("${dateFormat.format(Date(record.uploadedAt))} · ${formatSize(record.size)}" +
-                if (record.encrypted) " · 🔒" else "",
+private fun GoogleDriveConfigPanel(viewModel: CloudBackupViewModel) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Google Drive", style = MaterialTheme.typography.titleSmall)
+            Text("通过 Google OAuth2 授权访问你的 Google Drive。" +
+                "授权后应用仅可在指定文件夹内读写备份文件。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(onClick = { /* TODO: 启动 Google OAuth 流程 */ }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.CloudQueue, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("登录 Google 账号")
+            }
+            OutlinedButton(onClick = { viewModel.testConnection() }, modifier = Modifier.fillMaxWidth(),
+                enabled = false) { Text("测试连接（需先登录）") }
         }
-        OutlinedButton(onClick = onRestore) { Text("恢复") }
+    }
+}
+
+// === OneDrive 配置面板 ===
+@Composable
+private fun OneDriveConfigPanel(viewModel: CloudBackupViewModel) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("OneDrive", style = MaterialTheme.typography.titleSmall)
+            Text("通过 Microsoft OAuth2 授权访问你的 OneDrive。" +
+                "授权后应用仅可在应用文件夹内读写备份文件。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(onClick = { /* TODO: 启动 Microsoft OAuth 流程 */ }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.CloudQueue, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("登录 Microsoft 账号")
+            }
+            OutlinedButton(onClick = { viewModel.testConnection() }, modifier = Modifier.fillMaxWidth(),
+                enabled = false) { Text("测试连接（需先登录）") }
+        }
+    }
+}
+
+// === 远程备份条目 ===
+@Composable
+private fun RemoteBackupItem(
+    meta: CloudBackupMeta,
+    restorePassword: String,
+    onRestorePasswordChange: (String) -> Unit,
+    onRestore: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT) }
+    val isEncrypted = meta.name.endsWith(".enc")
+
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(meta.name, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    buildString {
+                        append(dateFormat.format(Date(meta.lastModified)))
+                        append(" · ")
+                        append(formatSize(meta.size))
+                        if (isEncrypted) append(" · 🔒 加密")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = "删除",
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                    modifier = Modifier.size(20.dp))
+            }
+        }
+        if (isEncrypted) {
+            OutlinedTextField(
+                value = restorePassword, onValueChange = onRestorePasswordChange,
+                label = { Text("解密密码") },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(), singleLine = true
+            )
+        }
+        OutlinedButton(onClick = onRestore, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.size(6.dp))
+            Text("恢复此备份")
+        }
     }
 }
 
