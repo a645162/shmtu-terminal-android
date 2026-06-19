@@ -13,9 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -49,6 +46,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import cn.edu.shmtu.terminal.android.domain.model.displayTitle
+import cn.edu.shmtu.terminal.android.domain.model.effectiveTimeRange
+import cn.edu.shmtu.terminal.android.domain.model.effectiveTransactionNos
 import cn.edu.shmtu.terminal.android.domain.model.resolvedPlace
 import cn.edu.shmtu.terminal.android.ui.settings.LocalFeatureStore
 import kotlinx.coroutines.launch
@@ -126,18 +125,38 @@ fun BillDetailScreen(
         val resolvedPlace = item.resolvedPlace()
         val summaryTitle = item.displayTitle(preferParsedBillDisplay)
 
-        // Tauri BillDetailDialog 字段顺序(去掉 Tauri 的 13 个字段中 Android 端暂无的 synced_at / source_account_id,补 12 个)
+        val effectiveTransactionNos = item.effectiveTransactionNos()
+        val effectiveTimeRange = item.effectiveTimeRange()
+        val mergedTransactionText = if (effectiveTransactionNos.size <= 1) {
+            item.transactionNo.ifBlank { "—" }
+        } else {
+            effectiveTransactionNos.joinToString("\n")
+        }
+        val mergedTimeRangeText = if (item.isMerged) {
+            "${effectiveTimeRange.first} ~ ${effectiveTimeRange.second}"
+        } else {
+            "—"
+        }
+        val mergeInfoText = if (item.isMerged) {
+            "是 · 共 ${item.mergedBillCount} 条"
+        } else {
+            "否"
+        }
+
         val fields = listOf(
             "日期时间" to item.dateTimeStrFormat.ifBlank { "—" },
-            "消费类型" to item.type.ifBlank { "—" },
-            "交易号" to item.transactionNo.ifBlank { "—" },
+            "交易名称" to summaryTitle,
+            "原始类型" to item.type.ifBlank { "—" },
+            "交易号" to mergedTransactionText,
             "对方账户" to item.targetUser.ifBlank { "—" },
             "位置" to (resolvedBuilding ?: "—"),
             "房间/窗口" to (resolvedRoom ?: "—"),
+            "分类" to item.category.orEmpty().ifBlank { "—" },
             "金额" to "¥${item.money}",
             "支付方式" to item.method.ifBlank { "—" },
             "状态" to item.status.ifBlank { "—" },
-            "是否合并" to "否",
+            "是否合并" to mergeInfoText,
+            "合并时间范围" to mergedTimeRangeText,
             "来源学号" to sourceAccountLabel,
             "同步时间" to "—"
         )
@@ -297,23 +316,15 @@ private fun BillDetailFieldsPanel(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text("消费详细信息", style = MaterialTheme.typography.titleLarge)
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(if (ultraWide) 2 else 1),
-                modifier = Modifier.weight(1f, fill = false),
-                contentPadding = PaddingValues(bottom = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                userScrollEnabled = false
-            ) {
-                items(fields) { (label, value) ->
-                    DetailFieldCard(label = label, value = value)
-                }
-            }
+            DetailFieldsList(
+                fields = fields,
+                twoColumn = ultraWide
+            )
             HorizontalDivider()
             BillNotesCard(
                 notes = notes,
@@ -322,6 +333,40 @@ private fun BillDetailFieldsPanel(
                 onCancelEdit = onCancelEdit,
                 onSaveNotes = onSaveNotes
             )
+        }
+    }
+}
+
+@Composable
+private fun DetailFieldsList(
+    fields: List<Pair<String, String>>,
+    twoColumn: Boolean
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (twoColumn) {
+            fields.chunked(2).forEach { rowFields ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    rowFields.forEach { (label, value) ->
+                        DetailFieldCard(
+                            label = label,
+                            value = value,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    if (rowFields.size == 1) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        } else {
+            fields.forEach { (label, value) ->
+                DetailFieldCard(label = label, value = value)
+            }
         }
     }
 }
@@ -365,8 +410,13 @@ private fun StatusTonePill(status: String) {
 }
 
 @Composable
-private fun DetailFieldCard(label: String, value: String) {
+private fun DetailFieldCard(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
     Surface(
+        modifier = modifier,
         shape = RoundedCornerShape(22.dp),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp
