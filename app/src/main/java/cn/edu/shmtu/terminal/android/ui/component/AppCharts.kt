@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -140,8 +141,8 @@ fun AppLineChart(
 fun AppDonutChart(
     slices: List<AppDonutSlice>,
     modifier: Modifier = Modifier,
-    holeTitle: String = "总额",
-    totalFormatter: (Float) -> String = { "¥%,.2f".format(it) },
+    holeTitle: String? = null,
+    totalFormatter: (Float) -> String = ::formatDonutCenterAmount,
 ) {
     if (slices.isEmpty()) return
 
@@ -176,30 +177,70 @@ fun AppDonutChart(
 
 @Composable
 private fun DonutHoleContent(
-    title: String,
+    title: String?,
     value: String,
     modifier: Modifier = Modifier,
 ) {
+    val valueTextStyle = when {
+        value.length >= 8 -> MaterialTheme.typography.labelLarge.copy(fontSize = 12.sp)
+        value.length >= 6 -> MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp)
+        else -> MaterialTheme.typography.titleSmall
+    }
+
     Box(
-        modifier = modifier,
+        modifier = modifier.padding(horizontal = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        if (title.isNullOrBlank()) {
             Text(
                 text = value,
-                style = MaterialTheme.typography.titleMedium,
+                style = valueTextStyle,
                 color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
             )
+        } else {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = value,
+                    style = valueTextStyle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
+}
+
+private fun formatDonutCenterAmount(value: Float): String {
+    val absValue = kotlin.math.abs(value)
+    val formatted = when {
+        absValue >= 10000f -> "${formatCompactNumber(value / 10000f)}w"
+        absValue >= 1000f -> "${formatCompactNumber(value / 1000f)}k"
+        absValue >= 100f -> value.toInt().toString()
+        absValue >= 10f -> formatCompactNumber(value)
+        else -> String.format("%.1f", value)
+    }
+    return "¥$formatted"
+}
+
+private fun formatCompactNumber(value: Float): String {
+    val normalized = String.format("%.1f", value)
+    return normalized.removeSuffix(".0")
 }
 
 private fun computeAxisMax(maxValue: Float): Float {

@@ -46,6 +46,10 @@ class SettingsDataStore @Inject constructor(
     // Notification config flow
     private val _notificationConfigFlow = MutableStateFlow(getNotificationConfig())
 
+    // Cloud backup auto flows
+    private val _cloudBackupAutoEnabledFlow = MutableStateFlow(getCloudBackupAutoEnabledValue())
+    private val _cloudBackupAutoIntervalFlow = MutableStateFlow(getCloudBackupAutoIntervalMinutes())
+
     val captchaMode: Flow<CaptchaMode> = _captchaModeFlow.asStateFlow()
     val useLocalOcr: Flow<Boolean> = _useLocalOcrFlow.asStateFlow()
     val ocrServerUrl: Flow<String> = _ocrServerUrlFlow.asStateFlow()
@@ -72,6 +76,10 @@ class SettingsDataStore @Inject constructor(
 
     // Notification config
     val notificationConfig: Flow<NotificationConfig> = _notificationConfigFlow.asStateFlow()
+
+    // Cloud backup auto
+    val cloudBackupAutoEnabled: Flow<Boolean> = _cloudBackupAutoEnabledFlow.asStateFlow()
+    val cloudBackupAutoInterval: Flow<Int> = _cloudBackupAutoIntervalFlow.asStateFlow()
 
     fun notificationConfigValue(): NotificationConfig = _notificationConfigFlow.value
 
@@ -325,11 +333,13 @@ class SettingsDataStore @Inject constructor(
     fun getCloudBackupAutoEnabledValue(): Boolean = prefs.getBoolean(KEY_CLOUD_BACKUP_AUTO_ENABLED, false)
     fun setCloudBackupAutoEnabled(v: Boolean) {
         prefs.edit().putBoolean(KEY_CLOUD_BACKUP_AUTO_ENABLED, v).apply()
+        _cloudBackupAutoEnabledFlow.value = v
     }
     fun getCloudBackupAutoIntervalMinutes(): Int = prefs.getInt(KEY_CLOUD_BACKUP_AUTO_INTERVAL, 360)
     fun setCloudBackupAutoIntervalMinutes(minutes: Int) {
         val safe = minutes.coerceIn(15, 10080)
         prefs.edit().putInt(KEY_CLOUD_BACKUP_AUTO_INTERVAL, safe).apply()
+        _cloudBackupAutoIntervalFlow.value = safe
     }
     fun getCloudBackupAutoPassword(): String =
         prefs.getString(KEY_CLOUD_BACKUP_AUTO_PASSWORD, "") ?: ""

@@ -9,6 +9,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import cn.edu.shmtu.terminal.android.data.cloud.CloudBackupWorker
 import cn.edu.shmtu.terminal.android.data.p2p.P2PForegroundService
 import cn.edu.shmtu.terminal.android.data.remote.SessionExpirationWorker
 import cn.edu.shmtu.terminal.android.data.sync.AutoSyncStatusNotifier
@@ -92,6 +93,21 @@ class SHMTUTerminalApp : Application(), Configuration.Provider {
         }
 
         autoSyncStatusNotifier.refresh()
+
+        // 调度自动云备份（对齐 AutoSync 模式：读 SharedPreferences 判断是否启用）
+        appScope.launch {
+            try {
+                val sp = getSharedPreferences("app_settings", MODE_PRIVATE)
+                val cloudAutoEnabled = sp.getBoolean("cloud_backup_auto_enabled", false)
+                if (cloudAutoEnabled) {
+                    val intervalMin = sp.getInt("cloud_backup_auto_interval", 360).coerceAtLeast(15)
+                    CloudBackupWorker.schedule(this@SHMTUTerminalApp, intervalMin.toLong())
+                    Log.i("SHMTUTerminalApp", "自动云备份已调度: 间隔 ${intervalMin} 分钟")
+                }
+            } catch (e: Exception) {
+                Log.w("SHMTUTerminalApp", "schedule cloud backup failed: ${e.message}")
+            }
+        }
 
         appScope.launch {
             try {

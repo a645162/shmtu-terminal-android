@@ -9,16 +9,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -27,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -46,6 +52,8 @@ fun CloudBackupScreen(
     val status by viewModel.backupStatus.collectAsState()
     val history by viewModel.backupHistory.collectAsState()
     val message by viewModel.message.collectAsState()
+    val autoEnabled by viewModel.autoEnabled.collectAsState()
+    val autoInterval by viewModel.autoIntervalMinutes.collectAsState()
 
     var serverUrl by remember { mutableStateOf(viewModel.getWebDavServerUrl()) }
     var username by remember { mutableStateOf(viewModel.getWebDavUsername()) }
@@ -53,12 +61,17 @@ fun CloudBackupScreen(
     var backupRoot by remember { mutableStateOf(viewModel.getWebDavRoot()) }
     var backupPassword by remember { mutableStateOf("") }
     var selectedProvider by remember { mutableStateOf("webdav") }
+    var autoPassword by remember { mutableStateOf(viewModel.getAutoPassword()) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("云备份") },
-                navigationIcon = { OutlinedButton(onClick = onBack) { Text("返回") } }
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                }
             )
         }
     ) { innerPadding ->
@@ -67,6 +80,19 @@ fun CloudBackupScreen(
                 .verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // 消息提示
+            message?.let {
+                ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
+                    Text(
+                        text = it,
+                        modifier = Modifier.padding(16.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // 存储后端选择
             ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("存储后端", style = MaterialTheme.typography.titleSmall)
@@ -87,6 +113,7 @@ fun CloudBackupScreen(
                 }
             }
 
+            // WebDAV 配置
             if (selectedProvider == "webdav") {
                 ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -115,6 +142,58 @@ fun CloudBackupScreen(
                 }
             }
 
+            // 自动备份
+            ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("自动备份", style = MaterialTheme.typography.titleSmall)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("定时自动备份", style = MaterialTheme.typography.bodyMedium)
+                            Text("开启后按设定间隔自动备份到云端",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = autoEnabled,
+                            onCheckedChange = { viewModel.setAutoEnabled(it) }
+                        )
+                    }
+                    if (autoEnabled) {
+                        // 间隔选择
+                        Text("备份间隔", style = MaterialTheme.typography.labelMedium)
+                        val intervals = listOf(
+                            30 to "30分钟", 60 to "1小时", 180 to "3小时",
+                            360 to "6小时", 720 to "12小时", 1440 to "每天"
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            intervals.forEach { (mins, label) ->
+                                FilterChip(
+                                    selected = autoInterval == mins,
+                                    onClick = { viewModel.setAutoInterval(mins) },
+                                    label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                                )
+                            }
+                        }
+                        // 自动备份加密密码
+                        OutlinedTextField(
+                            value = autoPassword,
+                            onValueChange = {
+                                autoPassword = it
+                                viewModel.setAutoPassword(it)
+                            },
+                            label = { Text("自动备份加密密码（留空则不加密）") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth(), singleLine = true
+                        )
+                    }
+                }
+            }
+
+            // 立即备份
             ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("立即备份", style = MaterialTheme.typography.titleSmall)
@@ -143,11 +222,10 @@ fun CloudBackupScreen(
                         Text("✗ 备份失败：${(status as BackupStatus.Failed).reason}",
                             color = MaterialTheme.colorScheme.error)
                     }
-                    message?.let { Text(it, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
 
+            // 备份历史
             ElevatedCard(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("备份历史", style = MaterialTheme.typography.titleSmall)

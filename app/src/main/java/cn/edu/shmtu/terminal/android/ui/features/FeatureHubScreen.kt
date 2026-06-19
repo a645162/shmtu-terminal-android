@@ -162,6 +162,7 @@ fun FeatureHubScreen(
                                     "bill_statistics" -> onNavigateToBillStatistics()
                                     "data_transfer" -> onNavigateToDataTransfer()
                                     "p2p" -> onNavigateToP2P()
+                                    "cloud_backup" -> onNavigateToCloudBackup()
                                 }
                             }
                         }

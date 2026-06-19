@@ -1,21 +1,28 @@
 package cn.edu.shmtu.terminal.android.ui.cloud
 
+import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.terminal.android.data.cloud.BackupStatus
 import cn.edu.shmtu.terminal.android.data.cloud.CloudBackupManager
 import cn.edu.shmtu.terminal.android.data.cloud.CloudBackupRecord
+import cn.edu.shmtu.terminal.android.data.cloud.CloudBackupWorker
 import cn.edu.shmtu.terminal.android.data.cloud.WebDavConfig
+import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class CloudBackupViewModel @Inject constructor(
-    private val manager: CloudBackupManager
+    private val manager: CloudBackupManager,
+    private val settingsDataStore: SettingsDataStore,
+    private val application: Application
 ) : ViewModel() {
 
     val backupStatus: StateFlow<BackupStatus> = manager.backupStatus
@@ -26,6 +33,12 @@ class CloudBackupViewModel @Inject constructor(
 
     private val _webDavConfig = MutableStateFlow(WebDavUiState())
     val webDavConfig: StateFlow<WebDavUiState> = _webDavConfig.asStateFlow()
+
+    // 自动备份配置
+    val autoEnabled: StateFlow<Boolean> = settingsDataStore.cloudBackupAutoEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val autoIntervalMinutes: StateFlow<Int> = settingsDataStore.cloudBackupAutoInterval
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 360)
 
     init {
         manager.restoreConfig()
@@ -73,11 +86,42 @@ class CloudBackupViewModel @Inject constructor(
         }
     }
 
+    fun setAutoEnabled(enabled: Boolean) {
+        settingsDataStore.setCloudBackupAutoEnabled(enabled)
+        if (enabled) {
+            val interval = settingsDataStore.getCloudBackupAutoIntervalMinutes().toLong()
+            CloudBackupWorker.schedule(application, interval)
+            _message.value = "已开启自动备份，间隔 ${formatInterval(interval)}"
+        } else {
+            CloudBackupWorker.cancel(application)
+            _message.value = "已关闭自动备份"
+        }
+    }
+
+    fun setAutoInterval(minutes: Int) {
+        settingsDataStore.setCloudBackupAutoIntervalMinutes(minutes)
+        // 如果当前已启用，立即更新调度
+        if (settingsDataStore.getCloudBackupAutoEnabledValue()) {
+            CloudBackupWorker.schedule(application, minutes.toLong())
+        }
+    }
+
+    fun setAutoPassword(password: String) {
+        settingsDataStore.setCloudBackupAutoPassword(password)
+    }
+
     fun getWebDavServerUrl(): String = _webDavConfig.value.serverUrl
     fun getWebDavUsername(): String = _webDavConfig.value.username
     fun getWebDavRoot(): String = _webDavConfig.value.root.ifBlank { "shmtu-backup" }
+    fun getAutoPassword(): String = settingsDataStore.getCloudBackupAutoPassword()
 
     fun clearMessage() { _message.value = null }
+
+    private fun formatInterval(minutes: Long): String = when {
+        minutes < 60 -> "${minutes}分钟"
+        minutes % 60 == 0L -> "${minutes / 60}小时"
+        else -> "${minutes / 60}小时${minutes % 60}分钟"
+    }
 }
 
 data class WebDavUiState(
