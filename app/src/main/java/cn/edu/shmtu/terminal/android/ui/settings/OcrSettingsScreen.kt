@@ -59,6 +59,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import cn.edu.shmtu.cas.ocr.OcrModelInfo
 import cn.edu.shmtu.cas.ocr.OcrV2TagCatalog
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model
+import cn.edu.shmtu.terminal.android.data.local.datastore.CaptchaMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,6 +70,7 @@ fun OcrSettingsScreen(
     settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val captchaMode by settingsViewModel.captchaMode.collectAsState()
     val useLocalOcr by settingsViewModel.useLocalOcr.collectAsState()
     val ocrServerUrl by settingsViewModel.ocrServerUrl.collectAsState()
     val ocrRetryCount by viewModel.ocrRetryCount.collectAsState()
@@ -97,6 +99,7 @@ fun OcrSettingsScreen(
         SettingsDetailBody {
             OcrSettingsContent(
                 uiState = uiState,
+                captchaMode = captchaMode,
                 useLocalOcr = useLocalOcr,
                 ocrServerUrl = ocrServerUrl,
                 ocrRetryCount = ocrRetryCount,
@@ -114,6 +117,7 @@ fun OcrSettingsScreen(
                 onSetUseLocalOcr = settingsViewModel::setUseLocalOcr,
                 onSetOcrRetryCount = viewModel::setOcrRetryCount,
                 onSetOcrModelVersion = viewModel::setOcrModelVersion,
+                onSetCaptchaMode = settingsViewModel::setCaptchaMode,
                 onShowAdvancedOcrDialog = { showAdvancedOcrDialog = true },
             )
         }
@@ -121,7 +125,7 @@ fun OcrSettingsScreen(
         androidx.compose.material3.Scaffold(
             topBar = {
                 MediumTopAppBar(
-                    title = { Text("OCR 设置") },
+                    title = { Text("验证码设置") },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(
@@ -149,6 +153,7 @@ fun OcrSettingsScreen(
             ) {
                 OcrSettingsContent(
                     uiState = uiState,
+                    captchaMode = captchaMode,
                     useLocalOcr = useLocalOcr,
                     ocrServerUrl = ocrServerUrl,
                     ocrRetryCount = ocrRetryCount,
@@ -166,6 +171,7 @@ fun OcrSettingsScreen(
                     onSetUseLocalOcr = settingsViewModel::setUseLocalOcr,
                     onSetOcrRetryCount = viewModel::setOcrRetryCount,
                     onSetOcrModelVersion = viewModel::setOcrModelVersion,
+                    onSetCaptchaMode = settingsViewModel::setCaptchaMode,
                     onShowAdvancedOcrDialog = { showAdvancedOcrDialog = true },
                 )
             }
@@ -335,6 +341,7 @@ fun OcrSettingsScreen(
 @Composable
 private fun OcrSettingsContent(
     uiState: OcrSettingsUiState,
+    captchaMode: CaptchaMode,
     useLocalOcr: Boolean,
     ocrServerUrl: String,
     ocrRetryCount: Int,
@@ -352,8 +359,54 @@ private fun OcrSettingsContent(
     onSetUseLocalOcr: (Boolean) -> Unit,
     onSetOcrRetryCount: (Int) -> Unit,
     onSetOcrModelVersion: (SHMTU_NCNN_Model.ModelVersion) -> Unit,
+    onSetCaptchaMode: (CaptchaMode) -> Unit,
     onShowAdvancedOcrDialog: () -> Unit,
 ) {
+    // ===== 验证码模式选择 =====
+    SettingsCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("验证码", style = MaterialTheme.typography.titleLarge)
+        }
+        ListItem(
+            headlineContent = { Text("验证码处理方式") },
+            supportingContent = {
+                Text(
+                    when (captchaMode) {
+                        CaptchaMode.MANUAL -> "登录时弹出验证码图片，手动输入计算结果"
+                        CaptchaMode.AUTO_OCR -> "自动识别验证码，无需手动输入"
+                    }
+                )
+            }
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+        ) {
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                SegmentedButton(
+                    selected = captchaMode == CaptchaMode.MANUAL,
+                    onClick = { onSetCaptchaMode(CaptchaMode.MANUAL) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                ) { Text("手动输入") }
+                SegmentedButton(
+                    selected = captchaMode == CaptchaMode.AUTO_OCR,
+                    onClick = { onSetCaptchaMode(CaptchaMode.AUTO_OCR) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                ) { Text("自动识别") }
+            }
+        }
+        HorizontalDivider()
+    }
+
+    // ===== OCR 配置（仅自动识别模式下显示）=====
+    if (captchaMode == CaptchaMode.AUTO_OCR) {
     SettingsCard {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -633,6 +686,7 @@ private fun OcrSettingsContent(
             }
         }
     }
+    } // end if AUTO_OCR
 }
 
 /** Advanced OCR model settings dialog with tag dropdown, model radio list, and precision selector. */

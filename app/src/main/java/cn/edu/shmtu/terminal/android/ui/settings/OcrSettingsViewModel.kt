@@ -433,8 +433,12 @@ class OcrSettingsViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         modelDownloader.release()
-        okHttpClient.dispatcher.executorService.shutdownNow()
-        okHttpClient.connectionPool.evictAll()
+        // evictAll() and shutdown may close SSL sockets (network I/O),
+        // which crashes on the main thread under StrictMode.
+        Thread {
+            okHttpClient.connectionPool.evictAll()
+            okHttpClient.dispatcher.executorService.shutdownNow()
+        }.start()
     }
 }
 
