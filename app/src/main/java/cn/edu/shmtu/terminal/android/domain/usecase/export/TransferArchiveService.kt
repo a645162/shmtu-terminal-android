@@ -49,9 +49,10 @@ class TransferArchiveService @Inject constructor(
     suspend fun buildArchiveBytes(identityIds: Set<Long>? = null): ArchivePayload {
         val exportIdentities = exportIdentities(identityIds)
         val payload = JSONObject().apply {
-            put("schema_version", 1)
+            put("schema_version", 2)
             put("export_time", System.currentTimeMillis())
             put("format", "shmtu-transfer-archive")
+            put("source_platform", "android")
             put("identities", exportIdentities.payload)
         }.toString(2)
 
