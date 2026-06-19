@@ -33,7 +33,9 @@ data class LoginUiState(
     val error: String? = null,
     val loginSuccess: Boolean = false,
     val isRecognizing: Boolean = false,
-    val recognizedText: String? = null
+    val recognizedText: String? = null,
+    /** 上一次登录因验证码错误失败，本次是重试 */
+    val isCaptchaRetry: Boolean = false
 )
 
 @HiltViewModel
@@ -138,7 +140,7 @@ class LoginViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null, isCaptchaRetry = false)
             Log.d(TAG, "Submitting captcha: $captchaCode")
 
             try {
@@ -196,11 +198,13 @@ class LoginViewModel @Inject constructor(
                     }
                     
                     submitResult.getOrNull() is LoginSubmitResult.ValidateCodeError -> {
-                        Log.d(TAG, "Login failed - wrong captcha")
+                        Log.d(TAG, "Login failed - wrong captcha, retrying...")
+                        // 自动重新获取验证码，不结束登录流程
                         _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = "验证码错误，请重试"
+                            isLoading = true,
+                            error = "验证码错误，已刷新验证码，请重新输入"
                         )
+                        retryFetchCaptcha()
                     }
                     
                     submitResult.getOrNull() is LoginSubmitResult.PasswordError -> {
@@ -225,6 +229,39 @@ class LoginViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = "登录异常: ${e.message}"
+                )
+            }
+        }
+    }
+
+    /**
+     * 验证码错误后自动重新获取验证码，标记为重试状态
+     */
+    private fun retryFetchCaptcha() {
+        viewModelScope.launch {
+            try {
+                val challengeResult = epayAdapter.prepareChallenge(currentAccountId)
+                if (challengeResult.isFailure || challengeResult.getOrNull() == null) {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = "刷新验证码失败，请手动重试",
+                        isCaptchaRetry = true
+                    )
+                    return@launch
+                }
+                val challenge = challengeResult.getOrNull()!!
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    captchaImage = challenge.captchaImage,
+                    error = null,
+                    isCaptchaRetry = true
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Error retrying captcha fetch", e)
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = "刷新验证码失败: ${e.message}",
+                    isCaptchaRetry = true
                 )
             }
         }
