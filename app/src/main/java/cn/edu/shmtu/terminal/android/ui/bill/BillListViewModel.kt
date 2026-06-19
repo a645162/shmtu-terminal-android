@@ -50,6 +50,13 @@ enum class DateRangeFilter(val label: String) {
 
 private const val PAGE_SIZE = 30
 
+private fun BillItem.matchesStatusFilter(filter: BillTypeFilter): Boolean = when (filter) {
+    BillTypeFilter.ALL -> true
+    BillTypeFilter.SUCCESS -> status == "SUCCESS" || status == "交易成功" || status.contains("成功")
+    BillTypeFilter.NOT_PAID -> status == "NOT_PAID" || status == "待支付" || status.contains("未支付") || status.contains("待支付")
+    BillTypeFilter.FAILURE -> status == "FAILURE" || status == "交易失败" || status.contains("失败")
+}
+
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class BillListViewModel @Inject constructor(
@@ -99,12 +106,7 @@ class BillListViewModel @Inject constructor(
     /** 应用筛选条件 */
     private fun List<BillItem>.applyFilters(typeFilter: BillTypeFilter, dateRange: DateRangeFilter, query: String): List<BillItem> {
         return filter { bill ->
-            val typeMatch = when (typeFilter) {
-                BillTypeFilter.ALL -> true
-                BillTypeFilter.SUCCESS -> bill.status == "交易成功"
-                BillTypeFilter.NOT_PAID -> bill.status == "待支付"
-                BillTypeFilter.FAILURE -> bill.status == "交易失败"
-            }
+            val typeMatch = bill.matchesStatusFilter(typeFilter)
             val dateMatch = when (dateRange) {
                 DateRangeFilter.ALL -> true
                 DateRangeFilter.TODAY -> bill.dateTimeStrFormat.startsWith(LocalDate.now().toString())
