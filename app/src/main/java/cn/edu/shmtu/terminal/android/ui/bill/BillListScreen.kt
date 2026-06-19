@@ -55,6 +55,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -98,6 +99,7 @@ fun BillListScreen(
 
     var showSyncMenu by remember { mutableStateOf(false) }
     var showAccountPanel by remember { mutableStateOf(false) }
+    var showCompactFilters by rememberSaveable { mutableStateOf(false) }
     var searchInput by remember { mutableStateOf("") }
     var pendingSyncAction by remember { mutableStateOf<PendingSyncAction?>(null) }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -182,6 +184,8 @@ fun BillListScreen(
                 onDateRangeChange = { viewModel.setDateRange(it) },
                 onSearchInputChanged = { searchInput = it },
                 onSearch = { viewModel.search(searchInput) },
+                showFilterPanel = showCompactFilters,
+                onFilterPanelToggle = { showCompactFilters = !showCompactFilters },
                 syncProgress = syncProgress,
                 isSyncing = isSyncing,
                 showAccountPanel = showAccountPanel,
@@ -260,6 +264,8 @@ private fun CompactBillListLayout(
     onDateRangeChange: (DateRangeFilter) -> Unit,
     onSearchInputChanged: (String) -> Unit,
     onSearch: () -> Unit,
+    showFilterPanel: Boolean,
+    onFilterPanelToggle: () -> Unit,
     syncProgress: SyncProgress?,
     isSyncing: Boolean,
     showAccountPanel: Boolean,
@@ -276,22 +282,16 @@ private fun CompactBillListLayout(
     onClearSyncProgress: () -> Unit,
     progressMessage: String?
 ) {
-    Column(modifier = modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(top = 8.dp, bottom = 8.dp)
+    ) {
         if (currentIdentity != null) {
-            IdentityScopeCard(
+            CompactBillControlCard(
                 title = currentIdentity.remark.ifBlank { currentIdentity.username },
-                subtitle = "当前身份 · ${currentIdentity.accountCount} 个账号"
-            )
-            BillSummaryDeck(
+                subtitle = "当前身份 · ${currentIdentity.accountCount} 个账号",
                 totalFiltered = totalFiltered,
-                currentPage = currentPage,
-                totalPages = totalPages,
-                typeFilter = typeFilter,
-                dateRange = dateRange
-            )
-        }
-        if (currentIdentityId != null) {
-            FilterBar(
                 typeFilter = typeFilter,
                 dateRange = dateRange,
                 searchInput = searchInput,
@@ -299,26 +299,88 @@ private fun CompactBillListLayout(
                 onDateRangeChange = onDateRangeChange,
                 onSearchInputChanged = onSearchInputChanged,
                 onSearch = onSearch,
-                compact = true
+                showFilterPanel = showFilterPanel,
+                onFilterPanelToggle = onFilterPanelToggle
             )
         }
-        SyncPanels(syncProgress, isSyncing, onClearSyncProgress, progressMessage)
-        AccountSyncPanel(
-            visible = showAccountPanel,
-            accounts = accounts,
-            isSyncing = isSyncing,
-            onAccountIncremental = onAccountIncremental,
-            onAccountFull = onAccountFull
-        )
-        BillListContent(
-            currentIdentityId = currentIdentityId,
-            bills = bills,
-            preferParsedDisplay = preferParsedDisplay,
-            onBillClick = onBillClick,
-            totalPages = totalPages,
-            currentPage = currentPage,
-            onPageChange = onPageChange
-        )
+
+        if (currentIdentityId == null) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Surface(
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        IconBubble(Icons.Outlined.Inventory2, MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("暂无账单", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                        Text("请先在“当前身份”里切换身份", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(top = 2.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                item {
+                    SyncPanels(syncProgress, isSyncing, onClearSyncProgress, progressMessage)
+                }
+
+                item {
+                    AccountSyncPanel(
+                        visible = showAccountPanel,
+                        accounts = accounts,
+                        isSyncing = isSyncing,
+                        onAccountIncremental = onAccountIncremental,
+                        onAccountFull = onAccountFull
+                    )
+                }
+
+                if (bills.isEmpty()) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Surface(
+                                shape = RoundedCornerShape(28.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    IconBubble(Icons.Outlined.Inventory2, MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text("当前筛选下暂无账单", style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        "调整筛选条件或执行同步后再试",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    items(bills, key = { it.id }) { bill ->
+                        BillItemRow(
+                            bill = bill,
+                            onClick = { onBillClick(bill.id) },
+                            preferParsedDisplay = preferParsedDisplay
+                        )
+                    }
+                }
+            }
+
+            if (totalPages > 1) {
+                PaginationBar(currentPage, totalPages, onPageChange, compact = true)
+            }
+        }
     }
 }
 
@@ -784,6 +846,93 @@ private fun BillSummaryDeck(
 }
 
 @Composable
+private fun CompactBillControlCard(
+    title: String,
+    subtitle: String,
+    totalFiltered: Int,
+    typeFilter: BillTypeFilter,
+    dateRange: DateRangeFilter,
+    searchInput: String,
+    onTypeFilterChange: (BillTypeFilter) -> Unit,
+    onDateRangeChange: (DateRangeFilter) -> Unit,
+    onSearchInputChanged: (String) -> Unit,
+    onSearch: () -> Unit,
+    showFilterPanel: Boolean,
+    onFilterPanelToggle: () -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        )
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+                Text("账单列表", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconBubble(Icons.Outlined.FilterAlt, MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text("筛选与搜索", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            buildCompactFilterSummary(typeFilter, dateRange, searchInput),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                TextButton(onClick = onFilterPanelToggle, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text(if (showFilterPanel) "收起" else "展开")
+                }
+            }
+
+            AnimatedVisibility(showFilterPanel) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SummaryStatCard("筛选结果", totalFiltered.toString(), Modifier.weight(1f))
+                        SummaryStatCard(
+                            "当前筛选",
+                            buildCompactFilterValue(typeFilter, dateRange),
+                            Modifier.weight(1f),
+                            compact = true
+                        )
+                    }
+                    FilterBar(
+                        typeFilter = typeFilter,
+                        dateRange = dateRange,
+                        searchInput = searchInput,
+                        onTypeFilterChange = onTypeFilterChange,
+                        onDateRangeChange = onDateRangeChange,
+                        onSearchInputChanged = onSearchInputChanged,
+                        onSearch = onSearch,
+                        compact = true,
+                        embedded = true
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SummaryStatCard(
     label: String,
     value: String,
@@ -814,6 +963,34 @@ private fun SummaryStatCard(
     }
 }
 
+private fun buildCompactFilterSummary(
+    typeFilter: BillTypeFilter,
+    dateRange: DateRangeFilter,
+    searchInput: String
+): String {
+    val parts = buildList {
+        if (typeFilter != BillTypeFilter.ALL) add(typeFilter.label)
+        if (dateRange != DateRangeFilter.ALL) add(dateRange.label)
+        if (searchInput.isNotBlank()) add("关键词")
+    }
+    return if (parts.isEmpty()) {
+        "默认筛选，向上滑动时会一起收走"
+    } else {
+        "已启用 ${parts.joinToString(" · ")}"
+    }
+}
+
+private fun buildCompactFilterValue(
+    typeFilter: BillTypeFilter,
+    dateRange: DateRangeFilter
+): String {
+    val parts = buildList {
+        if (typeFilter != BillTypeFilter.ALL) add(typeFilter.label)
+        if (dateRange != DateRangeFilter.ALL) add(dateRange.label)
+    }
+    return if (parts.isEmpty()) "默认" else parts.joinToString(" · ")
+}
+
 // ==================== 筛选栏 ====================
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -822,29 +999,22 @@ private fun FilterBar(
     typeFilter: BillTypeFilter, dateRange: DateRangeFilter, searchInput: String,
     onTypeFilterChange: (BillTypeFilter) -> Unit, onDateRangeChange: (DateRangeFilter) -> Unit,
     onSearchInputChanged: (String) -> Unit, onSearch: () -> Unit,
-    compact: Boolean = false
+    compact: Boolean = false,
+    embedded: Boolean = false
 ) {
-    ElevatedCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                horizontal = if (compact) 0.dp else 16.dp,
-                vertical = 8.dp
-            ),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        )
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconBubble(Icons.Outlined.FilterAlt, MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text("筛选与搜索", style = MaterialTheme.typography.titleSmall)
-                    Text("按状态、时间和关键词快速缩小范围", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val content: @Composable () -> Unit = {
+        Column(modifier = Modifier.padding(if (embedded) 0.dp else 14.dp)) {
+            if (!embedded) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconBubble(Icons.Outlined.FilterAlt, MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text("筛选与搜索", style = MaterialTheme.typography.titleSmall)
+                        Text("按状态、时间和关键词快速缩小范围", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
+                Spacer(modifier = Modifier.height(12.dp))
             }
-            Spacer(modifier = Modifier.height(12.dp))
             PrimaryTabRow(
                 selectedTabIndex = BillTypeFilter.entries.indexOf(typeFilter),
                 modifier = Modifier.fillMaxWidth()
@@ -935,6 +1105,24 @@ private fun FilterBar(
                     }
                 }
             }
+        }
+    }
+
+    if (embedded) {
+        content()
+    } else {
+        ElevatedCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = if (compact) 0.dp else 16.dp,
+                    vertical = 8.dp
+                ),
+            colors = CardDefaults.elevatedCardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+            )
+        ) {
+            content()
         }
     }
 }
