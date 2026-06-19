@@ -16,11 +16,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -96,6 +98,9 @@ fun BillListScreen(
     val isSyncing by viewModel.isSyncing.collectAsState()
     val pendingCaptcha by viewModel.pendingCaptcha.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val compactBillListState = rememberLazyListState()
+    val wideSidebarListState = rememberLazyListState()
+    val wideBillListState = rememberLazyListState()
 
     var showSyncMenu by remember { mutableStateOf(false) }
     var showAccountPanel by remember { mutableStateOf(false) }
@@ -165,6 +170,8 @@ fun BillListScreen(
                 bills = bills,
                 preferParsedDisplay = preferParsedBillDisplay,
                 onBillClick = onBillClick,
+                sidebarListState = wideSidebarListState,
+                billListState = wideBillListState,
                 onPageChange = { viewModel.setPage(it) },
                 onClearSyncProgress = { viewModel.clearSyncProgress() },
                 progressMessage = syncProgress?.let { viewModel.getProgressMessage(it) }
@@ -198,6 +205,7 @@ fun BillListScreen(
                 bills = bills,
                 preferParsedDisplay = preferParsedBillDisplay,
                 onBillClick = onBillClick,
+                billListState = compactBillListState,
                 onPageChange = { viewModel.setPage(it) },
                 onClearSyncProgress = { viewModel.clearSyncProgress() },
                 progressMessage = syncProgress?.let { viewModel.getProgressMessage(it) }
@@ -278,6 +286,7 @@ private fun CompactBillListLayout(
     bills: List<BillItem>,
     preferParsedDisplay: Boolean,
     onBillClick: (Long) -> Unit,
+    billListState: LazyListState,
     onPageChange: (Int) -> Unit,
     onClearSyncProgress: () -> Unit,
     progressMessage: String?
@@ -324,6 +333,7 @@ private fun CompactBillListLayout(
             }
         } else {
             LazyColumn(
+                state = billListState,
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(top = 2.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -412,6 +422,8 @@ private fun WideBillListLayout(
     bills: List<BillItem>,
     preferParsedDisplay: Boolean,
     onBillClick: (Long) -> Unit,
+    sidebarListState: LazyListState,
+    billListState: LazyListState,
     onPageChange: (Int) -> Unit,
     onClearSyncProgress: () -> Unit,
     progressMessage: String?
@@ -423,6 +435,7 @@ private fun WideBillListLayout(
         horizontalArrangement = Arrangement.spacedBy(if (ultraWideLayout) 20.dp else 18.dp)
     ) {
         LazyColumn(
+            state = sidebarListState,
             modifier = Modifier.width(if (ultraWideLayout) 360.dp else 330.dp),
             contentPadding = PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -553,6 +566,7 @@ private fun WideBillListLayout(
                     bills = bills,
                     preferParsedDisplay = preferParsedDisplay,
                     onBillClick = onBillClick,
+                    billListState = billListState,
                     totalPages = totalPages,
                     currentPage = currentPage,
                     onPageChange = onPageChange,
@@ -666,6 +680,7 @@ private fun BillListContent(
     bills: List<BillItem>,
     preferParsedDisplay: Boolean,
     onBillClick: (Long) -> Unit,
+    billListState: LazyListState,
     totalPages: Int,
     currentPage: Int,
     onPageChange: (Int) -> Unit,
@@ -714,6 +729,7 @@ private fun BillListContent(
                 }
             } else {
                 LazyColumn(
+                    state = billListState,
                     contentPadding = PaddingValues(
                         horizontal = if (compact) 2.dp else 16.dp,
                         vertical = if (compact) 4.dp else 8.dp
