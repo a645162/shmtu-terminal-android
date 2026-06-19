@@ -189,18 +189,32 @@ interface BillDao {
     fun getDailyTrendByTypeDotFormat(startDate: String, endDate: String): Flow<List<DailyTypeSum>>
 
     /**
-     * 取指定 type + 时间区间内所有 bill(对齐 Rust get_category_bills)
-     * 兼容 "yyyy.MM.dd HH:mm:ss" 格式
+     * 取指定 type + 时间区间内所有 bill。
+     * 保留给合并等旧逻辑使用。
      */
     @Query("""
         SELECT * FROM bills
         WHERE type = :type
           AND REPLACE(substr(dateTimeStrFormat, 1, 10), '.', '-') || substr(dateTimeStrFormat, 11) >= :startDate
           AND REPLACE(substr(dateTimeStrFormat, 1, 10), '.', '-') || substr(dateTimeStrFormat, 11) <= :endDate
-          AND status = 'SUCCESS'
+          AND status IN ('SUCCESS', '交易成功')
         ORDER BY dateTimeStrFormat DESC
     """)
     fun getBillsByTypeInRange(type: String, startDate: String, endDate: String): Flow<List<BillEntity>>
+
+    /**
+     * 取指定 category + 时间区间内所有 bill(对齐 Rust get_category_bills)
+     * 兼容 "yyyy.MM.dd HH:mm:ss" 格式。
+     */
+    @Query("""
+        SELECT * FROM bills
+        WHERE category = :category
+          AND REPLACE(substr(dateTimeStrFormat, 1, 10), '.', '-') || substr(dateTimeStrFormat, 11) >= :startDate
+          AND REPLACE(substr(dateTimeStrFormat, 1, 10), '.', '-') || substr(dateTimeStrFormat, 11) <= :endDate
+          AND status IN ('SUCCESS', '交易成功')
+        ORDER BY dateTimeStrFormat DESC
+    """)
+    fun getBillsByCategoryInRange(category: String, startDate: String, endDate: String): Flow<List<BillEntity>>
 
     /**
      * 用餐时段分布 - 对齐 Rust 版 get_meal_distribution

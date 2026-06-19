@@ -439,7 +439,7 @@ class BillRepositoryImpl @Inject constructor(
     }
 
     /**
-     * 取指定 type + 时间区间内所有 bill(对齐 Rust get_category_bills)
+     * 取指定 category + 时间区间内所有 bill(对齐 Rust get_category_bills)
      */
     override fun getCategoryBills(
         identityId: Long?,
@@ -447,10 +447,13 @@ class BillRepositoryImpl @Inject constructor(
         startDate: String?,
         endDate: String?
     ): Flow<List<BillItem>> {
+        if (category == "all") {
+            return flow { emit(emptyList()) }
+        }
         val start = startDate ?: YearMonth.now().atDay(1).format(DATE_FMT)
         val end = endDate ?: YearMonth.now().atEndOfMonth().format(DATE_FMT_END)
         return getDatabases(identityId).flatMapLatest { dbs ->
-            combine(dbs.map { db -> db.billDao().getBillsByTypeInRange(category, start, end) }) { results ->
+            combine(dbs.map { db -> db.billDao().getBillsByCategoryInRange(category, start, end) }) { results ->
                 results.flatMap { it.toList() }.map { it.toDomain() }
             }
         }
