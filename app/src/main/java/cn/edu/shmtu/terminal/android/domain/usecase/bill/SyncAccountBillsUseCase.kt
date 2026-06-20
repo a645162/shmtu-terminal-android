@@ -3,9 +3,6 @@ package cn.edu.shmtu.terminal.android.domain.usecase.bill
 import android.util.Log
 import android.util.Base64
 import cn.edu.shmtu.cas.auth.EpayAuth
-import cn.edu.shmtu.cas.captcha.Captcha
-import cn.edu.shmtu.cas.captcha.CaptchaAnswer
-import cn.edu.shmtu.cas.captcha.CaptchaAnswerKind
 import cn.edu.shmtu.cas.captcha.CaptchaResolver
 import cn.edu.shmtu.cas.session.LoginSubmitResult
 import cn.edu.shmtu.cas.session.ManualCaptchaRequiredException
@@ -19,6 +16,7 @@ import cn.edu.shmtu.cas.sync.incrementalSync
 import cn.edu.shmtu.cas.sync.syncAccount
 import cn.edu.shmtu.terminal.android.data.local.datastore.CaptchaMode
 import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
+import cn.edu.shmtu.terminal.android.data.remote.CaptchaResolverFactory
 import cn.edu.shmtu.terminal.android.data.remote.EpayAdapter
 import cn.edu.shmtu.terminal.android.data.sync.RoomBillStore
 import cn.edu.shmtu.terminal.android.domain.model.Account
@@ -47,6 +45,7 @@ class SyncAccountBillsUseCase @Inject constructor(
     private val epayAdapter: EpayAdapter,
     private val accountRepository: AccountRepository,
     private val settingsDataStore: SettingsDataStore,
+    private val captchaResolverFactory: CaptchaResolverFactory,
     private val billMergeService: BillMergeService,
 ) {
     private val tag = "SyncAccountBills"
@@ -201,12 +200,9 @@ class SyncAccountBillsUseCase @Inject constructor(
         fullSync: Boolean,
         onProgress: (SyncProgress) -> Unit,
     ): SyncResult = withContext(Dispatchers.IO) {
-        val captchaMode = settingsDataStore.captchaMode.first()
-        val resolver: CaptchaResolver? = when (captchaMode) {
-            CaptchaMode.MANUAL -> null
-            CaptchaMode.AUTO_OCR -> autoOcrResolver()
-        }
+        val resolver = captchaResolverFactory.create()
         val password = accountRepository.getPassword(account.id).orEmpty()
+        val captchaMode = settingsDataStore.captchaMode.first()
         Log.d(
             tag,
             "runAccountSync start accountId=${account.id} label=${account.label} fullSync=$fullSync range=$syncRange captchaMode=$captchaMode hasPassword=${password.isNotBlank()}"
@@ -277,29 +273,6 @@ class SyncAccountBillsUseCase @Inject constructor(
         // merge 时即时计算 category / position / room / building,落库持久化。
         it.classifier = epayAdapter.classifier
         it.positionTranslator = epayAdapter.positionTranslator
-    }
-
-    /**
-     * 构造自动 OCR 验证码解析器，复用 [Captcha.ocrByRemoteTcpServerAutoRetry]。
-     */
-    private fun autoOcrResolver(): CaptchaResolver {
-        return object : CaptchaResolver {
-            override suspend fun resolve(imageData: ByteArray): Result<cn.edu.shmtu.cas.captcha.CaptchaAnswer> {
-                val serverUrl = settingsDataStore.ocrServerUrl.first()
-                val parts = serverUrl.split(":")
-                return if (parts.size == 2) {
-                    val port = parts[1].toIntOrNull()
-                    if (port != null) {
-                        val answer = Captcha.ocrByRemoteTcpServerAutoRetry(parts[0], port, imageData)
-                        if (answer.isNotBlank()) {
-                            Result.success(cn.edu.shmtu.cas.captcha.CaptchaAnswer(answer, cn.edu.shmtu.cas.captcha.CaptchaAnswerKind.ANSWER))
-                        } else {
-                            Result.failure(Exception("OCR 识别失败"))
-                        }
-                    } else Result.failure(Exception("OCR 配置端口无效"))
-                } else Result.failure(Exception("OCR 配置无效（需 host:port 格式）"))
-            }
-        }
     }
 }
 

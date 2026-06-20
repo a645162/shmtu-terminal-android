@@ -1,19 +1,20 @@
 package cn.edu.shmtu.terminal.android.data.remote
 
 import android.content.Context
+import android.util.Base64
 import android.util.Log
 import cn.edu.shmtu.cas.auth.EpayAuth
+import cn.edu.shmtu.cas.captcha.CaptchaResolver
 import cn.edu.shmtu.cas.classifier.BillCategory
 import cn.edu.shmtu.cas.classifier.BillClassifier
-import cn.edu.shmtu.cas.captcha.Captcha
 import cn.edu.shmtu.cas.classifier.MealClassifier
 import cn.edu.shmtu.cas.classifier.PositionInfo
 import cn.edu.shmtu.cas.classifier.PositionTranslator
 import cn.edu.shmtu.cas.datatype.BillType
 import cn.edu.shmtu.cas.parser.BillParser
 import cn.edu.shmtu.cas.session.LoginSubmitResult
+import cn.edu.shmtu.cas.session.ManualCaptchaRequiredException
 import cn.edu.shmtu.cas.session.SessionProbe
-import cn.edu.shmtu.terminal.android.data.local.datastore.CaptchaMode
 import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
 import cn.edu.shmtu.terminal.android.data.local.db.BillDatabaseManager
 import cn.edu.shmtu.terminal.android.data.local.db.dao.AccountDao
@@ -26,22 +27,19 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
-class PersonAccountCaptchaRequiredException(
-    val captchaImage: ByteArray,
-    val execution: String
-) : Exception("PERSON_ACCOUNT_CAPTCHA_REQUIRED")
-
 @Singleton
 class EpayAdapter @Inject constructor(
     private val secureStorage: SecureStorage,
     private val settingsDataStore: SettingsDataStore,
     private val accountDao: AccountDao,
+    private val captchaResolverFactory: CaptchaResolverFactory,
     @param:ApplicationContext private val context: Context,
     /** 由 Hilt 注入 [BillDatabaseManager] 供 [cn.edu.shmtu.terminal.android.data.sync.RoomBillStore] 使用 */
     val billDbManager: BillDatabaseManager,
     /** 由 Hilt 注入 [BillRulesManager], 走 filesDir/bill/ 本地缓存(缺失回退到 assets/bill/) */
     private val billRulesManager: BillRulesManager,
 ) {
+
     private val TAG = "EpayAdapter"
 
     private val instances = mutableMapOf<Long, EpayAuth>()
@@ -326,8 +324,9 @@ class EpayAdapter @Inject constructor(
      * 拉取一卡通个人账户页面 HTML。
      *
      * 优先复用已保存的 session cookies。
-     * 如果 cookies 过期，则按当前验证码设置自动补登录；手动模式下抛出
-     * [PersonAccountCaptchaRequiredException] 让 UI 弹窗继续完成登录并刷新。
+     * 如果 cookies 过期，按当前验证码设置自动补登录：
+     * - AUTO_OCR → [CaptchaResolver] 自动识别（本地 NCNN 或远程 TCP）
+     * - MANUAL → 抛 [ManualCaptchaRequiredException]，由 UI 弹窗让用户输入
      */
     suspend fun fetchPersonAccountHtml(accountId: Long): Result<String> = withContext(Dispatchers.IO) {
         val firstTry = runEpayCall(getEpayAuth(accountId)) { getPersonAccountHtml() }
@@ -353,7 +352,7 @@ class EpayAdapter @Inject constructor(
             return@withContext Result.failure(Exception("未找到密码，请重新保存账号密码"))
         }
 
-        val reloginResult = loginForPersonAccount(accountId, account.userId, password)
+        val reloginResult = loginForPersonAccount(accountId, account.userId, password, account.label)
         if (reloginResult.isFailure) {
             return@withContext Result.failure(reloginResult.exceptionOrNull() ?: Exception("重新登录失败"))
         }
@@ -370,10 +369,18 @@ class EpayAdapter @Inject constructor(
         secondTry
     }
 
+    /**
+     * 为 PersonAccount 刷新补登录。
+     *
+     * 复用 [CaptchaResolverFactory] 机制（与 [cn.edu.shmtu.cas.sync.syncAccount] 同款）：
+     * - MANUAL → 抛 [ManualCaptchaRequiredException]，UI 弹窗输入
+     * - AUTO_OCR → resolver 自动识别（本地 NCNN 或远程 TCP），最多重试 3 次
+     */
     private suspend fun loginForPersonAccount(
         accountId: Long,
         username: String,
-        password: String
+        password: String,
+        accountLabel: String = "",
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val auth = getEpayAuth(accountId)
         val probeResult = runEpayCall(auth) { probeLogin() }
@@ -387,90 +394,81 @@ class EpayAdapter @Inject constructor(
             return@withContext Result.success(Unit)
         }
 
-        val captchaMode = settingsDataStore.captchaMode.first()
+        val resolver = captchaResolverFactory.create()
 
-        when (captchaMode) {
-            CaptchaMode.MANUAL -> {
-                val challenge = runEpayCall(auth) { prepareChallenge() }.getOrElse { error ->
-                    return@withContext Result.failure(Exception("获取验证码失败: ${error.message ?: "未知错误"}"))
-                }
-                return@withContext Result.failure(
-                    PersonAccountCaptchaRequiredException(
-                        captchaImage = challenge.captchaImage,
-                        execution = challenge.execution
-                    )
-                )
+        // 拿 challenge
+        val challenge = runEpayCall(auth) { prepareChallenge() }.getOrElse { error ->
+            return@withContext Result.failure(Exception("获取验证码失败: ${error.message ?: "未知错误"}"))
+        }
+
+        // MANUAL: 抛异常让 UI 处理
+        if (resolver == null) {
+            throw ManualCaptchaRequiredException(
+                captchaImageBase64 = Base64.encodeToString(challenge.captchaImage, Base64.NO_WRAP),
+                execution = challenge.execution,
+                accountId = accountId,
+                accountLabel = accountLabel,
+                captchaImageBytes = challenge.captchaImage,
+            )
+        }
+
+        // AUTO_OCR: 最多重试 3 次
+        val maxAttempts = 3
+        repeat(maxAttempts) { attempt ->
+            val captchaCode = resolver.resolve(challenge.captchaImage).getOrElse { error ->
+                return@withContext Result.failure(Exception("OCR 识别失败: ${error.message ?: "未知错误"}"))
             }
 
-            CaptchaMode.AUTO_OCR -> {
-                val maxAttempts = 3
-                repeat(maxAttempts) { attempt ->
-                    val challenge = runEpayCall(auth) { prepareChallenge() }.getOrElse { error ->
-                        return@withContext Result.failure(Exception("获取验证码失败: ${error.message ?: "未知错误"}"))
+            val answer = captchaCode.intoFinalAnswer().value
+            Log.i(
+                TAG,
+                "auto login captcha: expr=${captchaCode.value}, answer=$answer, attempt=${attempt + 1}/$maxAttempts"
+            )
+            if (answer.isBlank()) {
+                return@withContext Result.failure(Exception("OCR 识别失败"))
+            }
+
+            when (
+                val submit = runEpayCall(auth) {
+                    submitLogin(username, password, answer, challenge.execution)
+                }.getOrNull()
+            ) {
+                is LoginSubmitResult.Success -> {
+                    val verifyResult = runEpayCall(auth) { probeLogin() }
+                    if (verifyResult.getOrNull() is SessionProbe.AlreadyLoggedIn) {
+                        saveSessionCookies(accountId, auth)
+                        return@withContext Result.success(Unit)
                     }
-
-                    val captchaCode = resolveCaptchaForPersonAccount(challenge.captchaImage).getOrElse { error ->
-                        return@withContext Result.failure(Exception("OCR 识别失败: ${error.message ?: "未知错误"}"))
-                    }
-
-                    when (
-                        val submit = runEpayCall(auth) {
-                            submitLogin(username, password, captchaCode, challenge.execution)
-                        }.getOrNull()
-                    ) {
-                        is LoginSubmitResult.Success -> {
-                            val verifyResult = runEpayCall(auth) { probeLogin() }
-                            if (verifyResult.getOrNull() is SessionProbe.AlreadyLoggedIn) {
-                                saveSessionCookies(accountId, auth)
-                                return@withContext Result.success(Unit)
-                            }
-                            if (attempt == maxAttempts - 1) {
-                                return@withContext Result.failure(Exception("登录验证失败"))
-                            }
-                        }
-
-                        is LoginSubmitResult.ValidateCodeError -> {
-                            if (attempt == maxAttempts - 1) {
-                                return@withContext Result.failure(Exception("验证码识别失败，请稍后重试"))
-                            }
-                        }
-
-                        is LoginSubmitResult.PasswordError -> {
-                            return@withContext Result.failure(Exception("用户名或密码错误"))
-                        }
-
-                        is LoginSubmitResult.Failure -> {
-                            if (attempt == maxAttempts - 1) {
-                                return@withContext Result.failure(Exception("登录失败: ${submit.message}"))
-                            }
-                        }
-
-                        else -> {
-                            if (attempt == maxAttempts - 1) {
-                                return@withContext Result.failure(Exception("登录失败"))
-                            }
-                        }
+                    if (attempt == maxAttempts - 1) {
+                        return@withContext Result.failure(Exception("登录验证失败"))
                     }
                 }
-                Result.failure(Exception("登录重试次数耗尽"))
+
+                is LoginSubmitResult.ValidateCodeError -> {
+                    if (attempt == maxAttempts - 1) {
+                        return@withContext Result.failure(Exception("验证码识别失败，请稍后重试"))
+                    }
+                    // 刷新 challenge 重试
+                }
+
+                is LoginSubmitResult.PasswordError -> {
+                    return@withContext Result.failure(Exception("用户名或密码错误"))
+                }
+
+                is LoginSubmitResult.Failure -> {
+                    if (attempt == maxAttempts - 1) {
+                        return@withContext Result.failure(Exception("登录失败: ${submit.message}"))
+                    }
+                }
+
+                else -> {
+                    if (attempt == maxAttempts - 1) {
+                        return@withContext Result.failure(Exception("登录失败"))
+                    }
+                }
             }
         }
-    }
-
-    private suspend fun resolveCaptchaForPersonAccount(imageData: ByteArray): Result<String> {
-        val serverUrl = settingsDataStore.ocrServerUrl.first()
-        val parts = serverUrl.split(":")
-        if (parts.size != 2) {
-            return Result.failure(Exception("OCR 配置无效（需 host:port 格式）"))
-        }
-        val port = parts[1].toIntOrNull()
-            ?: return Result.failure(Exception("OCR 配置端口无效"))
-        val answer = Captcha.ocrByRemoteTcpServerAutoRetry(parts[0], port, imageData)
-        return if (answer.isNotBlank()) {
-            Result.success(answer)
-        } else {
-            Result.failure(Exception("OCR 识别失败"))
-        }
+        Result.failure(Exception("登录重试次数耗尽"))
     }
 
     private fun isSessionExpired(message: String): Boolean {
