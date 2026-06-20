@@ -80,12 +80,20 @@ class SecureStorage @Inject constructor(
         return getDecrypted("account_wechat_cookie_$accountId")
     }
 
+    fun removeWechatCookie(accountId: Long) {
+        prefs.edit().remove("account_wechat_cookie_$accountId").apply()
+    }
+
     fun saveWechatLoginUrl(accountId: Long, url: String) {
         putEncrypted("account_wechat_login_url_$accountId", url)
     }
 
     fun getWechatLoginUrl(accountId: Long): String? {
         return getDecrypted("account_wechat_login_url_$accountId")
+    }
+
+    fun removeWechatLoginUrl(accountId: Long) {
+        prefs.edit().remove("account_wechat_login_url_$accountId").apply()
     }
 
     fun clearAccountData(accountId: Long) {

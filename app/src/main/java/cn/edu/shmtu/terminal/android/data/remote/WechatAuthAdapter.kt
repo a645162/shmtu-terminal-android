@@ -23,6 +23,13 @@ class WechatAuthAdapter @Inject constructor(
         return instances.getOrPut(accountId) { createWechatAuthWithCookies(accountId) }
     }
 
+    fun invalidateSession(accountId: Long) {
+        secureStorage.removeWechatCookie(accountId)
+        secureStorage.removeWechatLoginUrl(accountId)
+        instances.remove(accountId)
+        Log.d(TAG, "Invalidated wechat session for account $accountId")
+    }
+
     private fun createWechatAuthWithCookies(accountId: Long): WechatAuth {
         val wechatAuth = WechatAuth()
 
