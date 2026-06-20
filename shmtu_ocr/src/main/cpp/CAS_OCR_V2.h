@@ -45,8 +45,11 @@ namespace CAS_OCR_V2
     // Known output blob names of the v2 NCNN export. The first existing blob
     // in the param file is used. We try this list in order; the first that
     // exists in the model is kept for subsequent calls.
-    // NOTE: confirm on a real device and paste the actual names into the
-    // project notes.
+    //
+    // IMPORTANT: pnnx export via ExportWrapper actually produces out0/out1/out2,
+    // NOT digit_left_logits etc. The out0/out1/out2 names are tried first in
+    // discover_output_names() (CAS_OCR_V2.cpp). The names below are kept as
+    // fallback candidates for models exported differently.
     constexpr const char* V2_OUT_DIGIT_LEFT  = "digit_left_logits";
     constexpr const char* V2_OUT_OPERATOR    = "operator_logits";
     constexpr const char* V2_OUT_DIGIT_RIGHT = "digit_right_logits";

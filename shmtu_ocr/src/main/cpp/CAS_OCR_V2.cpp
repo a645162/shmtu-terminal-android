@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <sstream>
 #include <vector>
 
 #include <opencv2/imgproc.hpp>
@@ -62,65 +63,39 @@ namespace CAS_OCR_V2
     {
         ncnn::Option& opt = g_net.opt;
         opt.lightmode = true;
-        opt.num_threads = 4;
+        opt.num_threads = use_gpu ? 1 : 4;
         opt.blob_allocator = &g_blob_pool_allocator;
         opt.workspace_allocator = &g_workspace_pool_allocator;
+        // Android/ARM has shown NaN outputs on this v2 model. Force the
+        // conservative fp32 path first; desktop x86 naturally tends to do this.
+        opt.use_fp16_packed = false;
+        opt.use_fp16_storage = false;
+        opt.use_fp16_arithmetic = false;
+#if NCNN_VERSION_CODE >= 20240102
+        opt.use_bf16_storage = false;
+#endif
 #ifdef NCNN_SUPPORT_VULKAN
         opt.use_vulkan_compute = use_gpu;
 #endif
+        log_info("v2: net opt gpu=%s threads=%d fp16_packed=%d fp16_storage=%d fp16_arithmetic=%d",
+                 use_gpu ? "true" : "false",
+                 opt.num_threads,
+                 opt.use_fp16_packed ? 1 : 0,
+                 opt.use_fp16_storage ? 1 : 0,
+                 opt.use_fp16_arithmetic ? 1 : 0);
     }
 
-    // Probe the loaded model for which of the candidate output names actually
-    // exist. We try (1) net.output_names() for the v2 export; (2) the hard
-    // coded defaults; (3) any 3-output tail of the layer list as last resort.
+    // pnnx export via ExportWrapper always produces out0/out1/out2.
+    // Confirmed by both the C++ OCR server and the actual .param file:
+    //   InnerProduct ... out0  0=10  -> digit_left  (10 classes)
+    //   InnerProduct ... out1  0=3   -> operator    (3 classes)
+    //   InnerProduct ... out2  0=10  -> digit_right (10 classes)
     static void discover_output_names()
     {
-        g_out_digit_left.clear();
-        g_out_operator.clear();
-        g_out_digit_right.clear();
-
-        // Preferred names in priority order for the three heads.
-        const std::vector<std::vector<const char*>> candidates = {
-            { V2_OUT_DIGIT_LEFT,  V2_OUT_OPERATOR,    V2_OUT_DIGIT_RIGHT },
-            { "left",             "operator",         "right" },
-            { "out_digit_left",   "out_operator",     "out_digit_right" },
-            { "digit_left",       "op",               "digit_right" }
-        };
-
-        for (const auto& cand : candidates) {
-            ncnn::Extractor ex = g_net.create_extractor();
-            ncnn::Mat probe;
-            int r0 = ex.input(cand[0], probe) == 0 ? 0 : -1;
-            // We don't actually want to push data; just verify the blob exists.
-            // Some ncnn versions need a real input before extract works, so
-            // we re-create an extractor and call extract("name", out) to see
-            // if the graph accepts the name. (Returns <0 if not present.)
-            ncnn::Mat out0;
-            int ret0 = ex.extract(cand[0], out0);
-            // ret == 0 means the blob was found in the graph
-            if (ret0 == 0) {
-                ncnn::Mat out1, out2;
-                int ret1 = ex.extract(cand[1], out1);
-                int ret2 = ex.extract(cand[2], out2);
-                if (ret1 == 0 && ret2 == 0) {
-                    g_out_digit_left  = cand[0];
-                    g_out_operator    = cand[1];
-                    g_out_digit_right = cand[2];
-                    log_info("v2: discovered output names [%s, %s, %s]",
-                             g_out_digit_left.c_str(),
-                             g_out_operator.c_str(),
-                             g_out_digit_right.c_str());
-                    return;
-                }
-            }
-            (void)r0;
-        }
-
-        // Fallback: log all available output names so a developer can paste
-        // them into CAS_OCR_V2.h. We rely on ncnn::Net::output_names() which
-        // requires a forward pass or the internal layer list.
-        log_err("v2: could not resolve output names; the v2 model needs a "
-                "confirmed blob name list. See logcat for details.");
+        g_out_digit_left  = "out0";
+        g_out_operator    = "out1";
+        g_out_digit_right = "out2";
+        log_info("v2: using output names [out0, out1, out2]");
     }
 
     static bool load_param_and_bin(const std::string& param_path,
@@ -175,6 +150,9 @@ namespace CAS_OCR_V2
             dir += '/';
         }
 
+        g_net.clear();
+        g_blob_pool_allocator.clear();
+        g_workspace_pool_allocator.clear();
         apply_net_opt(use_gpu);
 
         // v2 file naming convention: <stem>.<precision>.{param,bin}
@@ -252,6 +230,60 @@ namespace CAS_OCR_V2
         return best;
     }
 
+    static std::string logits_to_string(const ncnn::Mat& m)
+    {
+        std::string s = "[";
+        for (int i = 0; i < m.w; ++i) {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), i == 0 ? "%.4f" : ",%.4f", m[i]);
+            s += buf;
+        }
+        s += "]";
+        return s;
+    }
+
+    static bool mat_has_nan(const ncnn::Mat& m)
+    {
+        for (int i = 0; i < m.w; ++i) {
+            if (std::isnan(m[i])) return true;
+        }
+        return false;
+    }
+
+    static const char* mat_type_name(int type)
+    {
+        switch (type) {
+            case CV_8UC1: return "CV_8UC1";
+            case CV_8UC3: return "CV_8UC3";
+            case CV_8UC4: return "CV_8UC4";
+            default: return "UNKNOWN";
+        }
+    }
+
+    static std::string mat_summary(const cv::Mat& mat)
+    {
+        if (mat.empty()) return "empty";
+
+        cv::Scalar mean_scalar = cv::mean(mat);
+        double min_val = 0.0;
+        double max_val = 0.0;
+        cv::minMaxLoc(mat.reshape(1), &min_val, &max_val);
+
+        std::ostringstream oss;
+        oss << "size=" << mat.cols << "x" << mat.rows
+            << " ch=" << mat.channels()
+            << " type=" << mat_type_name(mat.type())
+            << " mean=";
+        oss.setf(std::ios::fixed);
+        oss.precision(2);
+        oss << mean_scalar[0];
+        if (mat.channels() > 1) oss << "/" << mean_scalar[1] << "/" << mean_scalar[2];
+        if (mat.channels() > 3) oss << "/" << mean_scalar[3];
+        oss << " min=" << min_val
+            << " max=" << max_val;
+        return oss.str();
+    }
+
     static char op_symbol(V2_OPERATOR op)
     {
         switch (op) {
@@ -260,6 +292,50 @@ namespace CAS_OCR_V2
             case V2_OPERATOR_MUL: return '*';
         }
         return '+';
+    }
+
+    static cv::Mat preprocess_v2_input(const cv::Mat& bgr_image_input)
+    {
+        // Align with training/inference preprocessing in
+        // Model/.../common/preprocess.py:
+        //   score = 255 - min(B, G, R)
+        //   GaussianBlur(3x3)
+        //   Otsu binary
+        //   resize to 192x64 with nearest interpolation
+        cv::Mat score;
+        if (bgr_image_input.channels() == 3) {
+            std::vector<cv::Mat> channels;
+            cv::split(bgr_image_input, channels);
+            cv::Mat min_bg;
+            cv::min(channels[0], channels[1], min_bg);
+            cv::Mat min_bgr;
+            cv::min(min_bg, channels[2], min_bgr);
+            score = cv::Scalar::all(255) - min_bgr;
+        } else if (bgr_image_input.channels() == 4) {
+            std::vector<cv::Mat> channels;
+            cv::split(bgr_image_input, channels);
+            cv::Mat min_bg;
+            cv::min(channels[0], channels[1], min_bg);
+            cv::Mat min_bgr;
+            cv::min(min_bg, channels[2], min_bgr);
+            score = cv::Scalar::all(255) - min_bgr;
+        } else if (bgr_image_input.channels() == 1) {
+            score = bgr_image_input.clone();
+        } else {
+            cv::Mat gray;
+            cv::cvtColor(bgr_image_input, gray, cv::COLOR_BGR2GRAY);
+            score = gray;
+        }
+
+        cv::Mat blur;
+        cv::GaussianBlur(score, blur, cv::Size(3, 3), 0.0);
+
+        cv::Mat binary;
+        cv::threshold(blur, binary, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
+
+        cv::Mat resized;
+        cv::resize(binary, resized, cv::Size(V2_INPUT_W, V2_INPUT_H), 0.0, 0.0, cv::INTER_NEAREST);
+        return resized;
     }
 
     std::tuple<int, std::string, int, int, int>
@@ -272,21 +348,37 @@ namespace CAS_OCR_V2
             return std::make_tuple(0, std::string("0 + 0 = 0"), 0, 0, 0);
         }
 
-        // v2 expects a fixed-size grayscale image. We do a single
-        // BGR->Gray + resize; no thresholding, no equal-split.
-        cv::Mat gray;
-        cv::cvtColor(bgr_image_input, gray, cv::COLOR_BGR2GRAY);
-        cv::resize(gray, gray, cv::Size(V2_INPUT_W, V2_INPUT_H));
+        log_info("v2: raw_input %s", mat_summary(bgr_image_input).c_str());
+        cv::Mat gray = preprocess_v2_input(bgr_image_input);
+        const int white_pixels = cv::countNonZero(gray);
+        const int total_pixels = gray.rows * gray.cols;
+        const double white_ratio = total_pixels > 0
+                                 ? static_cast<double>(white_pixels) / static_cast<double>(total_pixels)
+                                 : 0.0;
+        log_info("v2: preprocessed %s white_pixels=%d/%d white_ratio=%.3f",
+                 mat_summary(gray).c_str(),
+                 white_pixels,
+                 total_pixels,
+                 white_ratio);
 
         ncnn::Mat in = ncnn::Mat::from_pixels(
-                gray.data, ncnn::Mat::PIXEL_GRAY, V2_INPUT_W, V2_INPUT_H);
-
+                gray.data, ncnn::Mat::PIXEL_GRAY, gray.cols, gray.rows);
         const float norm[1] = { 1.0f / 255.0f };
         in.substract_mean_normalize(nullptr, norm);
 
         ncnn::Extractor ex = g_net.create_extractor();
-
-        ex.input("input", in);  // v2 NCNN export uses "input" as the entry blob
+        int input_ret = ex.input("in0", in);
+        const char* input_name = "in0";
+        if (input_ret != 0) {
+            log_err("v2: ex.input(in0) failed ret=%d, trying input", input_ret);
+            input_ret = ex.input("input", in);
+            input_name = "input";
+        }
+        if (input_ret != 0) {
+            log_err("v2: ex.input failed for both in0/input (ret=%d)", input_ret);
+            return std::make_tuple(0, std::string("0 + 0 = 0"), 0, 0, 0);
+        }
+        log_info("v2: ex.input succeeded input_name=%s", input_name);
 
         ncnn::Mat out_left, out_op, out_right;
         int r0 = ex.extract(g_out_digit_left.c_str(),  out_left);
@@ -316,6 +408,20 @@ namespace CAS_OCR_V2
         std::snprintf(buf, sizeof(buf), "%d %c %d = %d",
                       left, op_symbol(static_cast<V2_OPERATOR>(op)),
                       right, result);
+        const std::string left_logits = logits_to_string(out_left);
+        const std::string op_logits = logits_to_string(out_op);
+        const std::string right_logits = logits_to_string(out_right);
+        if (mat_has_nan(out_left) || mat_has_nan(out_op) || mat_has_nan(out_right)) {
+            log_err("v2: NaN detected in logits_left=%s logits_op=%s logits_right=%s",
+                    left_logits.c_str(),
+                    op_logits.c_str(),
+                    right_logits.c_str());
+        }
+        log_info("v2: logits_left=%s logits_op=%s logits_right=%s -> %s",
+                 left_logits.c_str(),
+                 op_logits.c_str(),
+                 right_logits.c_str(),
+                 buf);
         return std::make_tuple(result, std::string(buf), left, op, right);
     }
 
@@ -323,6 +429,8 @@ namespace CAS_OCR_V2
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         g_net.clear();
+        g_blob_pool_allocator.clear();
+        g_workspace_pool_allocator.clear();
         g_loaded = false;
         g_status = V2_MODEL_STATUS_NOT_LOADED;
         g_out_digit_left.clear();

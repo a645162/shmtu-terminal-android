@@ -165,23 +165,28 @@ public class SHMTU_NCNN {
     }
 
     /**
-     * v2 predict: returns a 5-tuple Object[] {result, expression, left, op, right}.
-     * Layout matches the v1 call so existing CAS code can treat both the same.
+     * v2 predict: returns a 6-tuple Object[]
+     * {result, expression, equalSymbol(-1), op, digit1, digit2}.
+     *
+     * This keeps the tuple width/order aligned with v1 so callers can handle
+     * both versions uniformly. For v2, equalSymbol is not applicable and is
+     * always -1.
      */
     public Object[] predict_validate_code_v2(Bitmap bitmap) {
         if (!isV2Init) {
             return null;
         }
         ArrayList<String> result = DetectV2(bitmap);
-        if (result == null || result.size() != 5) {
+        if (result == null || result.size() != 6) {
             return null;
         }
-        Object[] tuples_result = new Object[]{0, "", 0, 0, 0};
+        Object[] tuples_result = new Object[]{0, "", 0, 0, 0, 0};
         tuples_result[0] = Integer.parseInt(result.get(0));
         tuples_result[1] = result.get(1);
         tuples_result[2] = Integer.parseInt(result.get(2));
         tuples_result[3] = Integer.parseInt(result.get(3));
         tuples_result[4] = Integer.parseInt(result.get(4));
+        tuples_result[5] = Integer.parseInt(result.get(5));
         return tuples_result;
     }
 }
