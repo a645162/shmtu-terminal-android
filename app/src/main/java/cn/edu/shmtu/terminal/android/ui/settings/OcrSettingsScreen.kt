@@ -441,17 +441,21 @@ private fun OcrSettingsContent(
         }
         HorizontalDivider()
 
-        // v2 model status summary (simplified per requirement)
+        // v2 model status summary
         if (ocrModelVersion == SHMTU_NCNN_Model.ModelVersion.V2) {
             ListItem(
                 headlineContent = { Text("模型状态") },
                 supportingContent = {
                     if (uiState.hasDownloadedModel) {
-                        val sizeStr = uiState.models
+                        val currentModel = uiState.models
                             .firstOrNull { it.backbone == uiState.selectedBackbone }
+                        val modelName = currentModel?.displayName
+                            ?: currentModel?.assetStem
+                            ?: uiState.selectedBackbone
+                        val sizeStr = currentModel
                             ?.modelSizeM?.let { "%.2f".format(it) } ?: "?"
                         Text(
-                            "已就绪 (${uiState.selectedBackbone}, ${sizeStr}M, ${uiState.selectedPrecision})",
+                            "已就绪 · $modelName ${sizeStr}M ${uiState.selectedPrecision}",
                             color = MaterialTheme.colorScheme.primary
                         )
                     } else {
@@ -813,20 +817,26 @@ private fun OcrModelAdvancedDialog(
                             )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    "${model.displayName}${model.modelSizeM?.let { "  ${"%.2f".format(it)}M" } ?: ""}",
+                                    buildString {
+                                        append(model.assetStem)
+                                        model.modelSizeM?.let { append("  ${"%.2f".format(it)}M") }
+                                    },
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
-                                model.metrics?.let { m ->
-                                    val parts = mutableListOf<String>()
-                                    m.valAccExpression?.let { parts.add("val %.2f%%".format(it * 100)) }
-                                    m.testAccExpression?.let { parts.add("test %.2f%%".format(it * 100)) }
-                                    if (parts.isNotEmpty()) {
-                                        Text(
-                                            parts.joinToString("  "),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
+                                // subtitle: backbone + metrics
+                                val subtitle = buildList {
+                                    add(model.backbone)
+                                    model.metrics?.let { m ->
+                                        m.valAccExpression?.let { add("val %.2f%%".format(it * 100)) }
+                                        m.testAccExpression?.let { add("test %.2f%%".format(it * 100)) }
                                     }
+                                }
+                                if (subtitle.isNotEmpty()) {
+                                    Text(
+                                        subtitle.joinToString("  "),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
                             }
                         }
