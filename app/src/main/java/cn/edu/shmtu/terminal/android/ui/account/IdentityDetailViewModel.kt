@@ -6,7 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.cas.parser.PersonAccountParser
 import cn.edu.shmtu.cas.session.LoginSubmitResult
-import cn.edu.shmtu.terminal.android.data.remote.PersonAccountCaptchaRequiredException
+import cn.edu.shmtu.cas.session.ManualCaptchaRequiredException
 import cn.edu.shmtu.terminal.android.domain.model.Account
 import cn.edu.shmtu.terminal.android.domain.model.Identity
 import cn.edu.shmtu.terminal.android.domain.model.PersonAccount
@@ -125,18 +125,15 @@ class IdentityDetailViewModel @Inject constructor(
                     )
                 },
                 onFailure = { e ->
-                    if (e is PersonAccountCaptchaRequiredException) {
+                    if (e is ManualCaptchaRequiredException) {
                         _uiState.value = _uiState.value.copy(
                             refreshingAccountIds = _uiState.value.refreshingAccountIds - account.id,
                             showCaptchaDialog = true,
-                            captchaImage = e.captchaImage,
+                            captchaImage = e.captchaImageBytes,
                             captchaAccount = account,
                             captchaExecution = e.execution,
                             pendingCaptcha = CaptchaRequiredException(
-                                captchaImageBase64 = android.util.Base64.encodeToString(
-                                    e.captchaImage,
-                                    android.util.Base64.NO_WRAP
-                                ),
+                                captchaImageBase64 = e.captchaImageBase64,
                                 execution = e.execution,
                                 accountId = account.id,
                                 accountLabel = account.label,
