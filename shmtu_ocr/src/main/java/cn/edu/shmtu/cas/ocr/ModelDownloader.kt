@@ -793,11 +793,41 @@ class ModelDownloader {
  */
 internal fun friendlyModelName(assetStem: String, backbone: String = "", family: String = ""): String {
     val parts = assetStem.split(".").filter { it.isNotBlank() }
-    if (parts.isEmpty()) return backbone.toPascalCase()
+    if (parts.isEmpty()) {
+        val bb = friendlyBackbone(backbone)
+        val fa = friendlyFamily(family)
+        return listOfNotNull(bb.takeIf { it.isNotBlank() }, fa.takeIf { it.isNotBlank() }).joinToString(" · ")
+    }
 
-    val backbonePart = parts.getOrNull(0) ?: backbone
-    val familyPart = parts.getOrNull(1) ?: family
-    val versionPart = parts.getOrNull(2) ?: ""
+    // 从后往前连续合并 version token
+    var verEnd = parts.size
+    for (i in parts.lastIndex downTo 0) {
+        if (isVersionToken(parts[i])) {
+            verEnd = i
+        } else break
+    }
+
+    val backbonePart: String
+    val familyPart: String
+    val versionPart: String
+
+    if (verEnd < parts.size) {
+        backbonePart = if (verEnd > 1) parts[0] else backbone
+        familyPart = when {
+            verEnd > 1 -> parts.subList(1, verEnd).joinToString(".")
+            verEnd == 1 -> parts[1]
+            else -> family
+        }
+        versionPart = parts.subList(verEnd, parts.size).joinToString(".")
+    } else if (parts.size >= 2) {
+        backbonePart = parts[0]
+        familyPart = parts.subList(1, parts.size).joinToString(".")
+        versionPart = ""
+    } else {
+        backbonePart = parts[0]
+        familyPart = family
+        versionPart = ""
+    }
 
     val bb = friendlyBackbone(backbonePart)
     val fa = friendlyFamily(familyPart)
@@ -836,8 +866,22 @@ internal fun friendlyFamily(family: String): String {
  */
 internal fun friendlyVersion(version: String): String {
     if (version.isBlank()) return ""
-    return version.replace('_', '.').let { "v$it" }
-        .let { if (it == "v.") "" else it }
+    val cleaned = version.trimStart('v', 'V').replace('_', '.')
+    return if (cleaned.isBlank()) "" else "v$cleaned"
+}
+
+/**
+ * 判断字符串是否是 version token: 纯数字 / v开头的数字 / 数字开头纯数字下划线点
+ */
+internal fun isVersionToken(s: String): Boolean {
+    if (s.isBlank()) return false
+    // 纯数字
+    if (s.all { it.isDigit() }) return true
+    // v/V 开头 + 数字
+    if (s.length >= 2 && (s[0] == 'v' || s[0] == 'V') && s[1].isDigit()) return true
+    // 数字开头, 只含数字/下划线/点
+    if (s[0].isDigit() && s.all { it.isDigit() || it == '_' || it == '.' }) return true
+    return false
 }
 
 /** snake_case → PascalCase (回退转换) */
