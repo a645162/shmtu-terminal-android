@@ -666,7 +666,7 @@ class ModelDownloader {
         val version = obj.optString("version", "")
         val family = obj.optString("family", "")
         // 优先用真实模型文件名 (assetStem)，fallback 才用 manifest 的 display_name 占位符
-        val displayName = if (assetStem.isNotEmpty()) assetStem
+        val displayName = if (assetStem.isNotEmpty()) friendlyModelName(assetStem, backbone, family)
             else obj.optString("display_name", "").ifEmpty { backbone }
 
         val modelSizeM: Double? = if (obj.isNull("model_size_m")) null else obj.optDouble("model_size_m", Double.NaN).takeIf { !it.isNaN() }
@@ -774,3 +774,111 @@ class ModelDownloader {
         client.connectionPool.evictAll()
     }
 }
+
+/**
+ * 把 manifest 中的 `asset_stem` 翻译成人类可读名称。
+ *
+ * asset_stem 约定: `<backbone>.<family>.<version>`
+ * 例: `mobilenet_v3_small.trislot_decoder.v2_0`
+ *
+ * 用户看到的: `MobileNetV3-Small · TriSlot Decoder · v2.0`
+ *
+ * 同时支持从 backbone 字段补充（兼容历史 manifest），
+ * 最后 fallback 到 PascalCase 通用转换。
+ */
+internal fun friendlyModelName(assetStem: String, backbone: String = "", family: String = ""): String {
+    val parts = assetStem.split(".").filter { it.isNotBlank() }
+    if (parts.isEmpty()) return backbone.toPascalCase()
+
+    val backbonePart = parts.getOrNull(0) ?: backbone
+    val familyPart = parts.getOrNull(1) ?: family
+    val versionPart = parts.getOrNull(2) ?: ""
+
+    val bb = friendlyBackbone(backbonePart)
+    val fa = friendlyFamily(familyPart)
+    val ver = friendlyVersion(versionPart)
+    return listOfNotNull(
+        bb.takeIf { it.isNotBlank() },
+        fa.takeIf { it.isNotBlank() },
+        ver.takeIf { it.isNotBlank() }
+    ).joinToString(" · ")
+}
+
+/**
+ * Backbone 字段值 → 人类可读标签
+ * 例: `mobilenet_v3_small` → `MobileNetV3-Small`
+ */
+internal fun friendlyBackbone(backbone: String): String {
+    if (backbone.isBlank()) return ""
+    val canonical = canonicalBackboneLabels[backbone.lowercase()]
+    if (canonical != null) return canonical
+    return backbone.toPascalCase()
+}
+
+/**
+ * Family 字段值 → 人类可读标签
+ * 例: `trislot_decoder` → `TriSlot Decoder`
+ */
+internal fun friendlyFamily(family: String): String {
+    if (family.isBlank()) return ""
+    val canonical = canonicalFamilyLabels[family.lowercase()]
+    if (canonical != null) return canonical
+    return family.toPascalCase().replace("Decoder", " Decoder").trim()
+}
+
+/**
+ * Version 字段值 → 人类可读 (v2_0 → v2.0)
+ */
+internal fun friendlyVersion(version: String): String {
+    if (version.isBlank()) return ""
+    return version.replace('_', '.').let { "v$it" }
+        .let { if (it == "v.") "" else it }
+}
+
+/** snake_case → PascalCase (回退转换) */
+internal fun String.toPascalCase(): String {
+    if (isBlank()) return ""
+    return split('_', '-', ' ').filter { it.isNotBlank() }
+        .joinToString("") { it.replaceFirstChar { c -> c.uppercase() } }
+}
+
+/**
+ * 已知的 backbone 字段值翻译表 (与 shmtu-cas-ocr-model 仓库 trainer 训练产物对齐)。
+ * 新增 backbone 时同步更新此表。
+ */
+private val canonicalBackboneLabels: Map<String, String> = mapOf(
+    // MobileNet 系列
+    "mobilenet_v3_small" to "MobileNetV3-Small",
+    "mobilenet_v3_large" to "MobileNetV3-Large",
+    "mobilenetv4_conv_small" to "MobileNetV4-Conv-Small",
+    "mobilenetv4_conv_medium" to "MobileNetV4-Conv-Medium",
+    "mobilenetv4_conv_large" to "MobileNetV4-Conv-Large",
+    "mobilenetv4_hybrid_medium" to "MobileNetV4-Hybrid-Medium",
+    // EfficientNet 系列
+    "efficientnet_b0" to "EfficientNet-B0",
+    "efficientnet_b1" to "EfficientNet-B1",
+    "efficientnet_b2" to "EfficientNet-B2",
+    "efficientnet_b3" to "EfficientNet-B3",
+    "efficientnetv2_s" to "EfficientNetV2-S",
+    "efficientnetv2_m" to "EfficientNetV2-M",
+    // ResNet 系列 (v1 历史模型)
+    "resnet18" to "ResNet-18",
+    "resnet34" to "ResNet-34",
+    "resnet50" to "ResNet-50",
+    "resnet101" to "ResNet-101",
+    // ConvNeXt 系列
+    "convnext_tiny" to "ConvNeXt-Tiny",
+    "convnext_small" to "ConvNeXt-Small",
+    "convnext_base" to "ConvNeXt-Base",
+    // ViT 系列
+    "vit_small_patch16_224" to "ViT-S/16",
+    "vit_base_patch16_224" to "ViT-B/16",
+)
+
+/** 已知的 family 字段值翻译表 */
+private val canonicalFamilyLabels: Map<String, String> = mapOf(
+    "trislot_decoder" to "TriSlot Decoder",
+    "single_head" to "Single-Head",
+    "multi_head" to "Multi-Head",
+    "ctc" to "CTC",
+)
