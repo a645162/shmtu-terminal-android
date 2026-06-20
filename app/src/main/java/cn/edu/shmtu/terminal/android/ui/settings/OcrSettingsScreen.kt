@@ -66,6 +66,7 @@ import cn.edu.shmtu.terminal.android.data.local.datastore.OcrServerType
 @Composable
 fun OcrSettingsScreen(
     onBack: () -> Unit,
+    onOpenOcrTest: () -> Unit,
     embedded: Boolean = false,
     viewModel: OcrSettingsViewModel = hiltViewModel(),
     settingsViewModel: SettingsViewModel = hiltViewModel()
@@ -127,6 +128,7 @@ fun OcrSettingsScreen(
                 onSetOcrModelVersion = viewModel::setOcrModelVersion,
                 onSetCaptchaMode = settingsViewModel::setCaptchaMode,
                 onShowAdvancedOcrDialog = { showAdvancedOcrDialog = true },
+                onOpenOcrTest = onOpenOcrTest,
             )
         }
     } else {
@@ -186,6 +188,7 @@ fun OcrSettingsScreen(
                     onSetOcrModelVersion = viewModel::setOcrModelVersion,
                     onSetCaptchaMode = settingsViewModel::setCaptchaMode,
                     onShowAdvancedOcrDialog = { showAdvancedOcrDialog = true },
+                    onOpenOcrTest = onOpenOcrTest,
                 )
             }
         }
@@ -381,6 +384,7 @@ private fun OcrSettingsContent(
     onSetOcrModelVersion: (SHMTU_NCNN_Model.ModelVersion) -> Unit,
     onSetCaptchaMode: (CaptchaMode) -> Unit,
     onShowAdvancedOcrDialog: () -> Unit,
+    onOpenOcrTest: () -> Unit,
 ) {
     // ===== 验证码模式选择 =====
     SettingsCard {
@@ -689,6 +693,26 @@ private fun OcrSettingsContent(
                     Text("高级设置")
                 }
             }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = onOpenOcrTest,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("打开识别测试")
+            }
+            Text(
+                text = "直接测试主 app 当前本地 / 远程 OCR 链路",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .weight(1f)
+                    .align(Alignment.CenterVertically),
+            )
         }
 
         Row(

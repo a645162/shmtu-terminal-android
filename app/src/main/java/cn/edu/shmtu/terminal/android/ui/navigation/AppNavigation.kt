@@ -19,6 +19,7 @@ import cn.edu.shmtu.terminal.android.ui.bill.BillListScreen
 import cn.edu.shmtu.terminal.android.ui.features.FeatureHubScreen
 import cn.edu.shmtu.terminal.android.ui.home.HomeScreen
 import cn.edu.shmtu.terminal.android.ui.me.MeScreen
+import cn.edu.shmtu.terminal.android.ui.ocr.CaptchaOcrTestScreen
 import cn.edu.shmtu.terminal.android.ui.p2p.P2PScreen
 import cn.edu.shmtu.terminal.android.ui.p2p.QRScanScreen
 import cn.edu.shmtu.terminal.android.ui.statistics.BillStatisticsScreen
@@ -69,7 +70,8 @@ fun AppNavigation(
                     onNavigateToBillStatistics = { navController.navigate("bill_statistics") },
                     onNavigateToDataTransfer = { navController.navigate("data_transfer") },
                     onNavigateToP2P = { navController.navigate("${TopLevelDestination.SETTINGS.route}/p2p") },
-                    onNavigateToCloudBackup = { navController.navigate("${TopLevelDestination.SETTINGS.route}/cloud_backup") }
+                    onNavigateToCloudBackup = { navController.navigate("${TopLevelDestination.SETTINGS.route}/cloud_backup") },
+                    onNavigateToCaptchaOcrTest = { navController.navigate("captcha_ocr_test") },
                 )
             }
             composable(TopLevelDestination.ME.route) {
@@ -90,7 +92,8 @@ fun AppNavigation(
                     onBack = { navController.popBackStack() },
                     onNavigateToAbout = { navController.navigate("about") },
                     onNavigateToOcrSettings = { navController.navigate("ocr_settings") },
-                    onNavigateToNotificationSettings = { navController.navigate("notification_settings") }
+                    onNavigateToNotificationSettings = { navController.navigate("notification_settings") },
+                    onNavigateToCaptchaOcrTest = { navController.navigate("captcha_ocr_test") },
                 )
             }
             composable(
@@ -108,6 +111,7 @@ fun AppNavigation(
                     onNavigateToAbout = { navController.navigate("about") },
                     onNavigateToOcrSettings = { navController.navigate("ocr_settings") },
                     onNavigateToNotificationSettings = { navController.navigate("notification_settings") },
+                    onNavigateToCaptchaOcrTest = { navController.navigate("captcha_ocr_test") },
                     initialTab = tab
                 )
             }
@@ -144,7 +148,13 @@ fun AppNavigation(
             }
             composable("ocr_settings") {
                 OcrSettingsScreen(
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onOpenOcrTest = { navController.navigate("captcha_ocr_test") },
+                )
+            }
+            composable("captcha_ocr_test") {
+                CaptchaOcrTestScreen(
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable("data_transfer") {

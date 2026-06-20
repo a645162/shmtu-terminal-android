@@ -86,6 +86,7 @@ fun SettingsScreen(
     onNavigateToAbout: () -> Unit,
     onNavigateToOcrSettings: () -> Unit,
     onNavigateToNotificationSettings: () -> Unit,
+    onNavigateToCaptchaOcrTest: () -> Unit = {},
     initialTab: String? = null
 ) {
     CompositionLocalProvider(LocalFeatureStore provides featureStore) {
@@ -153,7 +154,8 @@ fun SettingsScreen(
                                 webServerSettings = webServerSettings,
                                 onNavigateToAbout = onNavigateToAbout,
                                 onNavigateToOcrSettings = onNavigateToOcrSettings,
-                                onNavigateToNotificationSettings = onNavigateToNotificationSettings
+                                onNavigateToNotificationSettings = onNavigateToNotificationSettings,
+                                onNavigateToCaptchaOcrTest = onNavigateToCaptchaOcrTest
                             )
                         }
                     }
@@ -178,7 +180,8 @@ fun SettingsScreen(
                                 webServerSettings = webServerSettings,
                         onNavigateToAbout = onNavigateToAbout,
                         onNavigateToOcrSettings = onNavigateToOcrSettings,
-                        onNavigateToNotificationSettings = onNavigateToNotificationSettings
+                        onNavigateToNotificationSettings = onNavigateToNotificationSettings,
+                        onNavigateToCaptchaOcrTest = onNavigateToCaptchaOcrTest
                     )
                 } else {
                     Scaffold(
@@ -403,7 +406,8 @@ private fun DetailFor(
     webServerSettings: SettingsDataStoreWebExt,
     onNavigateToAbout: () -> Unit,
     onNavigateToOcrSettings: () -> Unit,
-    onNavigateToNotificationSettings: () -> Unit
+    onNavigateToNotificationSettings: () -> Unit,
+    onNavigateToCaptchaOcrTest: () -> Unit
 ) {
     when (key) {
         "appearance" -> AppearanceSettingsScreen(onBack = onBack, embedded = embedded)
@@ -417,7 +421,11 @@ private fun DetailFor(
         "classification" -> ClassificationSettingsScreen(onBack = onBack, rulesManager = rulesManager, embedded = embedded)
         "update" -> UpdateSettingsScreen(onBack = onBack, embedded = embedded)
         "debug" -> DebugSettingsScreen(onBack = onBack, embedded = embedded)
-        "ocr" -> OcrSettingsScreen(onBack = onBack, embedded = embedded)
+        "ocr" -> OcrSettingsScreen(
+            onBack = onBack,
+            onOpenOcrTest = onNavigateToCaptchaOcrTest,
+            embedded = embedded,
+        )
         "p2p" -> P2PSettingsScreen(onBack = onBack, embedded = embedded, settingsDataStore = settingsDataStore)
         "webserver" -> WebServerSettingsScreen(onBack = onBack, embedded = embedded, webServerSettings = webServerSettings)
         "notification" -> NotificationSettingsScreen(onBack = onBack, embedded = embedded)

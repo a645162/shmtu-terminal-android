@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.ArrowOutward
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ImportExport
@@ -64,6 +65,7 @@ private data class FeatureItem(
 private val features = listOf(
     FeatureItem("账单统计", "多维度账单分析、趋势和异常提醒", Icons.Outlined.BarChart, true, Color(0xFF1E88E5), "bill_statistics"),
     FeatureItem("数据传输", "导入导出、快照和跨端迁移", Icons.Outlined.ImportExport, true, Color(0xFF00897B), "data_transfer"),
+    FeatureItem("验证码测试", "验证本地 v2 / 远程 OCR 的真实识别结果", Icons.Outlined.FactCheck, true, Color(0xFF2E7D32), "captcha_ocr_test"),
     FeatureItem("点对点互传", "局域网点对点账单传输", Icons.Outlined.SwapHoriz, true, Color(0xFFE65100), "settings_p2p"),
     FeatureItem("云备份", "WebDAV/Google Drive/OneDrive 备份", Icons.Outlined.CloudUpload, true, Color(0xFF6750A4), "settings_cloud_backup"),
     FeatureItem("热水查询", "宿舍热水温度与水位，账号入口进入", Icons.Outlined.Shower, false, Color(0xFF00ACC1)),
@@ -80,7 +82,8 @@ fun FeatureHubScreen(
     onNavigateToBillStatistics: () -> Unit,
     onNavigateToDataTransfer: () -> Unit = {},
     onNavigateToP2P: () -> Unit = {},
-    onNavigateToCloudBackup: () -> Unit = {}
+    onNavigateToCloudBackup: () -> Unit = {},
+    onNavigateToCaptchaOcrTest: () -> Unit = {},
 ) {
     val configuration = LocalConfiguration.current
     val phoneCompact = configuration.screenWidthDp < 600
@@ -91,6 +94,7 @@ fun FeatureHubScreen(
         when (route) {
             "bill_statistics" -> onNavigateToBillStatistics()
             "data_transfer" -> onNavigateToDataTransfer()
+            "captcha_ocr_test" -> onNavigateToCaptchaOcrTest()
             "settings_p2p" -> onNavigateToP2P()
             "settings_cloud_backup" -> onNavigateToCloudBackup()
         }
@@ -203,7 +207,7 @@ private fun FeatureHeroCard(compact: Boolean) {
                     color = Color.White.copy(alpha = 0.82f)
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    HeroPill("3 个已上线")
+                    HeroPill("5 个已上线")
                     HeroPill("6 个规划中")
                 }
             }
