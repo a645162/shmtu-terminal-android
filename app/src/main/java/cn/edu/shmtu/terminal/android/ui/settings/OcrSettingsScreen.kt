@@ -455,7 +455,7 @@ private fun OcrSettingsContent(
                         val sizeStr = currentModel
                             ?.modelSizeM?.let { "%.2f".format(it) } ?: "?"
                         Text(
-                            "已就绪 · $modelName ${sizeStr}M ${uiState.selectedPrecision}",
+                            "已就绪 · $modelName ${sizeStr}M · ${uiState.selectedPrecision}",
                             color = MaterialTheme.colorScheme.primary
                         )
                     } else {

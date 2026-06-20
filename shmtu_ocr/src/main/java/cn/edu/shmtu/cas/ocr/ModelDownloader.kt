@@ -665,7 +665,9 @@ class ModelDownloader {
         val backbone = obj.optString("backbone", "")
         val version = obj.optString("version", "")
         val family = obj.optString("family", "")
-        val displayName = obj.optString("display_name", "").ifEmpty { assetStem }
+        // 优先用真实模型文件名 (assetStem)，fallback 才用 manifest 的 display_name 占位符
+        val displayName = if (assetStem.isNotEmpty()) assetStem
+            else obj.optString("display_name", "").ifEmpty { backbone }
 
         val modelSizeM: Double? = if (obj.isNull("model_size_m")) null else obj.optDouble("model_size_m", Double.NaN).takeIf { !it.isNaN() }
 
