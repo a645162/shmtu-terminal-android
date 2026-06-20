@@ -16,7 +16,6 @@ import cn.edu.shmtu.terminal.android.ui.bill.BillDetailScreen
 import cn.edu.shmtu.terminal.android.ui.datatransfer.DataTransferScreen
 import cn.edu.shmtu.terminal.android.ui.hotwater.HotWaterScreen
 import cn.edu.shmtu.terminal.android.ui.bill.BillListScreen
-import cn.edu.shmtu.terminal.android.ui.cloud.CloudBackupScreen
 import cn.edu.shmtu.terminal.android.ui.features.FeatureHubScreen
 import cn.edu.shmtu.terminal.android.ui.home.HomeScreen
 import cn.edu.shmtu.terminal.android.ui.me.MeScreen
@@ -69,8 +68,8 @@ fun AppNavigation(
                 FeatureHubScreen(
                     onNavigateToBillStatistics = { navController.navigate("bill_statistics") },
                     onNavigateToDataTransfer = { navController.navigate("data_transfer") },
-                    onNavigateToP2P = { navController.navigate("p2p") },
-                    onNavigateToCloudBackup = { navController.navigate("cloud_backup") }
+                    onNavigateToP2P = { navController.navigate("${TopLevelDestination.SETTINGS.route}/p2p") },
+                    onNavigateToCloudBackup = { navController.navigate("${TopLevelDestination.SETTINGS.route}/cloud_backup") }
                 )
             }
             composable(TopLevelDestination.ME.route) {
@@ -92,6 +91,24 @@ fun AppNavigation(
                     onNavigateToAbout = { navController.navigate("about") },
                     onNavigateToOcrSettings = { navController.navigate("ocr_settings") },
                     onNavigateToNotificationSettings = { navController.navigate("notification_settings") }
+                )
+            }
+            composable(
+                "${TopLevelDestination.SETTINGS.route}/{tab}",
+                arguments = listOf(navArgument("tab") { type = androidx.navigation.NavType.StringType })
+            ) { backStackEntry ->
+                val tab = backStackEntry.arguments?.getString("tab") ?: return@composable
+                SettingsScreen(
+                    featureStore = wrapper.featureStore,
+                    rulesManager = wrapper.rulesManager,
+                    dedupeRepository = wrapper.dedupeRepository,
+                    settingsDataStore = wrapper.settingsDataStore,
+                    webServerSettings = wrapper.webServerSettings,
+                    onBack = { navController.popBackStack() },
+                    onNavigateToAbout = { navController.navigate("about") },
+                    onNavigateToOcrSettings = { navController.navigate("ocr_settings") },
+                    onNavigateToNotificationSettings = { navController.navigate("notification_settings") },
+                    initialTab = tab
                 )
             }
             composable("settings/appearance") { AppearanceSettingsScreen(onBack = { navController.popBackStack() }) }
@@ -135,11 +152,7 @@ fun AppNavigation(
                     onBack = { navController.popBackStack() }
                 )
             }
-            composable("cloud_backup") {
-                CloudBackupScreen(
-                    onBack = { navController.popBackStack() }
-                )
-            }
+            // P2P 保留：二维码扫描仍需
             composable("p2p") {
                 P2PScreen(
                     onBack = { navController.popBackStack() },

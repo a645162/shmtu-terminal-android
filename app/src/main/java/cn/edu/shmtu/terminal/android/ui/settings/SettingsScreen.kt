@@ -85,13 +85,14 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onNavigateToOcrSettings: () -> Unit,
-    onNavigateToNotificationSettings: () -> Unit
+    onNavigateToNotificationSettings: () -> Unit,
+    initialTab: String? = null
 ) {
     CompositionLocalProvider(LocalFeatureStore provides featureStore) {
         val groups = remember { settingsGroups() }
         val twoPane = isSettingsTwoPane()
-        var selectedKey by rememberSaveable { mutableStateOf(groups.firstOrNull()?.key) }
-        var phoneDetailKey by rememberSaveable { mutableStateOf<String?>(null) }
+        var selectedKey by rememberSaveable { mutableStateOf(initialTab ?: groups.firstOrNull()?.key) }
+        var phoneDetailKey by rememberSaveable { mutableStateOf<String?>(if (!twoPane && initialTab != null) initialTab else null) }
         val phoneListState = rememberLazyListState()
 
         BackHandler(enabled = !twoPane && phoneDetailKey != null) {
