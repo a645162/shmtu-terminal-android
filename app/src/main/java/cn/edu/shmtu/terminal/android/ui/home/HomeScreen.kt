@@ -78,10 +78,12 @@ import cn.edu.shmtu.terminal.android.domain.model.Identity
 import cn.edu.shmtu.terminal.android.domain.model.MonthlySummary
 import cn.edu.shmtu.terminal.android.domain.model.SpendingTrend
 import cn.edu.shmtu.terminal.android.domain.model.StatisticsSummary
+import cn.edu.shmtu.terminal.android.domain.usecase.bill.CaptchaRequiredException
 import cn.edu.shmtu.terminal.android.ui.component.AppDonutChart
 import cn.edu.shmtu.terminal.android.ui.component.AppDonutSlice
 import cn.edu.shmtu.terminal.android.ui.component.AppLineChart
 import cn.edu.shmtu.terminal.android.ui.component.AppLineSeries
+import cn.edu.shmtu.terminal.android.ui.component.CaptchaDialog
 import cn.edu.shmtu.terminal.android.ui.settings.LocalFeatureStore
 import cn.edu.shmtu.terminal.android.ui.statistics.CategoryDisplay
 import cn.edu.shmtu.terminal.android.ui.theme.BrandForeground1
@@ -333,6 +335,20 @@ fun HomeScreen(
                     Text("取消")
                 }
             }
+        )
+    }
+
+    // 验证码弹窗 - 手动模式下 session 过期需要用户输入验证码
+    val pendingCaptcha by viewModel.pendingCaptcha.collectAsState()
+    if (pendingCaptcha != null) {
+        val captcha = pendingCaptcha!!
+        val imageData = remember(captcha.captchaImageBase64) {
+            try { android.util.Base64.decode(captcha.captchaImageBase64, android.util.Base64.DEFAULT) } catch (_: Exception) { null }
+        }
+        CaptchaDialog(
+            captchaImageData = imageData,
+            onConfirm = { viewModel.submitCaptcha(it) },
+            onDismiss = { viewModel.dismissCaptcha() }
         )
     }
 }

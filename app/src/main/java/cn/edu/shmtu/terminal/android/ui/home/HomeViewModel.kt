@@ -6,6 +6,9 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.cas.parser.PersonAccountParser
+import cn.edu.shmtu.cas.session.LoginSubmitResult
+import cn.edu.shmtu.cas.session.ManualCaptchaRequiredException
+import cn.edu.shmtu.terminal.android.domain.model.Account
 import cn.edu.shmtu.terminal.android.domain.model.BillItem
 import cn.edu.shmtu.terminal.android.domain.model.BillOverview
 import cn.edu.shmtu.terminal.android.domain.model.CategoryBreakdown
@@ -19,6 +22,8 @@ import cn.edu.shmtu.terminal.android.data.remote.EpayAdapter
 import cn.edu.shmtu.terminal.android.domain.repository.AccountRepository
 import cn.edu.shmtu.terminal.android.domain.repository.BillRepository
 import cn.edu.shmtu.terminal.android.domain.repository.IdentityRepository
+import cn.edu.shmtu.terminal.android.domain.usecase.bill.CaptchaRequiredException
+import cn.edu.shmtu.terminal.android.domain.usecase.bill.Purpose
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -121,6 +126,10 @@ class HomeViewModel @Inject constructor(
     fun dismissRefreshBalanceDialog() {
         _showRefreshBalanceDialog.value = false
     }
+
+    /** 待处理的验证码请求（手动模式下需要用户输入验证码） */
+    private val _pendingCaptcha = MutableStateFlow<CaptchaRequiredException?>(null)
+    val pendingCaptcha: StateFlow<CaptchaRequiredException?> = _pendingCaptcha.asStateFlow()
 
     /** 用于触发主动刷新:每次值变化都会重新拉取所有统计流 */
     private val _refreshTrigger = MutableStateFlow(0)
@@ -316,6 +325,9 @@ class HomeViewModel @Inject constructor(
      *
      * 对当前 identity 下的所有账号逐个尝试拉取 [cn.edu.shmtu.cas.auth.EpayAuth.getPersonAccountHtml] 并解析。
      * 任一成功即更新缓存;失败时仅打 warn 日志,UI 仍可读取 Room 缓存。
+     *
+     * 手动验证码模式下，session 过期时会捕获 [ManualCaptchaRequiredException] 并设置
+     * [pendingCaptcha]，UI 层应弹出验证码输入对话框。
      */
     fun refreshCurrentBalance() {
         if (_isRefreshingBalance.value) return
@@ -330,6 +342,19 @@ class HomeViewModel @Inject constructor(
                 for (acc in accounts) {
                     val result = try {
                         epayAdapter.fetchPersonAccountHtml(acc.id)
+                    } catch (e: ManualCaptchaRequiredException) {
+                        // 手动模式需要验证码 → 暂停，等用户输入
+                        _isRefreshingBalance.value = false
+                        _pendingCaptcha.value = CaptchaRequiredException(
+                            captchaImageBase64 = e.captchaImageBase64,
+                            execution = e.execution,
+                            accountId = acc.id,
+                            accountLabel = acc.label,
+                            syncRange = cn.edu.shmtu.cas.sync.SyncRangePreset.Month,
+                            isFullSync = false,
+                            purpose = Purpose.PERSON_ACCOUNT,
+                        )
+                        return@launch
                     } catch (e: Exception) {
                         Log.e("HomeViewModel", "refreshCurrentBalance: ${acc.id} crashed", e)
                         continue
@@ -350,6 +375,103 @@ class HomeViewModel @Inject constructor(
                 _isRefreshingBalance.value = false
             }
         }
+    }
+
+    /**
+     * 提交验证码后完成登录并刷新余额
+     *
+     * 流程：submitLogin → 成功后 fetchPersonAccountHtml → 解析保存
+     */
+    fun submitCaptcha(captchaCode: String) {
+        val captcha = _pendingCaptcha.value ?: return
+        _pendingCaptcha.value = null
+        _isRefreshingBalance.value = true
+        viewModelScope.launch {
+            val account = accountRepository.getAccountById(captcha.accountId)
+            if (account == null) {
+                _isRefreshingBalance.value = false
+                return@launch
+            }
+            val password = accountRepository.getPassword(captcha.accountId)
+            if (password.isNullOrBlank()) {
+                _isRefreshingBalance.value = false
+                return@launch
+            }
+
+            val submitResult = epayAdapter.submitLogin(
+                accountId = captcha.accountId,
+                username = account.userId,
+                password = password,
+                captchaCode = captchaCode,
+                execution = captcha.execution,
+            )
+
+            when (val r = submitResult.getOrNull()) {
+                is LoginSubmitResult.Success -> {
+                    val htmlResult = epayAdapter.fetchPersonAccountHtml(captcha.accountId)
+                    htmlResult.fold(
+                        onSuccess = { html ->
+                            val info = runCatching { PersonAccountParser().parse(html) }.getOrNull()
+                            if (info != null) {
+                                accountRepository.savePersonAccount(captcha.accountId, info)
+                                Log.d("HomeViewModel", "submitCaptcha: saved balance for ${captcha.accountId}")
+                            }
+                        },
+                        onFailure = { e ->
+                            Log.w("HomeViewModel", "submitCaptcha: fetchPersonAccountHtml failed: ${e.message}")
+                        }
+                    )
+                }
+                is LoginSubmitResult.ValidateCodeError -> {
+                    // 验证码错误，重新获取 challenge
+                    val challenge = epayAdapter.prepareChallenge(captcha.accountId).getOrNull()
+                    if (challenge != null) {
+                        _pendingCaptcha.value = CaptchaRequiredException(
+                            captchaImageBase64 = android.util.Base64.encodeToString(
+                                challenge.captchaImage, android.util.Base64.NO_WRAP
+                            ),
+                            execution = challenge.execution,
+                            accountId = captcha.accountId,
+                            accountLabel = captcha.accountLabel,
+                            syncRange = captcha.syncRange,
+                            isFullSync = false,
+                            purpose = Purpose.PERSON_ACCOUNT,
+                        )
+                    }
+                }
+                else -> {
+                    Log.w("HomeViewModel", "submitCaptcha: login failed: ${r}")
+                }
+            }
+            _isRefreshingBalance.value = false
+        }
+    }
+
+    /** 刷新验证码图片（重新获取 challenge） */
+    fun refreshCaptcha() {
+        val captcha = _pendingCaptcha.value ?: return
+        viewModelScope.launch {
+            val challenge = epayAdapter.prepareChallenge(captcha.accountId).getOrNull()
+            if (challenge != null) {
+                _pendingCaptcha.value = CaptchaRequiredException(
+                    captchaImageBase64 = android.util.Base64.encodeToString(
+                        challenge.captchaImage, android.util.Base64.NO_WRAP
+                    ),
+                    execution = challenge.execution,
+                    accountId = captcha.accountId,
+                    accountLabel = captcha.accountLabel,
+                    syncRange = captcha.syncRange,
+                    isFullSync = false,
+                    purpose = Purpose.PERSON_ACCOUNT,
+                )
+            }
+        }
+    }
+
+    /** 取消验证码输入 */
+    fun dismissCaptcha() {
+        _pendingCaptcha.value = null
+        _isRefreshingBalance.value = false
     }
 
     companion object {
