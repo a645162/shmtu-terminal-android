@@ -50,4 +50,16 @@
     <string name="advanced_settings_cancel">取消</string>
     <string name="advanced_settings_refresh_tags">刷新 Tag 列表</string>
     <string name="advanced_settings_loading">加载中…</string>
+
+    <!-- local model selection -->
+    <string name="action_select_local_model">选择本地模型</string>
+    <string name="action_scan_local_models">扫描本地模型</string>
+    <string name="local_model_selection_title">本地模型列表</string>
+    <string name="local_model_selection_hint">选择要加载的模型</string>
+    <string name="local_model_selection_empty">未找到已下载的模型。请先下载模型。</string>
+    <string name="local_model_selection_refresh">重新扫描</string>
+    <string name="local_model_v1_label">v1 (ResNet) — 3 模型</string>
+    <string name="local_model_v2_label">v2 — %s · %s</string>
+    <string name="local_model_tag">%s</string>
+    <string name="local_model_version">版本: %s</string>
 </resources>

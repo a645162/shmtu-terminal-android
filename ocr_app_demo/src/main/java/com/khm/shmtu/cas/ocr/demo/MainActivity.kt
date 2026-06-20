@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -20,9 +21,9 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import cn.edu.shmtu.cas.captcha.Captcha
+import cn.edu.shmtu.cas.captcha.CaptchaOcrHelper
 import cn.edu.shmtu.cas.captcha.RemoteOcrCaptchaResolver
 import cn.edu.shmtu.cas.captcha.RemoteOcrHttpCaptchaResolver
-import cn.edu.shmtu.cas.captcha.CaptchaOcrHelper
 import cn.edu.shmtu.cas.ocr.ImageUtils
 import cn.edu.shmtu.cas.ocr.ModelDownloader
 import cn.edu.shmtu.cas.ocr.NcnnModelLoader
@@ -30,6 +31,9 @@ import cn.edu.shmtu.cas.ocr.OcrModelInfo
 import cn.edu.shmtu.cas.ocr.OcrV2TagCatalog
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model
+import cn.edu.shmtu.cas.ocr.friendlyBackbone
+import cn.edu.shmtu.cas.ocr.friendlyFamily
+import cn.edu.shmtu.cas.ocr.friendlyVersion
 import com.google.android.material.button.MaterialButtonToggleGroup
 import cn.edu.shmtu.cas.captcha.CaptchaAndroid
 import kotlinx.coroutines.CoroutineScope
@@ -38,8 +42,8 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import java.io.File
 import java.io.FileNotFoundException
-import java.io.ByteArrayOutputStream
 import java.util.concurrent.TimeUnit
 import kotlin.system.measureTimeMillis
 
@@ -70,12 +74,32 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
             BackboneInfo("repvgg_a0", "RepVGG A0", 8.3),
             BackboneInfo("resnet18", "ResNet-18", 11.2),
         )
+
+        /** Regex to parse v2 model file name: backbone.family.version.precision.param|bin */
+        private val V2_FILE_PATTERN = Regex(
+            """^([a-zA-Z0-9_]+)\.([a-zA-Z_]+)\.(v?\d[\d_.]*)\.(fp16|fp32|fp16f32)\.(param|bin)$"""
+        )
     }
 
     data class BackboneInfo(
         val key: String,
         val displayName: String,
         val paramsM: Double,
+    )
+
+    /**
+     * Represents a locally discovered model entry.
+     */
+    data class LocalModelEntry(
+        val version: SHMTU_NCNN_Model.ModelVersion,
+        val displayName: String,
+        val modelDir: String,
+        /** For v2 only: backbone name, e.g. "mobilenet_v3_small" */
+        val backbone: String = "",
+        /** For v2 only: precision, e.g. "fp16" */
+        val precision: String = "",
+        /** For v2 only: asset stem for display */
+        val assetStem: String = "",
     )
 
     private val shmtuNcnn = SHMTU_NCNN()
@@ -259,7 +283,7 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
         findViewById<Button>(R.id.button_ocr_server).setOnClickListener { ocrViaRemoteServer() }
         findViewById<Button>(R.id.button_remote_health).setOnClickListener { healthCheckRemoteServer() }
 
-        // --- legacy model buttons (still work with current version selection) ---
+        // --- model management buttons ---
         findViewById<Button>(R.id.button_load_model).setOnClickListener { showLoadModelDialog() }
         findViewById<Button>(R.id.button_download_model).setOnClickListener { showDownloadModelDialog() }
         findViewById<Button>(R.id.button_check_status).setOnClickListener { showModelStatusDialog() }
@@ -278,6 +302,7 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
         // --- new OCR settings card ---
         findViewById<Button>(R.id.button_download_v2_quick).setOnClickListener { quickDownloadModel() }
         findViewById<Button>(R.id.button_advanced_settings).setOnClickListener { showAdvancedSettingsDialog() }
+        findViewById<Button>(R.id.button_select_local_model).setOnClickListener { showSelectLocalModelDialog() }
 
         // --- version toggle ---
         modelVersionToggleGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
@@ -492,6 +517,180 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
             .show()
     }
 
+    // ==================== LOCAL MODEL SCANNING ====================
+
+    /**
+     * Scan the model directories for ALL downloaded models (both v1 and v2).
+     * Returns a list of [LocalModelEntry] describing what was found.
+     */
+    private fun scanLocalModels(): List<LocalModelEntry> {
+        val results = mutableListOf<LocalModelEntry>()
+        val baseDir = File(filesDir, "ncnn_model")
+
+        if (!baseDir.isDirectory) return results
+
+        // --- Scan v1: check if all 6 v1 model files exist ---
+        val v1Dir = File(baseDir, "v1")
+        val legacyDir = baseDir // backward compat: legacy v1 files in ncnn_model/
+        val v1DirToUse: File? = when {
+            v1Dir.isDirectory && hasAllV1Files(v1Dir) -> v1Dir
+            hasAllV1Files(legacyDir) -> legacyDir
+            else -> null
+        }
+        if (v1DirToUse != null) {
+            results.add(
+                LocalModelEntry(
+                    version = SHMTU_NCNN_Model.ModelVersion.V1,
+                    displayName = "v1 (ResNet) — 3 模型",
+                    modelDir = v1DirToUse.absolutePath,
+                )
+            )
+        }
+
+        // --- Scan v2: find .param/.bin pairs ---
+        val v2Dir = File(baseDir, "v2")
+        if (v2Dir.isDirectory) {
+            val paramFiles = v2Dir.listFiles { _, name -> name.endsWith(".param") }
+                ?: emptyArray()
+
+            // Group by backbone+precision (dedup .param/.bin pairs)
+            val seenPairs = mutableSetOf<String>()
+            for (paramFile in paramFiles) {
+                val name = paramFile.name
+                val match = V2_FILE_PATTERN.matchEntire(name)
+                if (match != null) {
+                    val backbone = match.groupValues[1]
+                    val family = match.groupValues[2]
+                    val version = match.groupValues[3]
+                    val precision = match.groupValues[4]
+                    val pairKey = "$backbone|$precision"
+
+                    if (pairKey in seenPairs) continue
+                    seenPairs.add(pairKey)
+
+                    // Verify the corresponding .bin exists
+                    val binName = name.replace(".param", ".bin")
+                    if (File(v2Dir, binName).exists()) {
+                        val stem = "$backbone.$family.$version"
+                        val bbLabel = friendlyBackbone(backbone)
+                        val verLabel = friendlyVersion(version)
+                        val faLabel = friendlyFamily(family)
+                        val displayName = buildString {
+                            append("v2 · $bbLabel ($backbone)")
+                            append(" · $precision")
+                            if (verLabel.isNotBlank()) {
+                                append(" · $verLabel")
+                            }
+                            if (faLabel.isNotBlank()) {
+                                append(" · $faLabel")
+                            }
+                        }
+                        results.add(
+                            LocalModelEntry(
+                                version = SHMTU_NCNN_Model.ModelVersion.V2,
+                                displayName = displayName,
+                                modelDir = v2Dir.absolutePath,
+                                backbone = backbone,
+                                precision = precision,
+                                assetStem = stem,
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        return results
+    }
+
+    private fun hasAllV1Files(dir: File): Boolean {
+        return SHMTU_NCNN_Model.MODEL_FILES.all { fileName ->
+            File(dir, fileName).exists()
+        }
+    }
+
+    /**
+     * Show a dialog with locally discovered models. User picks one,
+     * then the selected model is applied (version, backbone, precision updated,
+     * and model loaded).
+     */
+    private fun showSelectLocalModelDialog() {
+        launch(Dispatchers.IO) {
+            val models = scanLocalModels()
+            runOnUiThread {
+                if (models.isEmpty()) {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle(R.string.local_model_selection_title)
+                        .setMessage(R.string.local_model_selection_empty)
+                        .setPositiveButton("确定", null)
+                        .show()
+                    return@runOnUiThread
+                }
+
+                val modelNames = models.map { it.displayName }.toTypedArray()
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle(R.string.local_model_selection_title)
+                    .setItems(modelNames) { _, which ->
+                        if (which in models.indices) {
+                            val entry = models[which]
+                            applyAndLoadLocalModel(entry)
+                        }
+                    }
+                    .setNeutralButton(R.string.local_model_selection_refresh) { _, _ ->
+                        showSelectLocalModelDialog()
+                    }
+                    .setNegativeButton("取消", null)
+                    .show()
+            }
+        }
+    }
+
+    /**
+     * Apply a locally selected model: update version/backbone/precision,
+     * then load the model from the local directory.
+     */
+    private fun applyAndLoadLocalModel(entry: LocalModelEntry) {
+        selectedVersion = entry.version
+        if (entry.version == SHMTU_NCNN_Model.ModelVersion.V2) {
+            selectedBackbone = entry.backbone.ifBlank { SHMTU_NCNN_Model.V2_DEFAULT_BACKBONE }
+            selectedPrecision = entry.precision.ifBlank { SHMTU_NCNN_Model.V2_DEFAULT_PRECISION }
+        }
+        saveModelPreferences()
+        updateCurrentModelDisplay()
+
+        // Switch version toggle
+        if (entry.version == SHMTU_NCNN_Model.ModelVersion.V1) {
+            modelVersionToggleGroup.check(R.id.button_version_v1)
+        } else {
+            modelVersionToggleGroup.check(R.id.button_version_v2)
+        }
+
+        // Show device selection and load
+        showDeviceSelectionDialog { useGpu ->
+            if (useGpu && !shmtuNcnn.isVulkanSupported) {
+                Toast.makeText(this, "当前设备不支持 GPU", Toast.LENGTH_SHORT).show()
+                return@showDeviceSelectionDialog
+            }
+            Toast.makeText(this, "正在从本地加载 ${entry.displayName}", Toast.LENGTH_SHORT).show()
+            launch {
+                val ok = NcnnModelLoader.ensureLoaded(
+                    ncnn = shmtuNcnn,
+                    context = this@MainActivity,
+                    version = entry.version,
+                    useGpu = useGpu,
+                )
+                runOnUiThread {
+                    if (ok) {
+                        Toast.makeText(this@MainActivity, "模型加载成功", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@MainActivity, "模型加载失败", Toast.LENGTH_LONG).show()
+                    }
+                    updateModelStatusText()
+                }
+            }
+        }
+    }
+
     // ==================== legacy dialogs (adapted for v1/v2) ====================
 
     private fun showLoadModelDialog() {
@@ -511,14 +710,26 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
             options.add("从内置资源加载")
         }
         options.add("从本地已下载模型加载")
+        // NEW: always offer "从本地模型列表选择" (scan all dirs)
+        options.add("从本地模型列表选择")
 
         AlertDialog.Builder(this)
             .setTitle("选择加载方式 (${selectedVersion.toStorageString()})")
             .setItems(options.toTypedArray()) { _, which ->
-                showDeviceSelectionDialog { useGpu ->
-                    when {
-                        options[which].contains("内置") -> loadModelFromAssets(useGpu)
-                        else -> loadModelFromDownloaded(useGpu)
+                val selected = options[which]
+                when {
+                    selected.contains("内置") -> {
+                        showDeviceSelectionDialog { useGpu ->
+                            loadModelFromAssets(useGpu)
+                        }
+                    }
+                    selected.contains("列表选择") -> {
+                        showSelectLocalModelDialog()
+                    }
+                    else -> {
+                        showDeviceSelectionDialog { useGpu ->
+                            loadModelFromDownloaded(useGpu)
+                        }
                     }
                 }
             }
@@ -557,22 +768,38 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
 
     private fun showModelStatusDialog() {
         updateModelStatusText()
-        val downloaded = SHMTU_NCNN_Model.isModelDownloaded(
-            this,
-            selectedVersion,
-            selectedBackbone,
-            selectedPrecision
-        )
-        val modelInfo = SHMTU_NCNN_Model.getDownloadedModelInfo(
-            this,
-            selectedVersion,
-            selectedBackbone,
-            selectedPrecision
-        )
-        val status = if (downloaded) "已下载" else "未下载"
+
+        val allLocalModels = scanLocalModels()
+        val statusSummary = if (allLocalModels.isEmpty()) {
+            "本地未发现任何已下载模型"
+        } else {
+            allLocalModels.joinToString("\n") { entry ->
+                buildString {
+                    append("• ")
+                    append(entry.displayName)
+                    if (entry.version == SHMTU_NCNN_Model.ModelVersion.V2 && entry.backbone.isNotBlank()) {
+                        append("\n  backbone=${entry.backbone} precision=${entry.precision}")
+                    }
+                }
+            }
+        }
+
         AlertDialog.Builder(this)
             .setTitle("模型状态 (${selectedVersion.toStorageString()})")
-            .setMessage("本地模型：$status\n\n版本：${selectedVersion.toStorageString()}\nBackbone：$selectedBackbone\n精度：$selectedPrecision\nTag：${selectedTag ?: "(自动)"}\n\n$modelInfo")
+            .setMessage(
+                buildString {
+                    appendLine("当前配置：")
+                    appendLine("版本：${selectedVersion.toStorageString()}")
+                    appendLine("Backbone：$selectedBackbone")
+                    appendLine("精度：$selectedPrecision")
+                    if (selectedTag != null) {
+                        appendLine("Tag：$selectedTag")
+                    }
+                    appendLine()
+                    appendLine("--- 本地已扫描模型 ---")
+                    append(statusSummary)
+                }
+            )
             .setPositiveButton("确定", null)
             .show()
     }
@@ -650,8 +877,6 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
                     context = this@MainActivity,
                     version = selectedVersion,
                     useGpu = false,
-                    v2Backbone = selectedBackbone,
-                    v2Precision = selectedPrecision,
                 )
                 if (!ok) {
                     runOnUiThread {
@@ -741,7 +966,7 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
     }
 
     private fun loadModelFromDownloaded(useGpu: Boolean) {
-        if (!SHMTU_NCNN_Model.isModelDownloaded(this, selectedVersion, selectedBackbone, selectedPrecision)) {
+        if (!SHMTU_NCNN_Model.isModelDownloaded(this, selectedVersion)) {
             Toast.makeText(this, "本地未下载模型，请先下载 (${selectedVersion.toStorageString()})", Toast.LENGTH_SHORT).show()
             return
         }
@@ -757,8 +982,6 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
                 context = this@MainActivity,
                 version = selectedVersion,
                 useGpu = useGpu,
-                v2Backbone = selectedBackbone,
-                v2Precision = selectedPrecision,
             )
             runOnUiThread {
                 if (ok) {
@@ -932,7 +1155,7 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
         if (bitmap == null) return "null"
         val byteCount = bitmap.byteCount
         val pngBytes = runCatching {
-            ByteArrayOutputStream().use { out ->
+            java.io.ByteArrayOutputStream().use { out ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                 out.size()
             }

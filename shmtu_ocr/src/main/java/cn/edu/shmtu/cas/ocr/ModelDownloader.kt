@@ -843,7 +843,7 @@ internal fun friendlyModelName(assetStem: String, backbone: String = "", family:
  * Backbone 字段值 → 人类可读标签
  * 例: `mobilenet_v3_small` → `MobileNetV3-Small`
  */
-internal fun friendlyBackbone(backbone: String): String {
+fun friendlyBackbone(backbone: String): String {
     if (backbone.isBlank()) return ""
     val canonical = canonicalBackboneLabels[backbone.lowercase()]
     if (canonical != null) return canonical
@@ -854,7 +854,7 @@ internal fun friendlyBackbone(backbone: String): String {
  * Family 字段值 → 人类可读标签
  * 例: `trislot_decoder` → `TriSlot Decoder`
  */
-internal fun friendlyFamily(family: String): String {
+fun friendlyFamily(family: String): String {
     if (family.isBlank()) return ""
     val canonical = canonicalFamilyLabels[family.lowercase()]
     if (canonical != null) return canonical
@@ -864,7 +864,7 @@ internal fun friendlyFamily(family: String): String {
 /**
  * Version 字段值 → 人类可读 (v2_0 → v2.0)
  */
-internal fun friendlyVersion(version: String): String {
+fun friendlyVersion(version: String): String {
     if (version.isBlank()) return ""
     val cleaned = version.trimStart('v', 'V').replace('_', '.')
     return if (cleaned.isBlank()) "" else "v$cleaned"
