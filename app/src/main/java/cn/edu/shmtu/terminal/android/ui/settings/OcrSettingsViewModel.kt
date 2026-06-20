@@ -76,10 +76,12 @@ class OcrSettingsViewModel @Inject constructor(
 
     fun refreshStatus() {
         val version = _ocrModelVersion.value
+        val v2Backbone = _uiState.value.selectedBackbone.ifBlank { SHMTU_NCNN_Model.V2_DEFAULT_BACKBONE }
+        val v2Precision = _uiState.value.selectedPrecision.ifBlank { SHMTU_NCNN_Model.V2_DEFAULT_PRECISION }
         _uiState.value = _uiState.value.copy(
             ocrModelVersion = version,
             hasBuiltInModel = SHMTU_NCNN_Model.isModelBuiltIn(context.assets, version),
-            hasDownloadedModel = SHMTU_NCNN_Model.isModelDownloaded(context, version),
+            hasDownloadedModel = SHMTU_NCNN_Model.isModelDownloaded(context, version, v2Backbone, v2Precision),
             modelStatus = currentStatus(version),
             v2ModelStatus = shmtuNcnn.v2ModelStatus,
             gpuSupported = shmtuNcnn.isVulkanSupported
@@ -151,7 +153,14 @@ class OcrSettingsViewModel @Inject constructor(
             }
             ModelVersion.V2 -> {
                 // v2 is download-only; the assets path falls back to dir.
-                SHMTU_NCNN_Model.loadV2ModelFromDirAsync(shmtuNcnn, context, useGpu, callback)
+                SHMTU_NCNN_Model.loadV2ModelFromDirAsync(
+                    shmtuNcnn,
+                    context,
+                    useGpu,
+                    _uiState.value.selectedBackbone,
+                    _uiState.value.selectedPrecision,
+                    callback
+                )
             }
         }
     }
@@ -387,7 +396,12 @@ class OcrSettingsViewModel @Inject constructor(
         shmtuNcnn.releaseModel()
         shmtuNcnn.releaseV2Model()
         val version = _ocrModelVersion.value
-        val deleted = SHMTU_NCNN_Model.deleteDownloadedModels(context, version)
+        val deleted = SHMTU_NCNN_Model.deleteDownloadedModels(
+            context,
+            version,
+            _uiState.value.selectedBackbone,
+            _uiState.value.selectedPrecision
+        )
         refreshStatus()
         _uiState.value = _uiState.value.copy(
             message = if (deleted > 0) {
