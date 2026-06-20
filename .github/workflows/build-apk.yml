@@ -60,17 +60,16 @@ jobs:
 
       - name: 注入 OAuth 客户端凭证到 local.properties
         run: |
-          cat > shmtu-terminal-android/local.properties <<EOF
+          cat > local.properties <<'EOF'
           ## CI 注入的 OAuth 客户端凭证 (由 GitHub Actions Secrets 提供)
-          ## 用户在运行时也可以在 App 设置页面手动覆盖
+          ## 空值 = App 内手动输入，不阻塞编译
           CLOUD_GDRIVE_CLIENT_ID=${{ secrets.CLOUD_GDRIVE_CLIENT_ID }}
           CLOUD_GDRIVE_CLIENT_SECRET=${{ secrets.CLOUD_GDRIVE_CLIENT_SECRET }}
           CLOUD_ONEDRIVE_CLIENT_ID=${{ secrets.CLOUD_ONEDRIVE_CLIENT_ID }}
           EOF
-          echo "✓ 已生成 local.properties"
-          echo "Client IDs 设置状态:"
-          [ -n "${{ secrets.CLOUD_GDRIVE_CLIENT_ID }}" ] && echo "  Google Drive: ✓" || echo "  Google Drive: ⚠ 未配置"
-          [ -n "${{ secrets.CLOUD_ONEDRIVE_CLIENT_ID }}" ] && echo "  OneDrive: ✓" || echo "  OneDrive: ⚠ 未配置"
+          echo "✓ 已生成 local.properties (${PWD}/local.properties)"
+          echo "  Google Drive: $([ -n '${{ secrets.CLOUD_GDRIVE_CLIENT_ID }}' ] && echo '✓' || echo '⚠ 未配置')"
+          echo "  OneDrive: $([ -n '${{ secrets.CLOUD_ONEDRIVE_CLIENT_ID }}' ] && echo '✓' || echo '⚠ 未配置')"
 
       - name: 赋予 gradlew 执行权限
         run: chmod +x shmtu-terminal-android/gradlew
