@@ -25,6 +25,7 @@ import cn.edu.shmtu.cas.captcha.RemoteOcrHttpCaptchaResolver
 import cn.edu.shmtu.cas.captcha.CaptchaOcrHelper
 import cn.edu.shmtu.cas.ocr.ImageUtils
 import cn.edu.shmtu.cas.ocr.ModelDownloader
+import cn.edu.shmtu.cas.ocr.NcnnModelLoader
 import cn.edu.shmtu.cas.ocr.OcrModelInfo
 import cn.edu.shmtu.cas.ocr.OcrV2TagCatalog
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN
@@ -642,11 +643,31 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
         }
 
         if (!loaded) {
-            AlertDialog.Builder(this)
-                .setTitle("模型未加载")
-                .setMessage("请先加载${selectedVersion.toStorageString()}模型后再进行本地识别")
-                .setPositiveButton("确定", null)
-                .show()
+            // Auto-load model via NcnnModelLoader, then run inference
+            launch {
+                val ok = NcnnModelLoader.ensureLoaded(
+                    ncnn = shmtuNcnn,
+                    context = this@MainActivity,
+                    version = selectedVersion,
+                    useGpu = false,
+                    v2Backbone = selectedBackbone,
+                    v2Precision = selectedPrecision,
+                )
+                if (!ok) {
+                    runOnUiThread {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "自动加载模型失败 (${selectedVersion.toStorageString()})，请先下载模型",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    return@launch
+                }
+                runOnUiThread {
+                    updateModelStatusText()
+                    doLocalOcrDemo()
+                }
+            }
             return
         }
 
@@ -730,42 +751,23 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
         }
         Toast.makeText(this, "正在从本地加载${selectedVersion.toStorageString()}模型", Toast.LENGTH_SHORT).show()
 
-        if (selectedVersion == SHMTU_NCNN_Model.ModelVersion.V1) {
-            SHMTU_NCNN_Model.loadModelFromDirAsync(
-                shmtuNcnn, this, useGpu,
-                object : SHMTU_NCNN_Model.LoadCallback {
-                    override fun onSuccess() {
-                        runOnUiThread {
-                            Toast.makeText(this@MainActivity, "v1 模型加载成功", Toast.LENGTH_SHORT).show()
-                            updateModelStatusText()
-                        }
-                    }
-                    override fun onError(error: String) {
-                        runOnUiThread {
-                            Toast.makeText(this@MainActivity, "加载失败: $error", Toast.LENGTH_LONG).show()
-                            updateModelStatusText()
-                        }
-                    }
-                }
+        launch {
+            val ok = NcnnModelLoader.ensureLoaded(
+                ncnn = shmtuNcnn,
+                context = this@MainActivity,
+                version = selectedVersion,
+                useGpu = useGpu,
+                v2Backbone = selectedBackbone,
+                v2Precision = selectedPrecision,
             )
-        } else {
-            SHMTU_NCNN_Model.loadV2ModelFromDirAsync(
-                shmtuNcnn, this, useGpu, selectedBackbone, selectedPrecision,
-                object : SHMTU_NCNN_Model.LoadCallback {
-                    override fun onSuccess() {
-                        runOnUiThread {
-                            Toast.makeText(this@MainActivity, "v2 模型加载成功", Toast.LENGTH_SHORT).show()
-                            updateModelStatusText()
-                        }
-                    }
-                    override fun onError(error: String) {
-                        runOnUiThread {
-                            Toast.makeText(this@MainActivity, "加载失败: $error", Toast.LENGTH_LONG).show()
-                            updateModelStatusText()
-                        }
-                    }
+            runOnUiThread {
+                if (ok) {
+                    Toast.makeText(this@MainActivity, "${selectedVersion.toStorageString()} 模型加载成功", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this@MainActivity, "加载失败", Toast.LENGTH_LONG).show()
                 }
-            )
+                updateModelStatusText()
+            }
         }
     }
 
