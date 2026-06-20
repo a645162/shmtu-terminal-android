@@ -21,7 +21,9 @@ class SettingsDataStore @Inject constructor(
 
     private val _captchaModeFlow = MutableStateFlow(getCaptchaMode())
     private val _useLocalOcrFlow = MutableStateFlow(getUseLocalOcr())
+    private val _ocrServerTypeFlow = MutableStateFlow(getOcrServerType())
     private val _ocrServerUrlFlow = MutableStateFlow(getOcrServerUrl())
+    private val _ocrHttpServerUrlFlow = MutableStateFlow(getOcrHttpServerUrl())
     private val _ocrModelVersionFlow = MutableStateFlow(getOcrModelVersion())
     private val _ocrV2ModelTagFlow = MutableStateFlow(getOcrV2ModelTag())
     private val _ocrV2BackboneFlow = MutableStateFlow(getOcrV2Backbone())
@@ -53,7 +55,9 @@ class SettingsDataStore @Inject constructor(
 
     val captchaMode: Flow<CaptchaMode> = _captchaModeFlow.asStateFlow()
     val useLocalOcr: Flow<Boolean> = _useLocalOcrFlow.asStateFlow()
+    val ocrServerType: Flow<OcrServerType> = _ocrServerTypeFlow.asStateFlow()
     val ocrServerUrl: Flow<String> = _ocrServerUrlFlow.asStateFlow()
+    val ocrHttpServerUrl: Flow<String> = _ocrHttpServerUrlFlow.asStateFlow()
     val ocrModelVersion: Flow<SHMTU_NCNN_Model.ModelVersion> = _ocrModelVersionFlow.asStateFlow()
     val ocrV2ModelTag: Flow<String> = _ocrV2ModelTagFlow.asStateFlow()
     val ocrV2Backbone: Flow<String> = _ocrV2BackboneFlow.asStateFlow()
@@ -106,6 +110,16 @@ class SettingsDataStore @Inject constructor(
     fun setOcrServerUrl(url: String) {
         prefs.edit().putString(KEY_OCR_SERVER_URL, url).apply()
         _ocrServerUrlFlow.value = url
+    }
+
+    fun setOcrServerType(type: OcrServerType) {
+        prefs.edit().putString(KEY_OCR_SERVER_TYPE, type.toStorageString()).apply()
+        _ocrServerTypeFlow.value = type
+    }
+
+    fun setOcrHttpServerUrl(url: String) {
+        prefs.edit().putString(KEY_OCR_HTTP_SERVER_URL, url).apply()
+        _ocrHttpServerUrlFlow.value = url
     }
 
     fun setOcrModelVersion(version: SHMTU_NCNN_Model.ModelVersion) {
@@ -264,6 +278,14 @@ class SettingsDataStore @Inject constructor(
 
     private fun getOcrServerUrl(): String =
         prefs.getString(KEY_OCR_SERVER_URL, "127.0.0.1:21601") ?: "127.0.0.1:21601"
+
+    private fun getOcrServerType(): OcrServerType =
+        OcrServerType.fromString(
+            prefs.getString(KEY_OCR_SERVER_TYPE, OcrServerType.HTTP.toStorageString())
+        )
+
+    private fun getOcrHttpServerUrl(): String =
+        prefs.getString(KEY_OCR_HTTP_SERVER_URL, OcrServerType.DEFAULT_HTTP_URL) ?: OcrServerType.DEFAULT_HTTP_URL
 
     private fun getOcrModelVersion(): SHMTU_NCNN_Model.ModelVersion =
         SHMTU_NCNN_Model.ModelVersion.fromString(
@@ -466,6 +488,8 @@ class SettingsDataStore @Inject constructor(
         private const val KEY_CAPTCHA_MODE = "captcha_mode"
         private const val KEY_USE_LOCAL_OCR = "use_local_ocr"
         private const val KEY_OCR_SERVER_URL = "ocr_server_url"
+        private const val KEY_OCR_SERVER_TYPE = "ocr_server_type"      // tcp | http
+        private const val KEY_OCR_HTTP_SERVER_URL = "ocr_http_server_url"
         private const val KEY_OCR_MODEL_VERSION = "ocr_model_version"  // V1 | V2
         private const val KEY_OCR_V2_MODEL_TAG = "ocr_v2_model_tag"    // e.g. "v2.0.2" or ""
         private const val KEY_OCR_V2_BACKBONE = "ocr_v2_backbone"      // e.g. "mobilenet_v3_small"
@@ -523,4 +547,23 @@ class SettingsDataStore @Inject constructor(
 enum class CaptchaMode {
     MANUAL,
     AUTO_OCR
+}
+
+enum class OcrServerType {
+    HTTP,   // RESTful HTTP API (默认)
+    TCP;    // 原始 TCP 协议
+
+    fun toStorageString(): String = when (this) {
+        HTTP -> "http"
+        TCP -> "tcp"
+    }
+
+    companion object {
+        const val DEFAULT_HTTP_URL = "http://127.0.0.1:21600"
+
+        fun fromString(value: String?): OcrServerType = when (value) {
+            "tcp" -> TCP
+            else -> HTTP
+        }
+    }
 }

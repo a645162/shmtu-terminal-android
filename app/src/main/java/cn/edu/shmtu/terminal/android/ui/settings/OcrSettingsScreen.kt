@@ -60,6 +60,7 @@ import cn.edu.shmtu.cas.ocr.OcrModelInfo
 import cn.edu.shmtu.cas.ocr.OcrV2TagCatalog
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model
 import cn.edu.shmtu.terminal.android.data.local.datastore.CaptchaMode
+import cn.edu.shmtu.terminal.android.data.local.datastore.OcrServerType
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,7 +73,9 @@ fun OcrSettingsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val captchaMode by settingsViewModel.captchaMode.collectAsState()
     val useLocalOcr by settingsViewModel.useLocalOcr.collectAsState()
+    val ocrServerType by settingsViewModel.ocrServerType.collectAsState()
     val ocrServerUrl by settingsViewModel.ocrServerUrl.collectAsState()
+    val ocrHttpServerUrl by settingsViewModel.ocrHttpServerUrl.collectAsState()
     val ocrRetryCount by viewModel.ocrRetryCount.collectAsState()
     val ocrModelVersion by viewModel.ocrModelVersion.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -101,7 +104,9 @@ fun OcrSettingsScreen(
                 uiState = uiState,
                 captchaMode = captchaMode,
                 useLocalOcr = useLocalOcr,
+                ocrServerType = ocrServerType,
                 ocrServerUrl = ocrServerUrl,
+                ocrHttpServerUrl = ocrHttpServerUrl,
                 ocrRetryCount = ocrRetryCount,
                 ocrModelVersion = ocrModelVersion,
                 showLoadSourceDialog = showLoadSourceDialog,
@@ -115,6 +120,9 @@ fun OcrSettingsScreen(
                 onDeleteDownloadedModels = { showDeleteModelsDialog = true },
                 onRefreshStatus = viewModel::refreshStatus,
                 onSetUseLocalOcr = settingsViewModel::setUseLocalOcr,
+                onSetOcrServerType = settingsViewModel::setOcrServerType,
+                onSetOcrServerUrl = settingsViewModel::setOcrServerUrl,
+                onSetOcrHttpServerUrl = settingsViewModel::setOcrHttpServerUrl,
                 onSetOcrRetryCount = viewModel::setOcrRetryCount,
                 onSetOcrModelVersion = viewModel::setOcrModelVersion,
                 onSetCaptchaMode = settingsViewModel::setCaptchaMode,
@@ -155,7 +163,9 @@ fun OcrSettingsScreen(
                     uiState = uiState,
                     captchaMode = captchaMode,
                     useLocalOcr = useLocalOcr,
+                    ocrServerType = ocrServerType,
                     ocrServerUrl = ocrServerUrl,
+                    ocrHttpServerUrl = ocrHttpServerUrl,
                     ocrRetryCount = ocrRetryCount,
                     ocrModelVersion = ocrModelVersion,
                     showLoadSourceDialog = showLoadSourceDialog,
@@ -169,6 +179,9 @@ fun OcrSettingsScreen(
                     onDeleteDownloadedModels = { showDeleteModelsDialog = true },
                     onRefreshStatus = viewModel::refreshStatus,
                     onSetUseLocalOcr = settingsViewModel::setUseLocalOcr,
+                    onSetOcrServerType = settingsViewModel::setOcrServerType,
+                    onSetOcrServerUrl = settingsViewModel::setOcrServerUrl,
+                    onSetOcrHttpServerUrl = settingsViewModel::setOcrHttpServerUrl,
                     onSetOcrRetryCount = viewModel::setOcrRetryCount,
                     onSetOcrModelVersion = viewModel::setOcrModelVersion,
                     onSetCaptchaMode = settingsViewModel::setCaptchaMode,
@@ -292,10 +305,12 @@ fun OcrSettingsScreen(
     }
 
     if (showUrlEditor) {
+        val isHttp = ocrServerType == OcrServerType.HTTP
         UrlEditDialog(
-            initialUrl = ocrServerUrl,
-            onConfirm = {
-                settingsViewModel.setOcrServerUrl(it)
+            initialUrl = if (isHttp) ocrHttpServerUrl else ocrServerUrl,
+            isHttp = isHttp,
+            onConfirm = { url ->
+                if (isHttp) settingsViewModel.setOcrHttpServerUrl(url) else settingsViewModel.setOcrServerUrl(url)
                 showUrlEditor = false
             },
             onDismiss = { showUrlEditor = false }
@@ -343,7 +358,9 @@ private fun OcrSettingsContent(
     uiState: OcrSettingsUiState,
     captchaMode: CaptchaMode,
     useLocalOcr: Boolean,
+    ocrServerType: OcrServerType,
     ocrServerUrl: String,
+    ocrHttpServerUrl: String,
     ocrRetryCount: Int,
     ocrModelVersion: SHMTU_NCNN_Model.ModelVersion,
     showLoadSourceDialog: Boolean,
@@ -357,6 +374,9 @@ private fun OcrSettingsContent(
     onDeleteDownloadedModels: () -> Unit,
     onRefreshStatus: () -> Unit,
     onSetUseLocalOcr: (Boolean) -> Unit,
+    onSetOcrServerType: (OcrServerType) -> Unit,
+    onSetOcrServerUrl: (String) -> Unit,
+    onSetOcrHttpServerUrl: (String) -> Unit,
     onSetOcrRetryCount: (Int) -> Unit,
     onSetOcrModelVersion: (SHMTU_NCNN_Model.ModelVersion) -> Unit,
     onSetCaptchaMode: (CaptchaMode) -> Unit,
@@ -534,7 +554,7 @@ private fun OcrSettingsContent(
         // OCR preference
         ListItem(
             headlineContent = { Text("优先使用本地模型") },
-            supportingContent = { Text("关闭后将使用远程 OCR 服务器") },
+            supportingContent = { Text("关闭后将直接使用远程 OCR 服务器；开启时本地失败也会回退到远程") },
             trailingContent = {
                 Switch(
                     checked = useLocalOcr,
@@ -544,14 +564,51 @@ private fun OcrSettingsContent(
         )
         HorizontalDivider()
 
-        if (!useLocalOcr) {
-            ListItem(
-                headlineContent = { Text("远程 OCR 服务器") },
-                supportingContent = { Text(ocrServerUrl) },
-                modifier = Modifier.clickable { onShowUrlEditorChange(true) }
-            )
-            HorizontalDivider()
+        // 远程 OCR 服务器配置（始终可见）
+        ListItem(
+            headlineContent = { Text("远程 OCR 协议") },
+            supportingContent = { Text("RESTful HTTP 为默认推荐方式") }
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+        ) {
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                SegmentedButton(
+                    selected = ocrServerType == OcrServerType.HTTP,
+                    onClick = { onSetOcrServerType(OcrServerType.HTTP) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                ) { Text("RESTful") }
+                SegmentedButton(
+                    selected = ocrServerType == OcrServerType.TCP,
+                    onClick = { onSetOcrServerType(OcrServerType.TCP) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                ) { Text("TCP") }
+            }
         }
+        HorizontalDivider()
+
+        // 根据协议类型显示对应的地址配置
+        when (ocrServerType) {
+            OcrServerType.HTTP -> {
+                ListItem(
+                    headlineContent = { Text("HTTP 服务器地址") },
+                    supportingContent = { Text(ocrHttpServerUrl) },
+                    modifier = Modifier.clickable { onShowUrlEditorChange(true) }
+                )
+            }
+            OcrServerType.TCP -> {
+                ListItem(
+                    headlineContent = { Text("TCP 服务器地址") },
+                    supportingContent = { Text(ocrServerUrl) },
+                    modifier = Modifier.clickable { onShowUrlEditorChange(true) }
+                )
+            }
+        }
+        HorizontalDivider()
 
         // 验证码错误重试次数
         ListItem(
@@ -889,6 +946,7 @@ private fun OcrModelAdvancedDialog(
 @Composable
 private fun UrlEditDialog(
     initialUrl: String,
+    isHttp: Boolean = true,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -896,12 +954,14 @@ private fun UrlEditDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("编辑服务器地址") },
+        title = { Text(if (isHttp) "编辑 HTTP 服务器地址" else "编辑 TCP 服务器地址") },
         text = {
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
-                label = { Text("地址") },
+                label = {
+                    Text(if (isHttp) "地址 (如 http://192.168.1.100:21600)" else "地址 (如 192.168.1.100:21601)")
+                },
                 singleLine = true
             )
         },
