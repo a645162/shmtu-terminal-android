@@ -53,6 +53,10 @@
             android:name=".data.webserver.WebServerService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service
+            android:name=".data.ocrserver.OcrServerService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
         <receiver
             android:name=".data.webserver.WebServerActionReceiver"
             android:exported="false" />

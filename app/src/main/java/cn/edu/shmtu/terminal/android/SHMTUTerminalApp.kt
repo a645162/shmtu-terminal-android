@@ -10,6 +10,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import cn.edu.shmtu.terminal.android.data.cloud.CloudBackupWorker
+import cn.edu.shmtu.terminal.android.data.ocrserver.OcrServerService
 import cn.edu.shmtu.terminal.android.data.p2p.P2PForegroundService
 import cn.edu.shmtu.terminal.android.data.remote.SessionExpirationWorker
 import cn.edu.shmtu.terminal.android.data.sync.AutoSyncStatusNotifier
@@ -119,6 +120,10 @@ class SHMTUTerminalApp : Application(), Configuration.Provider {
                 val autoStartWeb = sp.getBoolean("remote_auto_start_web", false)
                 if (autoStartWeb) {
                     WebServerService.start(this@SHMTUTerminalApp)
+                }
+                val autoStartOcr = sp.getBoolean("ocr_server_auto_start", false)
+                if (autoStartOcr) {
+                    OcrServerService.start(this@SHMTUTerminalApp)
                 }
             } catch (e: Exception) {
                 Log.w("SHMTUTerminalApp", "start foreground service failed: ${e.message}")
