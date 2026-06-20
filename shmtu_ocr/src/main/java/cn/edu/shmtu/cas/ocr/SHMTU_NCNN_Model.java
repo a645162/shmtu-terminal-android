@@ -220,10 +220,27 @@ public class SHMTU_NCNN_Model {
     }
 
     public static boolean isModelDownloaded(Context context, ModelVersion version) {
+        return isModelDownloaded(
+                context,
+                version,
+                V2_DEFAULT_BACKBONE,
+                V2_DEFAULT_PRECISION
+        );
+    }
+
+    public static boolean isModelDownloaded(
+            Context context,
+            ModelVersion version,
+            String v2Backbone,
+            String v2Precision
+    ) {
         String modelDir = getModelDir(context, version);
         String[] files = (version == ModelVersion.V1)
                 ? MODEL_FILES
-                : getV2ModelFiles(V2_DEFAULT_BACKBONE, V2_DEFAULT_PRECISION);
+                : getV2ModelFiles(
+                        (v2Backbone == null || v2Backbone.isBlank()) ? V2_DEFAULT_BACKBONE : v2Backbone,
+                        (v2Precision == null || v2Precision.isBlank()) ? V2_DEFAULT_PRECISION : v2Precision
+                );
         for (String fileName : files) {
             File file = new File(modelDir + fileName);
             if (!file.exists() || file.length() == 0) {
@@ -238,10 +255,27 @@ public class SHMTU_NCNN_Model {
     }
 
     public static String getDownloadedModelInfo(Context context, ModelVersion version) {
+        return getDownloadedModelInfo(
+                context,
+                version,
+                V2_DEFAULT_BACKBONE,
+                V2_DEFAULT_PRECISION
+        );
+    }
+
+    public static String getDownloadedModelInfo(
+            Context context,
+            ModelVersion version,
+            String v2Backbone,
+            String v2Precision
+    ) {
         String modelDir = getModelDir(context, version);
         String[] files = (version == ModelVersion.V1)
                 ? MODEL_FILES
-                : getV2ModelFiles(V2_DEFAULT_BACKBONE, V2_DEFAULT_PRECISION);
+                : getV2ModelFiles(
+                        (v2Backbone == null || v2Backbone.isBlank()) ? V2_DEFAULT_BACKBONE : v2Backbone,
+                        (v2Precision == null || v2Precision.isBlank()) ? V2_DEFAULT_PRECISION : v2Precision
+                );
         StringBuilder info = new StringBuilder();
         for (String fileName : files) {
             File file = new File(modelDir + fileName);
@@ -256,10 +290,27 @@ public class SHMTU_NCNN_Model {
     }
 
     public static int deleteDownloadedModels(Context context, ModelVersion version) {
+        return deleteDownloadedModels(
+                context,
+                version,
+                V2_DEFAULT_BACKBONE,
+                V2_DEFAULT_PRECISION
+        );
+    }
+
+    public static int deleteDownloadedModels(
+            Context context,
+            ModelVersion version,
+            String v2Backbone,
+            String v2Precision
+    ) {
         String modelDir = getModelDir(context, version);
         String[] files = (version == ModelVersion.V1)
                 ? MODEL_FILES
-                : getV2ModelFiles(V2_DEFAULT_BACKBONE, V2_DEFAULT_PRECISION);
+                : getV2ModelFiles(
+                        (v2Backbone == null || v2Backbone.isBlank()) ? V2_DEFAULT_BACKBONE : v2Backbone,
+                        (v2Precision == null || v2Precision.isBlank()) ? V2_DEFAULT_PRECISION : v2Precision
+                );
         int deleted = 0;
         for (String fileName : files) {
             File file = new File(modelDir + fileName);
@@ -317,11 +368,33 @@ public class SHMTU_NCNN_Model {
 
     // ============ v2 async loaders ============
     public static void loadV2ModelFromDirAsync(SHMTU_NCNN ncnn, Context context, boolean useGpu, LoadCallback callback) {
+        loadV2ModelFromDirAsync(
+                ncnn,
+                context,
+                useGpu,
+                V2_DEFAULT_BACKBONE,
+                V2_DEFAULT_PRECISION,
+                callback
+        );
+    }
+
+    public static void loadV2ModelFromDirAsync(
+            SHMTU_NCNN ncnn,
+            Context context,
+            boolean useGpu,
+            String backbone,
+            String precision,
+            LoadCallback callback
+    ) {
         new Thread(() -> {
             try {
                 ModelVersion v = ModelVersion.V2;
                 String modelDir = getModelDir(context, v);
-                String[] files = getV2ModelFiles(V2_DEFAULT_BACKBONE, V2_DEFAULT_PRECISION);
+                String resolvedBackbone =
+                        (backbone == null || backbone.isBlank()) ? V2_DEFAULT_BACKBONE : backbone;
+                String resolvedPrecision =
+                        (precision == null || precision.isBlank()) ? V2_DEFAULT_PRECISION : precision;
+                String[] files = getV2ModelFiles(resolvedBackbone, resolvedPrecision);
                 for (String fileName : files) {
                     File file = new File(modelDir + fileName);
                     if (!file.exists() || file.length() == 0) {

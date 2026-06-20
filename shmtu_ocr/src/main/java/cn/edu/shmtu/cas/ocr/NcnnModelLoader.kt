@@ -33,12 +33,14 @@ object NcnnModelLoader {
         context: Context,
         version: ModelVersion = ModelVersion.V2,
         useGpu: Boolean = false,
+        v2Backbone: String = SHMTU_NCNN_Model.V2_DEFAULT_BACKBONE,
+        v2Precision: String = SHMTU_NCNN_Model.V2_DEFAULT_PRECISION,
     ): Boolean {
         if (isVersionLoaded(ncnn, version)) {
             return true
         }
-        return if (SHMTU_NCNN_Model.isModelDownloaded(context, version)) {
-            loadFromDir(ncnn, context, version, useGpu)
+        return if (SHMTU_NCNN_Model.isModelDownloaded(context, version, v2Backbone, v2Precision)) {
+            loadFromDir(ncnn, context, version, useGpu, v2Backbone, v2Precision)
         } else if (SHMTU_NCNN_Model.isModelBuiltIn(context.assets, version)) {
             if (version == ModelVersion.V1) {
                 loadFromAssets(ncnn, context.assets, useGpu)
@@ -64,6 +66,8 @@ object NcnnModelLoader {
         context: Context,
         version: ModelVersion = ModelVersion.V2,
         useGpu: Boolean = false,
+        v2Backbone: String = SHMTU_NCNN_Model.V2_DEFAULT_BACKBONE,
+        v2Precision: String = SHMTU_NCNN_Model.V2_DEFAULT_PRECISION,
     ): Boolean = suspendCancellableCoroutine { cont ->
         if (version == ModelVersion.V1) {
             SHMTU_NCNN_Model.loadModelFromDirAsync(
@@ -84,6 +88,8 @@ object NcnnModelLoader {
                 ncnn,
                 context,
                 useGpu,
+                v2Backbone,
+                v2Precision,
                 object : SHMTU_NCNN_Model.LoadCallback {
                     override fun onSuccess() {
                         if (cont.isActive) cont.resume(true)

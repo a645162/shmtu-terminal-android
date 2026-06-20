@@ -180,8 +180,9 @@ Java_cn_edu_shmtu_cas_ocr_SHMTU_1NCNN_DetectV2(
     std::vector<std::string> return_tuples = {
             std::to_string(std::get<0>(result)),
             std::get<1>(result),
-            std::to_string(std::get<2>(result)),
+            std::to_string(-1),  // equalSymbol is N/A for v2
             std::to_string(std::get<3>(result)),
+            std::to_string(std::get<2>(result)),
             std::to_string(std::get<4>(result)),
     };
 
