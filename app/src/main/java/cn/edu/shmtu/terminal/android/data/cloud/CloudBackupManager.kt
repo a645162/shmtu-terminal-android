@@ -266,8 +266,29 @@ class CloudBackupManager @Inject constructor(
             val pass = settingsDataStore.getCloudBackupPassword() ?: return
             val root = settingsDataStore.getCloudBackupRoot().ifBlank { "shmtu-backup" }
             webDavProvider.configure(WebDavConfig(url, user, pass, root))
+        } else if (providerId == "google_drive") {
+            val clientId = settingsDataStore.getGoogleDriveClientId()
+            val clientSecret = settingsDataStore.getGoogleDriveClientSecret()
+            if (clientId.isNotBlank() && clientSecret.isNotBlank()) {
+                googleDriveProvider.configure(
+                    GoogleDriveConfig(clientId, clientSecret),
+                    settingsDataStore.getGoogleDriveCredentials()
+                )
+            }
+        } else if (providerId == "onedrive") {
+            val clientId = settingsDataStore.getOneDriveClientId()
+            if (clientId.isNotBlank()) {
+                oneDriveProvider.configure(
+                    OneDriveConfig(clientId),
+                    settingsDataStore.getOneDriveCredentials()
+                )
+            }
         }
     }
+
+    /** 暴露给 ViewModel 的 provider 引用 */
+    fun googleDriveProvider(): GoogleDriveBackupProvider = googleDriveProvider
+    fun oneDriveProvider(): OneDriveBackupProvider = oneDriveProvider
 
     fun restoreWebDavServerUrl(): String = settingsDataStore.getCloudBackupServerUrl().orEmpty()
     fun restoreWebDavUsername(): String = settingsDataStore.getCloudBackupUsername().orEmpty()

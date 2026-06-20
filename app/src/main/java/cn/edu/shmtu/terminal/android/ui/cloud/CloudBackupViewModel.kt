@@ -6,8 +6,8 @@ import androidx.lifecycle.viewModelScope
 import cn.edu.shmtu.terminal.android.data.cloud.BackupStatus
 import cn.edu.shmtu.terminal.android.data.cloud.CloudBackupManager
 import cn.edu.shmtu.terminal.android.data.cloud.CloudBackupMeta
-import cn.edu.shmtu.terminal.android.data.cloud.CloudBackupRecord
 import cn.edu.shmtu.terminal.android.data.cloud.CloudBackupWorker
+import cn.edu.shmtu.terminal.android.data.cloud.DeviceFlowDisplayInfo
 import cn.edu.shmtu.terminal.android.data.cloud.WebDavConfig
 import cn.edu.shmtu.terminal.android.data.local.datastore.SettingsDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -31,13 +31,11 @@ class CloudBackupViewModel @Inject constructor(
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
-    // 当前选择的 Provider
     private val _selectedProvider = MutableStateFlow(
         settingsDataStore.getCloudBackupProviderId() ?: "webdav"
     )
     val selectedProvider: StateFlow<String> = _selectedProvider.asStateFlow()
 
-    // WebDAV 配置
     private val _webDavServerUrl = MutableStateFlow(manager.restoreWebDavServerUrl())
     val webDavServerUrl: StateFlow<String> = _webDavServerUrl.asStateFlow()
     private val _webDavUsername = MutableStateFlow(manager.restoreWebDavUsername())
@@ -47,11 +45,9 @@ class CloudBackupViewModel @Inject constructor(
     private val _webDavRoot = MutableStateFlow(manager.restoreWebDavRoot())
     val webDavRoot: StateFlow<String> = _webDavRoot.asStateFlow()
 
-    // 连接测试状态
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    // 自动备份配置
     val autoEnabled: StateFlow<Boolean> = settingsDataStore.cloudBackupAutoEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val autoIntervalMinutes: StateFlow<Int> = settingsDataStore.cloudBackupAutoInterval
@@ -59,7 +55,23 @@ class CloudBackupViewModel @Inject constructor(
     val maxKeep: StateFlow<Int> = settingsDataStore.cloudBackupMaxKeep
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 10)
 
-    // 远程备份列表
+    private val _googleClientId = MutableStateFlow(settingsDataStore.getGoogleDriveClientId())
+    val googleClientId: StateFlow<String> = _googleClientId.asStateFlow()
+    private val _googleClientSecret = MutableStateFlow(settingsDataStore.getGoogleDriveClientSecret())
+    val googleClientSecret: StateFlow<String> = _googleClientSecret.asStateFlow()
+    private val _googleLoggedIn = MutableStateFlow(settingsDataStore.getGoogleDriveCredentials()?.isValid() == true)
+    val googleLoggedIn: StateFlow<Boolean> = _googleLoggedIn.asStateFlow()
+    val googleConfigured: Boolean get() = _googleClientId.value.isNotBlank() && _googleClientSecret.value.isNotBlank()
+
+    private val _oneDriveClientId = MutableStateFlow(settingsDataStore.getOneDriveClientId())
+    val oneDriveClientId: StateFlow<String> = _oneDriveClientId.asStateFlow()
+    private val _oneDriveLoggedIn = MutableStateFlow(settingsDataStore.getOneDriveCredentials()?.isValid() == true)
+    val oneDriveLoggedIn: StateFlow<Boolean> = _oneDriveLoggedIn.asStateFlow()
+    val oneDriveConfigured: Boolean get() = _oneDriveClientId.value.isNotBlank()
+
+    private val _deviceFlowState = MutableStateFlow<DeviceFlowState>(DeviceFlowState.Idle)
+    val deviceFlowState: StateFlow<DeviceFlowState> = _deviceFlowState.asStateFlow()
+
     private val _remoteBackups = MutableStateFlow<List<CloudBackupMeta>>(emptyList())
     val remoteBackups: StateFlow<List<CloudBackupMeta>> = _remoteBackups.asStateFlow()
     private val _loadingRemote = MutableStateFlow(false)
@@ -73,10 +85,10 @@ class CloudBackupViewModel @Inject constructor(
     fun selectProvider(providerId: String) {
         _selectedProvider.value = providerId
         _connectionState.value = ConnectionState.Idle
+        _deviceFlowState.value = DeviceFlowState.Idle
         settingsDataStore.setCloudBackupProviderId(providerId)
     }
 
-    // WebDAF 字段更新
     fun updateWebDavServerUrl(url: String) { _webDavServerUrl.value = url }
     fun updateWebDavUsername(name: String) { _webDavUsername.value = name }
     fun updateWebDavPassword(pass: String) { _webDavPassword.value = pass }
@@ -90,24 +102,119 @@ class CloudBackupViewModel @Inject constructor(
         _message.value = "✓ WebDAV 配置已保存"
     }
 
+    fun updateGoogleClientId(id: String) {
+        _googleClientId.value = id
+        settingsDataStore.setGoogleDriveClientId(id)
+    }
+    fun updateGoogleClientSecret(secret: String) {
+        _googleClientSecret.value = secret
+        settingsDataStore.setGoogleDriveClientSecret(secret)
+    }
+    fun logoutGoogle() {
+        settingsDataStore.setGoogleDriveCredentials(null)
+        _googleLoggedIn.value = false
+        _message.value = "✓ Google Drive 已登出"
+    }
+
+    fun updateOneDriveClientId(id: String) {
+        _oneDriveClientId.value = id
+        settingsDataStore.setOneDriveClientId(id)
+    }
+    fun logoutOneDrive() {
+        settingsDataStore.setOneDriveCredentials(null)
+        _oneDriveLoggedIn.value = false
+        _message.value = "✓ OneDrive 已登出"
+    }
+
+    fun saveCurrentProviderConfig() {
+        when (_selectedProvider.value) {
+            "webdav" -> saveWebDavConfig()
+            "google_drive" -> {
+                manager.googleDriveProvider().configure(
+                    cn.edu.shmtu.terminal.android.data.cloud.GoogleDriveConfig(
+                        _googleClientId.value, _googleClientSecret.value
+                    ),
+                    settingsDataStore.getGoogleDriveCredentials()
+                )
+                _message.value = "✓ Google Drive 配置已保存"
+            }
+            "onedrive" -> {
+                manager.oneDriveProvider().configure(
+                    cn.edu.shmtu.terminal.android.data.cloud.OneDriveConfig(_oneDriveClientId.value),
+                    settingsDataStore.getOneDriveCredentials()
+                )
+                _message.value = "✓ OneDrive 配置已保存"
+            }
+        }
+    }
+
+    fun startDeviceFlowLogin() {
+        val providerId = _selectedProvider.value
+        if (providerId != "google_drive" && providerId != "onedrive") return
+        saveCurrentProviderConfig()
+        viewModelScope.launch {
+            _deviceFlowState.value = DeviceFlowState.Loading
+            try {
+                val info: DeviceFlowDisplayInfo
+                val creds: cn.edu.shmtu.terminal.android.data.cloud.oauth.OAuthCredentials
+                when (providerId) {
+                    "google_drive" -> {
+                        val p = manager.googleDriveProvider()
+                        info = p.startDeviceFlow().getOrThrow()
+                        _deviceFlowState.value = DeviceFlowState.WaitingForAuth(info)
+                        creds = p.completeDeviceFlowAsync().getOrThrow()
+                        settingsDataStore.setGoogleDriveCredentials(creds)
+                        _googleLoggedIn.value = true
+                    }
+                    else -> {
+                        val p = manager.oneDriveProvider()
+                        info = p.startDeviceFlow().getOrThrow()
+                        _deviceFlowState.value = DeviceFlowState.WaitingForAuth(info)
+                        creds = p.completeDeviceFlowAsync().getOrThrow()
+                        settingsDataStore.setOneDriveCredentials(creds)
+                        _oneDriveLoggedIn.value = true
+                    }
+                }
+                _deviceFlowState.value = DeviceFlowState.Success
+                _message.value = "✓ 登录成功"
+            } catch (e: Exception) {
+                _deviceFlowState.value = DeviceFlowState.Failed(e.message ?: "登录失败")
+                _message.value = "✗ 登录失败：${e.message}"
+            }
+        }
+    }
+
+    fun cancelDeviceFlow() {
+        _deviceFlowState.value = DeviceFlowState.Idle
+    }
+
     fun testConnection() {
         val providerId = _selectedProvider.value
-        // 先保存配置再测试
         if (providerId == "webdav") {
             manager.configureWebDav(WebDavConfig(
                 _webDavServerUrl.value, _webDavUsername.value,
                 _webDavPassword.value, _webDavRoot.value.ifBlank { "shmtu-backup" }
             ))
+        } else if (providerId == "google_drive") {
+            manager.googleDriveProvider().configure(
+                cn.edu.shmtu.terminal.android.data.cloud.GoogleDriveConfig(
+                    _googleClientId.value, _googleClientSecret.value
+                ),
+                settingsDataStore.getGoogleDriveCredentials()
+            )
+        } else if (providerId == "onedrive") {
+            manager.oneDriveProvider().configure(
+                cn.edu.shmtu.terminal.android.data.cloud.OneDriveConfig(_oneDriveClientId.value),
+                settingsDataStore.getOneDriveCredentials()
+            )
         }
         viewModelScope.launch {
             _connectionState.value = ConnectionState.Testing
-            // 第一步：基本连接测试
             val connected = manager.testConnection(providerId)
             if (!connected) {
                 _connectionState.value = ConnectionState.Failed("连接失败，请检查配置")
                 return@launch
             }
-            // 第二步：真正读写测试
             val writeResult = manager.testWriteRead(providerId)
             _connectionState.value = if (writeResult.isSuccess) {
                 ConnectionState.Connected("✓ 连接成功，读写验证通过")
@@ -210,4 +317,12 @@ sealed class ConnectionState {
     object Testing : ConnectionState()
     data class Connected(val message: String) : ConnectionState()
     data class Failed(val message: String) : ConnectionState()
+}
+
+sealed class DeviceFlowState {
+    object Idle : DeviceFlowState()
+    object Loading : DeviceFlowState()
+    data class WaitingForAuth(val info: DeviceFlowDisplayInfo) : DeviceFlowState()
+    object Success : DeviceFlowState()
+    data class Failed(val message: String) : DeviceFlowState()
 }

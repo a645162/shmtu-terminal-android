@@ -358,6 +358,54 @@ class SettingsDataStore @Inject constructor(
         _cloudBackupMaxKeepFlow.value = safe
     }
 
+    // ===== Google Drive OAuth 配置 =====
+    fun getGoogleDriveClientId(): String = prefs.getString(KEY_CLOUD_BACKUP_GDRIVE_CLIENT_ID, "").orEmpty()
+    fun setGoogleDriveClientId(id: String) {
+        prefs.edit().putString(KEY_CLOUD_BACKUP_GDRIVE_CLIENT_ID, id).apply()
+    }
+    fun getGoogleDriveClientSecret(): String = prefs.getString(KEY_CLOUD_BACKUP_GDRIVE_CLIENT_SECRET, "").orEmpty()
+    fun setGoogleDriveClientSecret(secret: String) {
+        prefs.edit().putString(KEY_CLOUD_BACKUP_GDRIVE_CLIENT_SECRET, secret).apply()
+    }
+    fun getGoogleDriveCredentials(): cn.edu.shmtu.terminal.android.data.cloud.oauth.OAuthCredentials? {
+        val raw = prefs.getString(KEY_CLOUD_BACKUP_GDRIVE_CREDENTIALS, null) ?: return null
+        return try {
+            cn.edu.shmtu.terminal.android.data.cloud.oauth.OAuthJson.json
+                .decodeFromString<cn.edu.shmtu.terminal.android.data.cloud.oauth.OAuthCredentials>(raw)
+        } catch (_: Exception) { null }
+    }
+    fun setGoogleDriveCredentials(creds: cn.edu.shmtu.terminal.android.data.cloud.oauth.OAuthCredentials?) {
+        if (creds == null) {
+            prefs.edit().remove(KEY_CLOUD_BACKUP_GDRIVE_CREDENTIALS).apply()
+        } else {
+            val raw = cn.edu.shmtu.terminal.android.data.cloud.oauth.OAuthJson.json
+                .encodeToString(cn.edu.shmtu.terminal.android.data.cloud.oauth.OAuthCredentials.serializer(), creds)
+            prefs.edit().putString(KEY_CLOUD_BACKUP_GDRIVE_CREDENTIALS, raw).apply()
+        }
+    }
+
+    // ===== OneDrive OAuth 配置 =====
+    fun getOneDriveClientId(): String = prefs.getString(KEY_CLOUD_BACKUP_ONEDRIVE_CLIENT_ID, "").orEmpty()
+    fun setOneDriveClientId(id: String) {
+        prefs.edit().putString(KEY_CLOUD_BACKUP_ONEDRIVE_CLIENT_ID, id).apply()
+    }
+    fun getOneDriveCredentials(): cn.edu.shmtu.terminal.android.data.cloud.oauth.OAuthCredentials? {
+        val raw = prefs.getString(KEY_CLOUD_BACKUP_ONEDRIVE_CREDENTIALS, null) ?: return null
+        return try {
+            cn.edu.shmtu.terminal.android.data.cloud.oauth.OAuthJson.json
+                .decodeFromString<cn.edu.shmtu.terminal.android.data.cloud.oauth.OAuthCredentials>(raw)
+        } catch (_: Exception) { null }
+    }
+    fun setOneDriveCredentials(creds: cn.edu.shmtu.terminal.android.data.cloud.oauth.OAuthCredentials?) {
+        if (creds == null) {
+            prefs.edit().remove(KEY_CLOUD_BACKUP_ONEDRIVE_CREDENTIALS).apply()
+        } else {
+            val raw = cn.edu.shmtu.terminal.android.data.cloud.oauth.OAuthJson.json
+                .encodeToString(cn.edu.shmtu.terminal.android.data.cloud.oauth.OAuthCredentials.serializer(), creds)
+            prefs.edit().putString(KEY_CLOUD_BACKUP_ONEDRIVE_CREDENTIALS, raw).apply()
+        }
+    }
+
     fun setCloudBackupConfig(
         providerId: String,
         serverUrl: String,
@@ -443,6 +491,11 @@ class SettingsDataStore @Inject constructor(
         private const val KEY_CLOUD_BACKUP_AUTO_INTERVAL = "cloud_backup_auto_interval"
         private const val KEY_CLOUD_BACKUP_AUTO_PASSWORD = "cloud_backup_auto_password"
         private const val KEY_CLOUD_BACKUP_MAX_KEEP = "cloud_backup_max_keep"
+        private const val KEY_CLOUD_BACKUP_GDRIVE_CLIENT_ID = "cloud_backup_gdrive_client_id"
+        private const val KEY_CLOUD_BACKUP_GDRIVE_CLIENT_SECRET = "cloud_backup_gdrive_client_secret"
+        private const val KEY_CLOUD_BACKUP_GDRIVE_CREDENTIALS = "cloud_backup_gdrive_credentials"
+        private const val KEY_CLOUD_BACKUP_ONEDRIVE_CLIENT_ID = "cloud_backup_onedrive_client_id"
+        private const val KEY_CLOUD_BACKUP_ONEDRIVE_CREDENTIALS = "cloud_backup_onedrive_credentials"
         // WEB settings keys
         private const val KEY_WEB_AUTO_START = "web_auto_start_server"
         private const val KEY_WEB_DEVICE_NAME = "web_device_name"
