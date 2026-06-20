@@ -9,6 +9,7 @@ import cn.edu.shmtu.cas.captcha.Captcha
 import cn.edu.shmtu.cas.captcha.CaptchaOcrHelper
 import cn.edu.shmtu.cas.ocr.NcnnModelLoader
 import cn.edu.shmtu.cas.ocr.SHMTU_NCNN
+import cn.edu.shmtu.cas.ocr.SHMTU_NCNN_Model
 import cn.edu.shmtu.cas.session.LoginSubmitResult
 import cn.edu.shmtu.cas.session.SessionProbe
 import cn.edu.shmtu.terminal.android.data.local.datastore.SecureStorage
@@ -413,18 +414,24 @@ class LoginViewModel @Inject constructor(
     }
 
     private suspend fun recognizeLocal(imageData: ByteArray): String? = withContext(Dispatchers.Default) {
-        if (!NcnnModelLoader.ensureLoaded(shmtuNcnn, context)) {
+        val modelVersion = settingsDataStore.ocrModelVersion.first()
+        val v2Backbone = settingsDataStore.ocrV2Backbone.first()
+        val v2Precision = settingsDataStore.ocrV2Precision.first()
+        if (!NcnnModelLoader.ensureLoaded(shmtuNcnn, context, modelVersion, false, v2Backbone, v2Precision)) {
             Log.w(TAG, "Local OCR model not loaded (no downloaded/built-in model found)")
             return@withContext null
         }
         val bitmap = BitmapFactory.decodeByteArray(imageData, 0, imageData.size) ?: return@withContext null
-        val resultObj = shmtuNcnn.predict_validate_code(bitmap)
+        val resultObj = when (modelVersion) {
+            SHMTU_NCNN_Model.ModelVersion.V1 -> shmtuNcnn.predict_validate_code(bitmap)
+            SHMTU_NCNN_Model.ModelVersion.V2 -> shmtuNcnn.predict_validate_code_v2(bitmap)
+        }
         if (resultObj == null || resultObj.size < 4) {
             Log.w(TAG, "Local OCR returned null or incomplete result")
             return@withContext null
         }
         val expr = CaptchaOcrHelper.buildExprString(resultObj)
-        Log.d(TAG, "Local OCR result: $expr")
+        Log.i(TAG, "Local OCR result: expr=$expr, answer=${expr?.let { CaptchaOcrHelper.extractAnswer(it) }}")
         expr
     }
 
