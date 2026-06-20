@@ -1,0 +1,14 @@
+# ===== OAuth 云备份提供商 Client ID / Secret =====
+# 本地 Android Studio 开发时填入你自己的凭据。
+# 这些值在编译时注入 BuildConfig，App 首次启动自动读取。
+# 如果留空，用户可在 App 内手动输入。
+#
+# 获取方式：
+#   Google Drive: https://console.cloud.google.com/apis/credentials
+#     创建 OAuth Client ID → 应用类型: "TVs and Limited Input devices"
+#   OneDrive: https://portal.azure.com → 注册应用 → 移动和桌面应用程序
+#     https://login.microsoftonline.com/common/oauth2/nativeclient
+
+CLOUD_GDRIVE_CLIENT_ID=
+CLOUD_GDRIVE_CLIENT_SECRET=
+CLOUD_ONEDRIVE_CLIENT_ID=

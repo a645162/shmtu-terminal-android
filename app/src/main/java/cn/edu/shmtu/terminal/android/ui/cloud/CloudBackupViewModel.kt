@@ -80,6 +80,26 @@ class CloudBackupViewModel @Inject constructor(
     init {
         manager.restoreConfig()
         manager.loadHistory()
+        // 首次启动时从 BuildConfig 预填 OAuth 凭据（如果有）
+        try {
+            val buildGDriveId = cn.edu.shmtu.terminal.android.BuildConfig.CLOUD_GDRIVE_CLIENT_ID
+            if (buildGDriveId.isNotBlank() && settingsDataStore.getGoogleDriveClientId().isBlank()) {
+                _googleClientId.value = buildGDriveId
+                settingsDataStore.setGoogleDriveClientId(buildGDriveId)
+            }
+            val buildGDriveSecret = cn.edu.shmtu.terminal.android.BuildConfig.CLOUD_GDRIVE_CLIENT_SECRET
+            if (buildGDriveSecret.isNotBlank() && settingsDataStore.getGoogleDriveClientSecret().isBlank()) {
+                _googleClientSecret.value = buildGDriveSecret
+                settingsDataStore.setGoogleDriveClientSecret(buildGDriveSecret)
+            }
+            val buildOneDriveId = cn.edu.shmtu.terminal.android.BuildConfig.CLOUD_ONEDRIVE_CLIENT_ID
+            if (buildOneDriveId.isNotBlank() && settingsDataStore.getOneDriveClientId().isBlank()) {
+                _oneDriveClientId.value = buildOneDriveId
+                settingsDataStore.setOneDriveClientId(buildOneDriveId)
+            }
+        } catch (_: Exception) {
+            // BuildConfig class might not be generated yet (IDE clean build)
+        }
     }
 
     fun selectProvider(providerId: String) {

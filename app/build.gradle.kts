@@ -12,6 +12,21 @@ val buildToolsVersionStr: String = rootProject.extra["buildToolsVersion"] as Str
 
 println("Using JDK $jdkVersion, SDK $sdkVersion")
 
+/** 从 local.properties 或 Gradle -P 参数读取 OAuth 凭据 */
+fun readProperty(key: String): String {
+    if (project.hasProperty(key)) return project.property(key).toString()
+    val f = rootProject.file("local.properties")
+    if (!f.exists()) return ""
+    var result = ""
+    f.forEachLine { line ->
+        val eq = line.indexOf('=')
+        if (eq > 0 && line.substring(0, eq).trim() == key) {
+            result = line.substring(eq + 1).trim()
+        }
+    }
+    return result
+}
+
 android {
     namespace = "cn.edu.shmtu.terminal.android"
     compileSdk = sdkVersion
@@ -25,15 +40,17 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // OAuth 凭据（从 local.properties 或 Gradle -P 注入，空值 = 用户手动输入）
+        buildConfigField("String", "CLOUD_GDRIVE_CLIENT_ID", "\"${readProperty("CLOUD_GDRIVE_CLIENT_ID")}\"")
+        buildConfigField("String", "CLOUD_GDRIVE_CLIENT_SECRET", "\"${readProperty("CLOUD_GDRIVE_CLIENT_SECRET")}\"")
+        buildConfigField("String", "CLOUD_ONEDRIVE_CLIENT_ID", "\"${readProperty("CLOUD_ONEDRIVE_CLIENT_ID")}\"")
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
     compileOptions {
@@ -43,9 +60,9 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
-    // 将编译时生成的 git_contributors.json 加入 assets
     sourceSets.getByName("main") {
         assets.srcDir(File(buildDir, "generated/git_contributors/assets"))
     }
@@ -68,7 +85,6 @@ configurations.configureEach {
 
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
-
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material3.adaptive.navigation.suite)
@@ -89,37 +105,25 @@ dependencies {
     ksp(libs.room.compiler)
 
     implementation(libs.navigation.compose)
-
     implementation(libs.kotlinx.coroutines.android)
-
     implementation(libs.koalaplot.core)
-
     implementation(libs.lifecycle.viewmodel.compose)
-
     implementation(libs.work.runtime.ktx)
     implementation(libs.hilt.work)
     ksp(libs.hilt.work.compiler)
 
-    // OkHttp — BillRulesManager 从 GitHub 拉取规则文件
     implementation(libs.okhttp)
-    // Coil — Compose 异步图片加载 (About 页 GitHub 头像)
     implementation(libs.coil.compose)
-    // NanoHTTPD - embedded Web server for remote bill browsing
     implementation(libs.nanohttpd)
     implementation(libs.nanohttpd.websocket)
-
-    // ZXing — QR code generation and scanning for P2P
     implementation(libs.zxing.core)
     implementation(libs.zxing.android.embedded)
-
-    // CameraX + ML Kit Barcode Scanning — P2P QR code scanning
     implementation(libs.camera.core)
     implementation(libs.camera.camera2)
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
     implementation(libs.mlkit.barcode.scanning)
 
-    // kotlinx.serialization — P2P protocol type-safe serialization
     implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
@@ -127,7 +131,6 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
-
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
@@ -137,30 +140,18 @@ dependencies {
 }
 
 // ===== Git Contributors 构建任务 =====
-// 在编译时检测是否为 git 仓库，提取所有提交者的 name + email，
-// 遍历当前仓库 + 所有子模块 + 父级主仓库（shmtu-terminal），
-// 写入 build/generated/git_contributors/assets/git_contributors.json，
-// 供运行时 About 页面展示。
 tasks.register("generateGitContributors") {
     group = "build"
     description = "Extract git contributors from this repo, submodules, and parent monorepo"
-
     val outputDir = File(buildDir, "generated/git_contributors/assets")
     val outputFile = File(outputDir, "git_contributors.json")
     outputs.file(outputFile)
-
     doLast {
         outputDir.mkdirs()
-
         val seen = mutableSetOf<String>()
         val entries = mutableListOf<String>()
-
-        // 1. Collect from this repo (shmtu-terminal-android)
         collectContributors(rootDir, seen, entries)
-
-        // 2. Collect from this repo's own submodules (e.g. lib/shmtu-cas-kotlin)
         collectFromSubmodules(rootDir, seen, entries)
-
         val json = if (entries.isEmpty()) "[]" else "[${entries.joinToString(",")}]"
         outputFile.writeText(json)
         logger.lifecycle("[GitContributors] Wrote ${outputFile.absolutePath} (${entries.size} contributors)")
@@ -168,70 +159,39 @@ tasks.register("generateGitContributors") {
 }
 
 fun collectContributors(dir: File, seen: MutableSet<String>, entries: MutableList<String>) {
-    // Email domains to ignore — auto-generated or placeholder addresses
     val ignoredDomains = setOf("users.noreply.github.com", "example.com")
-
-    val logOutput = runGit(dir, "log", "--format=%aN||%aE")
-    if (logOutput.isNullOrBlank()) return
-
+    val logOutput = runGit(dir, "log", "--format=%aN||%aE") ?: return
     for (line in logOutput.lines()) {
-        val trimmed = line.trim()
-        if (trimmed.isEmpty()) continue
-
-        val parts = trimmed.split("||", limit = 2)
+        val parts = line.trim().split("||", limit = 2)
         if (parts.size != 2) continue
-
         val name = parts[0].trim()
         val email = parts[1].trim().lowercase()
-
-        if (name.isEmpty() || email.isEmpty()) continue
-        if (email in seen) continue
-
-        // Skip ignored email domains
+        if (name.isEmpty() || email.isEmpty() || email in seen) continue
         val domain = email.substringAfter("@", "")
         if (domain in ignoredDomains) continue
-
         seen.add(email)
-
         entries.add("""{"name":${jsonEscape(name)},"email":${jsonEscape(email)}}""")
     }
 }
 
 fun collectFromSubmodules(root: File, seen: MutableSet<String>, entries: MutableList<String>) {
     val statusOutput = runGit(root, "submodule", "status") ?: return
-
     for (line in statusOutput.lines()) {
-        val trimmed = line.trim()
-        if (trimmed.isEmpty()) continue
-
-        // Format: <status><sha1> <path>
-        val parts = trimmed.splitWhitespace()
+        val parts = line.trim().splitWhitespace()
         if (parts.size < 2) continue
-
         val subPath = File(root, parts[1])
         if (File(subPath, ".git").exists() || File(subPath, ".git").isFile) {
             collectContributors(subPath, seen, entries)
-            // Recurse into nested submodules
             collectFromSubmodules(subPath, seen, entries)
         }
     }
 }
 
-fun runGit(dir: File, vararg args: String): String? {
-    return try {
-        val proc = ProcessBuilder("git", *args)
-            .directory(dir)
-            .redirectErrorStream(true)
-            .start()
-        proc.inputStream.bufferedReader().readText()
-    } catch (_: Exception) {
-        null
-    }
-}
+fun runGit(dir: File, vararg args: String): String? = try {
+    ProcessBuilder("git", *args).directory(dir).redirectErrorStream(true).start().inputStream.bufferedReader().readText()
+} catch (_: Exception) { null }
 
-fun String.splitWhitespace(): List<String> {
-    return this.trim().split(Regex("\\s+"))
-}
+fun String.splitWhitespace(): List<String> = this.trim().split(Regex("\\s+"))
 
 fun jsonEscape(s: String): String {
     val sb = StringBuilder()
@@ -243,13 +203,8 @@ fun jsonEscape(s: String): String {
             '\n' -> sb.append("\\n")
             '\r' -> sb.append("\\r")
             '\t' -> sb.append("\\t")
-            else -> {
-                if (ch.code < 0x20) {
-                    sb.append("\\u${ch.code.toString(16).padStart(4, '0')}")
-                } else {
-                    sb.append(ch)
-                }
-            }
+            else -> if (ch.code < 0x20) sb.append("\\u${ch.code.toString(16).padStart(4, '0')}")
+                     else sb.append(ch)
         }
     }
     sb.append('"')
@@ -257,6 +212,4 @@ fun jsonEscape(s: String): String {
 }
 
 val genContributors = tasks.named("generateGitContributors")
-tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
-    dependsOn(genContributors)
-}
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach { dependsOn(genContributors) }
