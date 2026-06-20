@@ -665,9 +665,14 @@ class ModelDownloader {
         val backbone = obj.optString("backbone", "")
         val version = obj.optString("version", "")
         val family = obj.optString("family", "")
-        // 优先用真实模型文件名 (assetStem)，fallback 才用 manifest 的 display_name 占位符
-        val displayName = if (assetStem.isNotEmpty()) friendlyModelName(assetStem, backbone, family)
-            else obj.optString("display_name", "").ifEmpty { backbone }
+        // 优先用 manifest 提供的 display_name (由 trainer 的 friendly_model_name 注入)
+        // fallback 到客户端翻译 (assetStem → "MobileNetV3-Small + TriSlot Decoder + v2.0")
+        val manifestDisplay = obj.optString("display_name", "")
+        val displayName = when {
+            manifestDisplay.isNotBlank() && manifestDisplay != "CAS OCR TriSlot Decoder" -> manifestDisplay
+            assetStem.isNotEmpty() -> friendlyModelName(assetStem, backbone, family)
+            else -> manifestDisplay.ifEmpty { backbone }
+        }
 
         val modelSizeM: Double? = if (obj.isNull("model_size_m")) null else obj.optDouble("model_size_m", Double.NaN).takeIf { !it.isNaN() }
 
