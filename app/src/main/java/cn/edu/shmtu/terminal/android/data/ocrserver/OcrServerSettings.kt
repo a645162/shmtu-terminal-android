@@ -74,6 +74,33 @@ class OcrServerSettings @Inject constructor(
         prefs.edit().putString(KEY_V2_PRECISION, value).apply()
     }
 
+    /** 监听范围:loopback_only / lan / custom_ip */
+    fun scope(): OcrServerScope {
+        val raw = prefs.getString(KEY_SCOPE, OcrServerScope.LAN.name) ?: OcrServerScope.LAN.name
+        return runCatching { OcrServerScope.valueOf(raw) }.getOrDefault(OcrServerScope.LAN)
+    }
+
+    fun setScope(value: OcrServerScope) {
+        prefs.edit().putString(KEY_SCOPE, value.name).apply()
+    }
+
+    fun bindAddress(): String =
+        prefs.getString(KEY_BIND_ADDR, "") ?: ""
+
+    fun setBindAddress(value: String) {
+        prefs.edit().putString(KEY_BIND_ADDR, value).apply()
+    }
+
+    /** 根据 scope + bindAddress 解析实际 bind IP 字符串 */
+    fun resolvedBindAddress(): String = when (scope()) {
+        OcrServerScope.LOOPBACK_ONLY -> "127.0.0.1"
+        OcrServerScope.LAN -> "0.0.0.0"
+        OcrServerScope.CUSTOM_IP -> {
+            val v = bindAddress().trim()
+            if (v.isEmpty()) "0.0.0.0" else v
+        }
+    }
+
     private fun getEnabled(): Boolean = prefs.getBoolean(KEY_ENABLED, false)
     private fun getPort(): Int = prefs.getInt(KEY_PORT, DEFAULT_PORT)
     private fun getAuthToken(): String = prefs.getString(KEY_AUTH_TOKEN, "") ?: ""
@@ -86,5 +113,20 @@ class OcrServerSettings @Inject constructor(
         private const val KEY_MODEL_VERSION = "ocr_server_model_version"
         private const val KEY_V2_BACKBONE = "ocr_server_v2_backbone"
         private const val KEY_V2_PRECISION = "ocr_server_v2_precision"
+        private const val KEY_SCOPE = "ocr_server_scope"
+        private const val KEY_BIND_ADDR = "ocr_server_bind_addr"
     }
+}
+
+/**
+ * OCR HTTP 服务器监听范围
+ *
+ * - [LOOPBACK_ONLY]: 只监听 127.0.0.1,本机其他进程可访问,局域网/公网不可达
+ * - [LAN]: 监听 0.0.0.0,局域网内任何设备可达 (默认,适合开发/家庭网络)
+ * - [CUSTOM_IP]: 绑定到 [OcrServerSettings.bindAddress] 指定的具体网卡 IP
+ */
+enum class OcrServerScope {
+    LOOPBACK_ONLY,
+    LAN,
+    CUSTOM_IP,
 }

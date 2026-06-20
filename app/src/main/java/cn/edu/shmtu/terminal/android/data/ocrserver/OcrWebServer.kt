@@ -81,15 +81,22 @@ class OcrWebServer @Inject constructor(
      * 启动 HTTP 服务器。
      *
      * **不加载模型** — 模型在首次 `POST /api/ocr` 时才加载。
+     *
+     * @param port 监听端口
+     * @param bindHost 绑定 IP 字符串 ("127.0.0.1" / "0.0.0.0" / 指定 IP),
+     *                 默认 "0.0.0.0" (向后兼容)。
      */
-    fun start(port: Int = settings.port()): Result<Unit> {
+    fun start(
+        port: Int = settings.port(),
+        bindHost: String = settings.resolvedBindAddress(),
+    ): Result<Unit> {
         return try {
             if (innerServer?.isAlive == true) {
                 Log.w(TAG, "OcrWebServer already running on port $runningPort")
                 return Result.success(Unit)
             }
             currentToken = loadOrCreateToken()
-            val server = object : NanoHTTPD("0.0.0.0", port) {
+            val server = object : NanoHTTPD(bindHost, port) {
                 override fun serve(session: IHTTPSession): Response {
                     return handleRequest(session)
                 }
@@ -97,10 +104,10 @@ class OcrWebServer @Inject constructor(
             server.start(SOCKET_READ_TIMEOUT_MS, false)
             innerServer = server
             runningPort = port
-            Log.i(TAG, "OcrWebServer started on 0.0.0.0:$port (lazy-load model)")
+            Log.i(TAG, "OcrWebServer started on $bindHost:$port (lazy-load model, scope=${settings.scope()})")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start OcrWebServer", e)
+            Log.e(TAG, "Failed to start OcrWebServer on $bindHost:$port", e)
             Result.failure(e)
         }
     }
@@ -178,6 +185,8 @@ class OcrWebServer @Inject constructor(
             put("token", currentToken)
             put("protocolVersion", "1.0")
             put("server", "android-shmtu-ocr")
+            put("scope", settings.scope().name)
+            put("bindAddress", settings.resolvedBindAddress())
         }
         return jsonResponse(200, payload)
     }
@@ -190,6 +199,8 @@ class OcrWebServer @Inject constructor(
             put("model_version", loadedVersion?.name ?: settings.modelVersion())
             put("v2_backbone", settings.v2Backbone())
             put("v2_precision", settings.v2Precision())
+            put("scope", settings.scope().name)
+            put("bind_address", settings.resolvedBindAddress())
             put("total_requests", total)
             put("success_count", successRequests.get())
             put("failure_count", failedRequests.get())
