@@ -22,6 +22,7 @@ import androidx.core.content.ContextCompat
 import cn.edu.shmtu.cas.captcha.Captcha
 import cn.edu.shmtu.cas.captcha.RemoteOcrCaptchaResolver
 import cn.edu.shmtu.cas.captcha.RemoteOcrHttpCaptchaResolver
+import cn.edu.shmtu.cas.captcha.CaptchaOcrHelper
 import cn.edu.shmtu.cas.ocr.ImageUtils
 import cn.edu.shmtu.cas.ocr.ModelDownloader
 import cn.edu.shmtu.cas.ocr.OcrModelInfo
@@ -37,6 +38,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.io.FileNotFoundException
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.TimeUnit
 import kotlin.system.measureTimeMillis
 
@@ -554,8 +556,18 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
 
     private fun showModelStatusDialog() {
         updateModelStatusText()
-        val downloaded = SHMTU_NCNN_Model.isModelDownloaded(this, selectedVersion)
-        val modelInfo = SHMTU_NCNN_Model.getDownloadedModelInfo(this, selectedVersion)
+        val downloaded = SHMTU_NCNN_Model.isModelDownloaded(
+            this,
+            selectedVersion,
+            selectedBackbone,
+            selectedPrecision
+        )
+        val modelInfo = SHMTU_NCNN_Model.getDownloadedModelInfo(
+            this,
+            selectedVersion,
+            selectedBackbone,
+            selectedPrecision
+        )
         val status = if (downloaded) "已下载" else "未下载"
         AlertDialog.Builder(this)
             .setTitle("模型状态 (${selectedVersion.toStorageString()})")
@@ -607,6 +619,7 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
         val rgba = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         innerBitmap = Bitmap.createScaledBitmap(rgba, 400, 140, false)
         rgba.recycle()
+        Log.i(TAG, "Selected image source=$source original=${describeBitmap(bitmap)} scaled=${describeBitmap(innerBitmap)}")
         tvImageMeta.text = "当前图片：$source | ${bitmap.width} x ${bitmap.height}"
         tvResultMeta.text = "已就绪，可执行本地或远程识别。"
         infoResult.text = "READY"
@@ -637,6 +650,12 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
             return
         }
 
+        Log.i(
+            TAG,
+            "Local OCR start version=${selectedVersion.toStorageString()} " +
+                "backbone=$selectedBackbone precision=$selectedPrecision bitmap=${describeBitmap(bitmap)}"
+        )
+
         var resultObj: Array<Any?>? = null
         val duration = measureTimeMillis {
             resultObj = if (selectedVersion == SHMTU_NCNN_Model.ModelVersion.V1) {
@@ -647,17 +666,25 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
         }
 
         if (resultObj == null || resultObj.size < 2) {
+            Log.w(TAG, "Local OCR failed: resultObj=$resultObj duration=${duration}ms")
             Toast.makeText(this, "识别失败", Toast.LENGTH_SHORT).show()
             return
         }
 
+        logLocalOcrTuple(resultObj, duration)
         val rawResult = resultObj[1] as? String ?: ""
         if (rawResult.isBlank()) {
+            Log.w(TAG, "Local OCR returned blank expression tuple=${resultObj.contentDeepToString()}")
             Toast.makeText(this, "识别结果为空", Toast.LENGTH_SHORT).show()
             return
         }
 
-        renderResult(rawResult, "本地模型 (${selectedVersion.toStorageString()})", duration)
+        renderResult(
+            rawResult,
+            "本地模型 (${selectedVersion.toStorageString()})",
+            duration,
+            extraMeta = buildLocalOcrMeta(resultObj)
+        )
     }
 
     // ==================== model load / release ====================
@@ -693,7 +720,7 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
     }
 
     private fun loadModelFromDownloaded(useGpu: Boolean) {
-        if (!SHMTU_NCNN_Model.isModelDownloaded(this, selectedVersion)) {
+        if (!SHMTU_NCNN_Model.isModelDownloaded(this, selectedVersion, selectedBackbone, selectedPrecision)) {
             Toast.makeText(this, "本地未下载模型，请先下载 (${selectedVersion.toStorageString()})", Toast.LENGTH_SHORT).show()
             return
         }
@@ -723,7 +750,7 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
             )
         } else {
             SHMTU_NCNN_Model.loadV2ModelFromDirAsync(
-                shmtuNcnn, this, useGpu,
+                shmtuNcnn, this, useGpu, selectedBackbone, selectedPrecision,
                 object : SHMTU_NCNN_Model.LoadCallback {
                     override fun onSuccess() {
                         runOnUiThread {
@@ -886,11 +913,47 @@ class MainActivity : AppCompatActivity(), CoroutineScope by MainScope() {
         }
     }
 
-    private fun renderResult(rawResult: String, source: String, durationMs: Long) {
+    private fun renderResult(rawResult: String, source: String, durationMs: Long, extraMeta: String? = null) {
         infoResult.text = rawResult
         infoResult.setTextColor(ContextCompat.getColor(this, R.color.demo_ink))
         val finalAnswer = Captcha.getExprResultByExprString(rawResult).ifBlank { "未解析" }
-        tvResultMeta.text = "来源：$source | 结果：$finalAnswer | 耗时：${durationMs}ms"
+        tvResultMeta.text = buildString {
+            append("来源：$source | 结果：$finalAnswer | 耗时：${durationMs}ms")
+            if (!extraMeta.isNullOrBlank()) {
+                append('\n')
+                append(extraMeta)
+            }
+        }
+    }
+
+    private fun describeBitmap(bitmap: Bitmap?): String {
+        if (bitmap == null) return "null"
+        val byteCount = bitmap.byteCount
+        val pngBytes = runCatching {
+            ByteArrayOutputStream().use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                out.size()
+            }
+        }.getOrDefault(-1)
+        return "size=${bitmap.width}x${bitmap.height} config=${bitmap.config} byteCount=$byteCount pngBytes=$pngBytes"
+    }
+
+    private fun logLocalOcrTuple(resultObj: Array<Any?>?, durationMs: Long) {
+        val expr = CaptchaOcrHelper.buildExprString(resultObj)
+        val answer = expr?.let { CaptchaOcrHelper.extractAnswer(it) }
+        Log.i(
+            TAG,
+            "Local OCR tuple version=${selectedVersion.toStorageString()} duration=${durationMs}ms " +
+                "tuple=${resultObj?.contentDeepToString()} expr=$expr answer=$answer"
+        )
+    }
+
+    private fun buildLocalOcrMeta(resultObj: Array<Any?>?): String {
+        if (resultObj == null) return "tuple=null"
+        val tuple = resultObj.contentDeepToString()
+        val expr = CaptchaOcrHelper.buildExprString(resultObj).orEmpty()
+        val answer = if (expr.isNotBlank()) CaptchaOcrHelper.extractAnswer(expr) else ""
+        return "tuple=$tuple${if (answer.isNotBlank()) " | answer=$answer" else ""}"
     }
 
     private fun updateRemoteStatus(title: String, detail: String) {
