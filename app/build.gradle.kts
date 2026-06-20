@@ -37,7 +37,15 @@ android {
         minSdk = 28
         targetSdk = sdkVersion
         versionCode = 1
-        versionName = "1.0"
+        // 从 git tag 动态生成版本号: git describe --tags, 无 tag 时用 "0.0.0-{sha}"
+        val gitVersion = runCatching {
+            val proc = ProcessBuilder("git", "describe", "--tags", "--always", "--dirty")
+                .directory(rootProject.projectDir)
+                .redirectErrorStream(true)
+                .start()
+            proc.inputStream.bufferedReader().readText().trim()
+        }.getOrDefault("")
+        versionName = if (gitVersion.isNotBlank()) gitVersion else versionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
